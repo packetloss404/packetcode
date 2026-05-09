@@ -153,6 +153,39 @@ func TestClient_CallTool_IsError(t *testing.T) {
 	assert.True(t, res.IsError)
 }
 
+// TestClient_CallTool_TimeoutDistinguishesParentContext asserts a
+// server-side tools/call timeout uses the MCP timeout sentinel.
+func TestClient_CallTool_TimeoutDistinguishesParentContext(t *testing.T) {
+	hold := make(chan struct{})
+	stub := makeBasicStub(t, "stub", []ServerTool{{Name: "slow"}}, map[string]StubHandler{
+		"tools/call": func(_ json.RawMessage) (any, *ErrorObj) {
+			<-hold
+			return map[string]any{"content": []any{}, "isError": false}, nil
+		},
+	})
+	stub.Start()
+	defer func() {
+		close(hold)
+		stub.Stop()
+	}()
+
+	cli, err := newClientFromIO(
+		context.Background(),
+		"stub",
+		stub.StdinWriter(),
+		stub.StdoutReader(),
+		nil, nil,
+		50*time.Millisecond,
+		stubInfo,
+	)
+	require.NoError(t, err)
+
+	_, err = cli.CallTool(context.Background(), "slow", nil)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrToolCallTimeout), "unexpected error: %v", err)
+	assert.False(t, errors.Is(err, context.DeadlineExceeded), "tool timeout should use the MCP timeout sentinel")
+}
+
 // TestClient_ConcurrentCalls fires 20 parallel CallTool requests and
 // asserts that every reply is routed to the right caller (the stub
 // echoes the request id back as text).

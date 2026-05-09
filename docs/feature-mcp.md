@@ -6,8 +6,8 @@ Round 7 lets users extend packetcode's tool surface with external MCP servers. E
 
 ## User stories
 
-1. **Filesystem server.** `[mcp.filesystem]` spawning `npx -y @modelcontextprotocol/server-filesystem /home/alice/projects`. LLM gets `filesystem.read_file` etc.
-2. **Git server.** `[mcp.git]` spawning `uvx mcp-server-git --repository .` exposes `git.log`, `git.diff`, etc.
+1. **Filesystem server.** `[mcp.filesystem]` spawning `npx -y @modelcontextprotocol/server-filesystem /home/alice/projects`. LLM gets `filesystem__read_file` etc.
+2. **Git server.** `[mcp.git]` spawning `uvx mcp-server-git --repository .` exposes `git__log`, `git__diff`, etc.
 3. **Server crash mid-session.** Adapter returns `"MCP server 'search' has exited — restart packetcode to reconnect"`. Native + other MCP tools keep working.
 4. **Missing binary.** Startup prints `"packetcode: mcp server 'fetch': command not found (uvx); skipping"`; everything else starts.
 5. **Listing.** `/mcp` shows a table of server name / state / tool count / pid / command.
@@ -120,7 +120,7 @@ type McpTool struct {
     schema     json.RawMessage
 }
 
-// Name() returns "<server>.<tool>" (always prefixed)
+// Name() returns "<server>__<tool>" (always prefixed)
 // RequiresApproval() returns true (always)
 // Execute delegates to client.CallTool, flattens content → ToolResult
 ```
@@ -219,6 +219,8 @@ func (c MCPServerConfig) IsEnabled() bool { return c.Enabled == nil || *c.Enable
 
 - `~/.packetcode/mcp-<name>.log`, `O_CREATE|O_WRONLY|O_APPEND`, `0600`.
 - No rotation; document manual cleanup.
+- `/mcp logs` reads only a bounded tail and redacts common secret
+  patterns before rendering.
 - `config.MCPLogPath(name) (string, error)` helper.
 
 ## Lifecycle
@@ -250,7 +252,7 @@ for _, c := range mcpMgr.Clients() {
 ### Per-server startup algorithm
 
 1. If `!cfg.IsEnabled()` → status `"disabled"`, return.
-2. `exec.CommandContext(startupCtx, cfg.Command, cfg.Args...)`. Merge `os.Environ()` with `cfg.Env` (cfg wins).
+2. `exec.CommandContext(startupCtx, cfg.Command, cfg.Args...)`. Inherit only the MCP launch allowlist from the process environment, then overlay `cfg.Env` (cfg wins).
 3. Hook stdin/stdout pipes. Open `mcp-<name>.log` for append.
 4. `cmd.Start()`. Err → status `"failed"`, return.
 5. Launch stderr-tee, reader, reaper goroutines.
@@ -282,9 +284,14 @@ Reader EOF:
 
 ## Approval
 
-Zero modifications. MCP tools return `true` from `RequiresApproval()`; the existing `uiApprover` handles them. Modal header calls `tool.Name()` which returns `"<server>.<tool>"` — natural display. Trust mode auto-approves MCP calls like any destructive tool.
+Zero modifications. MCP tools return `true` from `RequiresApproval()`; the existing `uiApprover` handles them. Modal header calls `tool.Name()` which returns `"<server>__<tool>"` — natural display. Trust mode auto-approves MCP calls like any destructive tool.
 
 No per-server trust this round.
+
+Configured MCP servers are trusted local code at process-spawn time:
+packetcode starts the configured command as the current user. Approval
+gates individual MCP tool calls through the agent loop, but it is not a
+process sandbox for the server binary itself.
 
 ## Slash commands
 
@@ -305,7 +312,7 @@ No servers configured → `"no MCP servers configured (add [mcp.<name>] to ~/.pa
 
 ### `/mcp logs <name>`
 
-Tails last 50 lines of `mcp-<name>.log`:
+Tails last 50 lines of a bounded, redacted tail from `mcp-<name>.log`:
 
 ```
 ── mcp-<name>.log (last 50 lines) ──
@@ -420,7 +427,7 @@ Errors: `"mcp logs: no server named <name>"`, `"mcp logs: no log file at <path>"
 
 ### End-to-end
 
-33. `TestE2E_MCPToolCalledByAgent` — fake provider proposes `stub.hello`; trust mode on; assert tool ran + conversation updated.
+33. `TestE2E_MCPToolCalledByAgent` — fake provider proposes `stub__hello`; trust mode on; assert tool ran + conversation updated.
 
 ## Out of scope (Round 8+)
 

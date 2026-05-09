@@ -43,3 +43,7 @@ type StartupReport struct {
 // adapter) when the underlying server process has exited and the
 // pending channel is closed without a reply.
 var ErrServerExited = errors.New("mcp: server exited")
+
+// ErrToolCallTimeout is returned by CallTool when the MCP server does
+// not answer tools/call within the configured server timeout.
+var ErrToolCallTimeout = errors.New("mcp: tool call timeout")

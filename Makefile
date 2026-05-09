@@ -1,11 +1,14 @@
-.PHONY: build test lint run clean
+.PHONY: build test lint verify vulncheck goreleaser-check smoke run clean ci
 
-VERSION ?= dev
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+BINARY  ?= bin/packetcode
+GOVULNCHECK_VERSION ?= v1.3.0
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
 build:
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/packetcode ./cmd/packetcode
+	mkdir -p $(dir $(BINARY))
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/packetcode
 
 test:
 	go test -race -count=1 ./...
@@ -13,8 +16,22 @@ test:
 lint:
 	golangci-lint run ./...
 
+verify:
+	go mod verify
+
+vulncheck:
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+goreleaser-check:
+	goreleaser check
+
+smoke: build
+	./$(BINARY) --version
+
 run: build
-	./bin/packetcode
+	./$(BINARY)
+
+ci: verify test build smoke
 
 clean:
 	rm -rf bin/ dist/

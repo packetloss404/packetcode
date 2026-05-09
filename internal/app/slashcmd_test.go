@@ -179,6 +179,12 @@ func TestParseSlashCommand_Provider(t *testing.T) {
 			t.Fatalf("parse = %q %v %v", cmd, args, ok)
 		}
 	})
+	t.Run("add key shortcut", func(t *testing.T) {
+		cmd, args, ok := ParseSlashCommand("/provider add gemini")
+		if !ok || cmd != "provider" || !reflect.DeepEqual(args, []string{"add", "gemini"}) {
+			t.Fatalf("parse = %q %v %v", cmd, args, ok)
+		}
+	})
 	t.Run("whitespace tolerated", func(t *testing.T) {
 		cmd, args, ok := ParseSlashCommand("   /provider    openai  ")
 		if !ok || cmd != "provider" || !reflect.DeepEqual(args, []string{"openai"}) {

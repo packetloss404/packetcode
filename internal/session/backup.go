@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -19,6 +20,7 @@ import (
 // That's fine for the MVP: undo only exists within a single packetcode
 // session. Persisting the stack across restarts is post-MVP work.
 type BackupManager struct {
+	base  string // ~/.packetcode/backups
 	root  string // ~/.packetcode/backups/<session-id>
 	mu    sync.Mutex
 	stack []entry
@@ -36,9 +38,31 @@ type entry struct {
 // The directory is created on first Backup call, not here, to avoid
 // littering the filesystem with empty session dirs.
 func NewBackupManager(backupsDir, sessionID string) *BackupManager {
-	return &BackupManager{
-		root: filepath.Join(backupsDir, sessionID),
+	base := cleanBackupBase(backupsDir)
+	root, err := backupRoot(base, sessionID)
+	if err != nil {
+		root = ""
 	}
+	return &BackupManager{
+		base: base,
+		root: root,
+	}
+}
+
+// SwitchSession retargets this manager at another session's backup tree
+// and clears the in-memory undo stack. Tools hold this manager by pointer,
+// so rebinding in place keeps their backup wiring coherent after a session
+// resume.
+func (b *BackupManager) SwitchSession(sessionID string) error {
+	root, err := backupRoot(b.base, sessionID)
+	if err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.root = root
+	b.stack = nil
+	return nil
 }
 
 // Backup snapshots filePath into the session's backup tree. If the file
@@ -51,6 +75,9 @@ func (b *BackupManager) Backup(filePath string) error {
 	abs, err := filepath.Abs(filePath)
 	if err != nil {
 		return fmt.Errorf("backup: resolve path: %w", err)
+	}
+	if b.root == "" {
+		return fmt.Errorf("backup: invalid session id")
 	}
 
 	if err := os.MkdirAll(b.root, 0o700); err != nil {
@@ -195,7 +222,28 @@ func (b *BackupManager) Cleanup() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.stack = nil
+	if b.root == "" {
+		return fmt.Errorf("backup cleanup: invalid session id")
+	}
 	if err := os.RemoveAll(b.root); err != nil {
+		return fmt.Errorf("backup cleanup: %w", err)
+	}
+	return nil
+}
+
+// CleanupSession removes the backup directory for sessionID, regardless of
+// which session this manager is currently pointed at.
+func (b *BackupManager) CleanupSession(sessionID string) error {
+	root, err := backupRoot(b.base, sessionID)
+	if err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.root == root {
+		b.stack = nil
+	}
+	if err := os.RemoveAll(root); err != nil {
 		return fmt.Errorf("backup cleanup: %w", err)
 	}
 	return nil
@@ -206,4 +254,31 @@ func (b *BackupManager) Depth() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return len(b.stack)
+}
+
+func cleanBackupBase(backupsDir string) string {
+	base, err := filepath.Abs(backupsDir)
+	if err != nil {
+		return filepath.Clean(backupsDir)
+	}
+	return filepath.Clean(base)
+}
+
+func backupRoot(base, sessionID string) (string, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return "", err
+	}
+	root := filepath.Join(base, sessionID)
+	if !pathWithinDir(base, root) {
+		return "", fmt.Errorf("invalid session id")
+	}
+	return root, nil
+}
+
+func pathWithinDir(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel))
 }

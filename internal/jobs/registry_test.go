@@ -81,6 +81,19 @@ func TestRegistry_ExtraToolsAppended(t *testing.T) {
 	assert.Equal(t, extra, got, "extraTools should be wired through verbatim")
 }
 
+func TestRegistry_DoesNotInheritMainSpawnAgent(t *testing.T) {
+	root := t.TempDir()
+	parent := makeMainRegistry(t, root)
+	parent.Register(&noopTool{name: "spawn_agent", approval: true})
+	mgr := &Manager{cfg: Config{Tools: parent, Root: root}, pathLocks: pathLockMap{}}
+	bm := session.NewBackupManager(t.TempDir(), "s")
+
+	reg := mgr.buildJobToolRegistry(1, false, "abc12345", bm, nil)
+
+	_, ok := reg.Get("spawn_agent")
+	assert.False(t, ok, "spawn_agent must only be included by the depth-aware extraTools factory")
+}
+
 // TestRegistry_NilParentToolsStillReturnsExtras lets tests that don't
 // care about the canonical tool set wire only extras.
 func TestRegistry_NilParentToolsStillReturnsExtras(t *testing.T) {

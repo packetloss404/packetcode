@@ -10,8 +10,12 @@ import (
 // message. Extra arguments are silently ignored so typos like
 // "/help foo" still produce the help screen.
 func (a *App) handleHelpCommand(_ []string) (tea.Model, tea.Cmd) {
-	a.conversation.AppendSystem(renderHelp())
+	a.conversation.AppendSystem(a.renderHelp())
 	return a, nil
+}
+
+func (a *App) renderHelp() string {
+	return renderHelpWithSlashCommands(a.slashHelpRows())
 }
 
 // renderHelp iterates the five keymap groups in a stable order and
@@ -19,6 +23,10 @@ func (a *App) handleHelpCommand(_ []string) (tea.Model, tea.Cmd) {
 // characters wide; overflow wraps to the next line with an empty key
 // slot so the descriptions stay aligned.
 func renderHelp() string {
+	return renderHelpWithSlashCommands(SlashCommands)
+}
+
+func renderHelpWithSlashCommands(slashRows []KeyHelp) string {
 	sections := []struct {
 		title string
 		rows  []KeyHelp
@@ -29,7 +37,7 @@ func renderHelp() string {
 		{"Input", InputKeys},
 		{"Autocomplete", AutocompleteKeys},
 		{"Picker", PickerKeys},
-		{"Slash commands", SlashCommands},
+		{"Slash commands", slashRows},
 	}
 	var b strings.Builder
 	for i, sec := range sections {

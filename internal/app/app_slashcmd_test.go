@@ -2,13 +2,16 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/packetcode/packetcode/internal/agent"
@@ -16,6 +19,7 @@ import (
 	"github.com/packetcode/packetcode/internal/cost"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/session"
+	"github.com/packetcode/packetcode/internal/tools"
 	"github.com/packetcode/packetcode/internal/ui/components/approval"
 	"github.com/packetcode/packetcode/internal/ui/components/autocomplete"
 	"github.com/packetcode/packetcode/internal/ui/components/conversation"
@@ -79,6 +83,94 @@ func (f *fakeProvider) ChatCompletion(_ context.Context, _ provider.ChatRequest)
 	return ch, nil
 }
 
+type blockingCompactProvider struct {
+	started chan struct{}
+	release chan struct{}
+	text    string
+}
+
+func newBlockingCompactProvider(text string) *blockingCompactProvider {
+	return &blockingCompactProvider{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		text:    text,
+	}
+}
+
+func (b *blockingCompactProvider) Name() string                              { return "slow" }
+func (b *blockingCompactProvider) Slug() string                              { return "slow" }
+func (b *blockingCompactProvider) BrandColor() lipgloss.Color                { return lipgloss.Color("#000000") }
+func (b *blockingCompactProvider) ValidateKey(context.Context, string) error { return nil }
+func (b *blockingCompactProvider) ListModels(context.Context) ([]provider.Model, error) {
+	return nil, nil
+}
+func (b *blockingCompactProvider) Pricing(string) (float64, float64) { return 0, 0 }
+func (b *blockingCompactProvider) ContextWindow(string) int          { return 100_000 }
+func (b *blockingCompactProvider) SupportsTools(string) bool         { return true }
+func (b *blockingCompactProvider) ChatCompletion(ctx context.Context, _ provider.ChatRequest) (<-chan provider.StreamEvent, error) {
+	ch := make(chan provider.StreamEvent, 2)
+	close(b.started)
+	go func() {
+		defer close(ch)
+		select {
+		case <-b.release:
+			ch <- provider.StreamEvent{Type: provider.EventTextDelta, TextDelta: b.text}
+			ch <- provider.StreamEvent{Type: provider.EventDone}
+		case <-ctx.Done():
+			ch <- provider.StreamEvent{Type: provider.EventError, Error: ctx.Err()}
+		}
+	}()
+	return ch, nil
+}
+
+func wireCompactProvider(t *testing.T, r *testAppRig, prov provider.Provider) {
+	t.Helper()
+	reg := provider.NewRegistry()
+	reg.Register(prov)
+	if err := reg.SetActive(prov.Slug(), "slow-model"); err != nil {
+		t.Fatalf("SetActive: %v", err)
+	}
+	r.reg = reg
+	r.app.deps.Registry = reg
+}
+
+func runTeaCmdAsync(cmd tea.Cmd) <-chan tea.Msg {
+	out := make(chan tea.Msg, 16)
+	go runTeaCmdInto(cmd, out)
+	return out
+}
+
+func runTeaCmdInto(cmd tea.Cmd, out chan<- tea.Msg) {
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, sub := range batch {
+			go runTeaCmdInto(sub, out)
+		}
+		return
+	}
+	if msg != nil {
+		out <- msg
+	}
+}
+
+func waitCompactDone(t *testing.T, msgs <-chan tea.Msg, timeout time.Duration) compactDoneMsg {
+	t.Helper()
+	timer := time.After(timeout)
+	for {
+		select {
+		case msg := <-msgs:
+			if done, ok := msg.(compactDoneMsg); ok {
+				return done
+			}
+		case <-timer:
+			t.Fatalf("timed out waiting for compactDoneMsg")
+		}
+	}
+}
+
 // testAppRig groups everything a handler test needs so individual tests
 // only have to drill in the fields they care about.
 type testAppRig struct {
@@ -139,6 +231,9 @@ func newTestApp(t *testing.T) *testAppRig {
 	}
 
 	bk := session.NewBackupManager(backupsDir, sessions.Current().ID)
+	toolReg := tools.NewRegistry()
+	toolReg.Register(tools.NewWriteFileTool(tmp, bk))
+	toolReg.Register(tools.NewPatchFileTool(tmp, bk))
 
 	cfg := &config.Config{
 		Providers: map[string]config.ProviderConfig{
@@ -153,22 +248,24 @@ func newTestApp(t *testing.T) *testAppRig {
 		deps: Deps{
 			Config:      cfg,
 			Registry:    reg,
+			Tools:       toolReg,
 			Sessions:    sessions,
 			CostTracker: tracker,
 			Backups:     bk,
 			WorkingDir:  tmp,
 			Version:     "v-test",
 		},
-		topbar:       topbar.New(),
-		conversation: conversation.New(),
-		input:        input.New(),
-		approval:     approval.New(),
-		jobsPanel:    jobs_ui.New(),
-		spinner:      spinner.New(),
-		autocomplete: autocomplete.New(buildAutocompleteEntries()),
-		approver:     newUIApprover(),
-		backups:      bk,
-		contextMgr:   agent.NewContextManager(80),
+		topbar:        topbar.New(),
+		conversation:  conversation.New(),
+		input:         input.New(),
+		approval:      approval.New(),
+		jobsPanel:     jobs_ui.New(),
+		spinner:       spinner.New(),
+		autocomplete:  autocomplete.New(buildAutocompleteEntries()),
+		slashCommands: NewBuiltinSlashRegistry(),
+		approver:      newUIApprover(),
+		backups:       bk,
+		contextMgr:    agent.NewContextManager(80),
 	}
 
 	return &testAppRig{
@@ -210,6 +307,32 @@ func TestApp_Provider_ListOpensPicker(t *testing.T) {
 	}
 	if r.app.picker.ID() != "provider" {
 		t.Fatalf("wrong picker opened: id=%q", r.app.picker.ID())
+	}
+}
+
+func TestApp_ProviderAdd_OpensPicker(t *testing.T) {
+	r := newTestApp(t)
+	r.app.handleSlashCommand("provider", []string{"add"}, "/provider add")
+	if !r.app.picker.Visible() || r.app.picker.ID() != "provider" {
+		t.Fatalf("/provider add should open provider picker, visible=%v id=%q", r.app.picker.Visible(), r.app.picker.ID())
+	}
+	convContains(t, r.app, "provider add: choose a provider")
+}
+
+func TestApp_ProviderAddSlug_OpensKeyPrompt(t *testing.T) {
+	r := newTestApp(t)
+	r.app.deps.Factories = FactoryMap{
+		"second": func(_ string) provider.Provider {
+			return &fakeProvider{slug: "second", name: "Second"}
+		},
+	}
+
+	r.app.handleSlashCommand("provider", []string{"add", "second"}, "/provider add second")
+	if !r.app.prompt.Visible() {
+		t.Fatalf("/provider add second should open key prompt")
+	}
+	if got := r.app.prompt.Context(); got != "second" {
+		t.Fatalf("prompt context = %q, want second", got)
 	}
 }
 
@@ -365,6 +488,90 @@ func TestApp_Sessions_ResumeByPrefix(t *testing.T) {
 	}
 }
 
+func TestApp_Sessions_ResumeRestoresAppState(t *testing.T) {
+	r := newTestApp(t)
+	second := &fakeProvider{
+		slug:          "second",
+		name:          "Second",
+		models:        []provider.Model{{ID: "second-model", ContextWindow: 42_000, SupportsTools: true}},
+		ctxWindow:     42_000,
+		supportsTools: true,
+	}
+	r.reg.Register(second)
+
+	resumed, err := r.sessions.New("second", "second-model")
+	if err != nil {
+		t.Fatalf("session.New resumed: %v", err)
+	}
+	if err := r.sessions.AddMessage(provider.Message{Role: provider.RoleUser, Content: "hello from resumed session"}); err != nil {
+		t.Fatalf("AddMessage user: %v", err)
+	}
+	if err := r.sessions.AddMessage(provider.Message{Role: provider.RoleAssistant, Content: "assistant remembers this"}); err != nil {
+		t.Fatalf("AddMessage assistant: %v", err)
+	}
+
+	current, err := r.sessions.New("fake", "fake-model")
+	if err != nil {
+		t.Fatalf("session.New current: %v", err)
+	}
+	if err := r.backups.SwitchSession(current.ID); err != nil {
+		t.Fatalf("SwitchSession current: %v", err)
+	}
+	oldTarget := filepath.Join(r.tmp, "old.txt")
+	if err := os.WriteFile(oldTarget, []byte("before"), 0o600); err != nil {
+		t.Fatalf("write old target: %v", err)
+	}
+	if err := r.backups.Backup(oldTarget); err != nil {
+		t.Fatalf("backup old target: %v", err)
+	}
+	if err := os.WriteFile(oldTarget, []byte("after"), 0o600); err != nil {
+		t.Fatalf("modify old target: %v", err)
+	}
+
+	r.app.handleSlashCommand("sessions", []string{"resume", resumed.ID}, "/sessions resume "+resumed.ID)
+
+	convContains(t, r.app, "resumed session")
+	convContains(t, r.app, "hello from resumed session")
+	convContains(t, r.app, "assistant remembers this")
+	if got := r.sessions.Current().ID; got != resumed.ID {
+		t.Fatalf("current = %s, want %s", got, resumed.ID)
+	}
+	if p, m := r.reg.Active(); p == nil || p.Slug() != "second" || m != "second-model" {
+		t.Fatalf("active = %v / %q, want second / second-model", p, m)
+	}
+	snap := r.app.statusLineSnapshot()
+	if snap.SessionID != resumed.ID || snap.Provider.Slug != "second" || snap.Model.ID != "second-model" {
+		t.Fatalf("status snapshot = session %q provider %q model %q", snap.SessionID, snap.Provider.Slug, snap.Model.ID)
+	}
+	if depth := r.backups.Depth(); depth != 0 {
+		t.Fatalf("backup stack depth after resume = %d, want 0", depth)
+	}
+
+	writeTool, ok := r.app.deps.Tools.Get("write_file")
+	if !ok {
+		t.Fatalf("write_file tool missing")
+	}
+	newTarget := filepath.Join(r.tmp, "new.txt")
+	if err := os.WriteFile(newTarget, []byte("old content"), 0o600); err != nil {
+		t.Fatalf("write new target: %v", err)
+	}
+	raw, _ := json.Marshal(map[string]string{"path": "new.txt", "content": "new content"})
+	if res, err := writeTool.Execute(context.Background(), raw); err != nil || res.IsError {
+		t.Fatalf("write_file Execute = res=%+v err=%v", res, err)
+	}
+	if entries, err := os.ReadDir(filepath.Join(r.tmp, "backups", resumed.ID)); err != nil || len(entries) == 0 {
+		t.Fatalf("expected backup under resumed session: entries=%d err=%v", len(entries), err)
+	}
+	r.app.handleSlashCommand("undo", nil, "/undo")
+	got, err := os.ReadFile(newTarget)
+	if err != nil {
+		t.Fatalf("read new target: %v", err)
+	}
+	if string(got) != "old content" {
+		t.Fatalf("undo restored %q, want old content", got)
+	}
+}
+
 func TestApp_Sessions_ResumeAmbiguous(t *testing.T) {
 	r := newTestApp(t)
 	// Manually write two session files with IDs sharing a prefix.
@@ -382,8 +589,14 @@ func TestApp_Sessions_ResumeAmbiguous(t *testing.T) {
 		}
 	}
 
-	r.app.handleSlashCommand("sessions", []string{"resume", "aaaa"}, "/sessions resume aaaa")
+	r.app.handleSlashCommand("sessions", []string{"resume", "aaaaaaaa"}, "/sessions resume aaaaaaaa")
 	convContains(t, r.app, "ambiguous prefix")
+}
+
+func TestApp_Sessions_ResumeRejectsShortPrefix(t *testing.T) {
+	r := newTestApp(t)
+	r.app.handleSlashCommand("sessions", []string{"resume", "aaaa"}, "/sessions resume aaaa")
+	convContains(t, r.app, "must be exactly 8 characters")
 }
 
 func TestApp_Sessions_ResumeUnknown(t *testing.T) {
@@ -407,11 +620,70 @@ func TestApp_Sessions_DeleteWithYes(t *testing.T) {
 	r := newTestApp(t)
 	cur := r.sessions.Current()
 	path := filepath.Join(r.tmp, "sessions", cur.ID+".json")
+	target := filepath.Join(r.tmp, "active-delete.txt")
+	if err := os.WriteFile(target, []byte("before"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := r.backups.Backup(target); err != nil {
+		t.Fatalf("backup: %v", err)
+	}
 
 	r.app.handleSlashCommand("sessions", []string{"delete", cur.ID, "--yes"}, "/sessions delete "+cur.ID+" --yes")
 	convContains(t, r.app, "deleted session "+cur.ID[:8])
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("session file should be gone: err=%v", err)
+	}
+	if got := r.sessions.Current(); got == nil || got.ID == cur.ID {
+		t.Fatalf("active session after delete = %+v, want replacement", got)
+	}
+	if _, err := os.Stat(filepath.Join(r.tmp, "backups", cur.ID)); !os.IsNotExist(err) {
+		t.Fatalf("backup directory should be gone: err=%v", err)
+	}
+}
+
+func TestApp_Sessions_DeleteInactiveCleansBackups(t *testing.T) {
+	r := newTestApp(t)
+	inactive := r.sessions.Current()
+	target := filepath.Join(r.tmp, "inactive-delete.txt")
+	if err := os.WriteFile(target, []byte("before"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := r.backups.Backup(target); err != nil {
+		t.Fatalf("backup: %v", err)
+	}
+	active, err := r.sessions.New("fake", "fake-model")
+	if err != nil {
+		t.Fatalf("session.New active: %v", err)
+	}
+	if err := r.backups.SwitchSession(active.ID); err != nil {
+		t.Fatalf("SwitchSession active: %v", err)
+	}
+
+	r.app.handleSlashCommand("sessions", []string{"delete", inactive.ID, "--yes"}, "/sessions delete "+inactive.ID+" --yes")
+	convContains(t, r.app, "deleted session "+inactive.ID[:8])
+	if got := r.sessions.Current(); got == nil || got.ID != active.ID {
+		t.Fatalf("current = %+v, want %s", got, active.ID)
+	}
+	if _, err := os.Stat(filepath.Join(r.tmp, "sessions", inactive.ID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("session file should be gone: err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(r.tmp, "backups", inactive.ID)); !os.IsNotExist(err) {
+		t.Fatalf("backup directory should be gone: err=%v", err)
+	}
+}
+
+func TestApp_Sessions_DeleteActiveWhileStreaming(t *testing.T) {
+	r := newTestApp(t)
+	cur := r.sessions.Current()
+	r.app.streaming = true
+
+	r.app.handleSlashCommand("sessions", []string{"delete", cur.ID, "--yes"}, "/sessions delete "+cur.ID+" --yes")
+	convContains(t, r.app, "turn already running")
+	if got := r.sessions.Current(); got == nil || got.ID != cur.ID {
+		t.Fatalf("current = %+v, want %s", got, cur.ID)
+	}
+	if _, err := os.Stat(filepath.Join(r.tmp, "sessions", cur.ID+".json")); err != nil {
+		t.Fatalf("session should still exist: %v", err)
 	}
 }
 
@@ -493,7 +765,13 @@ func TestApp_Compact_Succeeds(t *testing.T) {
 		{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 5, OutputTokens: 2}},
 	}}
 
-	r.app.handleSlashCommand("compact", []string{"--keep", "3"}, "/compact --keep 3")
+	_, cmd := r.app.handleSlashCommand("compact", []string{"--keep", "3"}, "/compact --keep 3")
+	pump := newDrainPump(t, r.app, cmd)
+	pump.RunUntil(2*time.Second, func() bool { return !r.app.streaming })
+	if r.app.streaming {
+		t.Fatalf("expected compact to finish")
+	}
+
 	txt := convText(r.app)
 	if !strings.Contains(txt, "compacting context...") {
 		t.Fatalf("pre message missing:\n%s", txt)
@@ -519,6 +797,124 @@ func TestApp_Compact_Succeeds(t *testing.T) {
 	}
 	if len(reloaded.Messages) != len(cur.Messages) {
 		t.Fatalf("reloaded count = %d, want %d", len(reloaded.Messages), len(cur.Messages))
+	}
+}
+
+func TestApp_Compact_StartsAsyncAndShowsProgress(t *testing.T) {
+	r := newTestApp(t)
+	for i := 0; i < 20; i++ {
+		_ = r.sessions.AddMessage(provider.Message{Role: provider.RoleUser, Content: "msg"})
+	}
+	prov := newBlockingCompactProvider("summary text")
+	wireCompactProvider(t, r, prov)
+
+	_, cmd := r.app.handleSlashCommand("compact", []string{"--keep", "3"}, "/compact --keep 3")
+	if cmd == nil {
+		t.Fatalf("expected compact command")
+	}
+	if !r.app.streaming {
+		t.Fatalf("expected streaming=true while compact is running")
+	}
+	if r.app.cancelTurn == nil {
+		t.Fatalf("expected cancelTurn while compact is running")
+	}
+	if !r.app.spinner.Active() {
+		t.Fatalf("expected spinner to be active while compact is running")
+	}
+	txt := convText(r.app)
+	if !strings.Contains(txt, "compacting context...") {
+		t.Fatalf("start message missing:\n%s", txt)
+	}
+	if strings.Contains(txt, "compacted:") {
+		t.Fatalf("done message rendered before compact finished:\n%s", txt)
+	}
+
+	msgs := runTeaCmdAsync(cmd)
+	select {
+	case <-prov.started:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("compact provider was not started")
+	}
+	select {
+	case msg := <-msgs:
+		if _, ok := msg.(compactDoneMsg); ok {
+			t.Fatalf("compact finished before provider was released")
+		}
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(prov.release)
+	done := waitCompactDone(t, msgs, time.Second)
+	_, _ = r.app.Update(done)
+
+	if r.app.streaming {
+		t.Fatalf("expected streaming=false after compact done")
+	}
+	if r.app.spinner.Active() {
+		t.Fatalf("expected spinner to stop after compact done")
+	}
+	convContains(t, r.app, "compacted:")
+}
+
+func TestApp_Compact_CtrlCCancels(t *testing.T) {
+	r := newTestApp(t)
+	for i := 0; i < 20; i++ {
+		_ = r.sessions.AddMessage(provider.Message{Role: provider.RoleUser, Content: "msg"})
+	}
+	prov := newBlockingCompactProvider("summary text")
+	wireCompactProvider(t, r, prov)
+
+	_, cmd := r.app.handleSlashCommand("compact", nil, "/compact")
+	msgs := runTeaCmdAsync(cmd)
+	select {
+	case <-prov.started:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("compact provider was not started")
+	}
+
+	_, _ = r.app.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if r.app.cancelTurn != nil {
+		t.Fatalf("expected cancelTurn to be nil after Ctrl+C")
+	}
+	if !r.app.streaming {
+		t.Fatalf("streaming should remain true until compactDoneMsg drains")
+	}
+
+	done := waitCompactDone(t, msgs, time.Second)
+	_, _ = r.app.Update(done)
+	if r.app.streaming {
+		t.Fatalf("expected streaming=false after cancelled compact drains")
+	}
+	txt := convText(r.app)
+	if !strings.Contains(txt, "compact cancelled") {
+		t.Fatalf("conversation missing compact cancellation line:\n%s", txt)
+	}
+	if strings.Contains(strings.ToLower(txt), "context canceled") {
+		t.Fatalf("conversation leaked raw ctx cancellation:\n%s", txt)
+	}
+}
+
+func TestApp_Compact_ErrorStopsProgress(t *testing.T) {
+	r := newTestApp(t)
+	for i := 0; i < 20; i++ {
+		_ = r.sessions.AddMessage(provider.Message{Role: provider.RoleUser, Content: "msg"})
+	}
+	r.prov.turns = [][]provider.StreamEvent{{
+		{Type: provider.EventError, Error: errors.New("summary failed")},
+	}}
+
+	_, cmd := r.app.handleSlashCommand("compact", nil, "/compact")
+	pump := newDrainPump(t, r.app, cmd)
+	pump.RunUntil(2*time.Second, func() bool { return !r.app.streaming })
+	if r.app.streaming {
+		t.Fatalf("expected streaming=false after compact error")
+	}
+	if r.app.spinner.Active() {
+		t.Fatalf("expected spinner to stop after compact error")
+	}
+	txt := convText(r.app)
+	if !strings.Contains(txt, "compacting context...") || !strings.Contains(txt, "summary failed") {
+		t.Fatalf("conversation missing compact start/error messages:\n%s", txt)
 	}
 }
 
@@ -618,6 +1014,8 @@ func TestApp_Help_ContainsAllSections(t *testing.T) {
 	for _, section := range []string{"Global", "Conversation", "Approval", "Input", "Slash commands"} {
 		convContains(t, r.app, section)
 	}
+	convContains(t, r.app, "Ctrl+A")
+	convContains(t, r.app, "Set/update provider API key")
 	// Lists itself and all nine new verbs.
 	for _, verb := range []string{"/help", "/clear", "/provider", "/model", "/sessions", "/undo", "/compact", "/cost", "/trust"} {
 		convContains(t, r.app, verb)
@@ -678,4 +1076,11 @@ func TestApp_Dispatch_JobsVerbsGuardOnMissingManager(t *testing.T) {
 		r.app.handleSlashCommand(v, []string{"hello"}, "/"+v+" hello")
 		convContains(t, r.app, "background jobs are disabled")
 	}
+}
+
+func TestApp_SubmitUnknownSlashCommandShowsEscapeHatch(t *testing.T) {
+	r := newTestApp(t)
+	_, _ = r.app.updateInner(input.SubmitMsg{Text: "/frobnicate now"})
+	convContains(t, r.app, "unknown slash command /frobnicate")
+	convContains(t, r.app, "//frobnicate")
 }

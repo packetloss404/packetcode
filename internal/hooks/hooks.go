@@ -187,7 +187,7 @@ func matchesTool(matcher, toolName string) bool {
 func shellCommand(ctx context.Context, command string) *exec.Cmd {
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
+		cmd = exec.CommandContext(ctx, "powershell", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command)
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}

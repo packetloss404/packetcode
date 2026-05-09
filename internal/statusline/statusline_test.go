@@ -16,7 +16,7 @@ import (
 func TestRunner_RenderPassesJSONOnStdin(t *testing.T) {
 	command := "read input; case \"$input\" in *gpt-test*) printf custom-status;; *) exit 1;; esac"
 	if runtime.GOOS == "windows" {
-		command = "$data = $input | Out-String; if ($data -match 'gpt-test') { 'custom-status' } else { exit 1 }"
+		command = "$data = [Console]::In.ReadToEnd(); if ($data -match 'gpt-test') { 'custom-status' } else { exit 1 }"
 	}
 	r := New(config.StatusLineConfig{Command: command, TimeoutSec: 2}, t.TempDir())
 	require.NotNil(t, r)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -14,7 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/packetcode/packetcode/internal/config"
 	"github.com/packetcode/packetcode/internal/cost"
+	"github.com/packetcode/packetcode/internal/hooks"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/session"
 	"github.com/packetcode/packetcode/internal/tools"
@@ -558,6 +561,22 @@ func (b *blockingApprover) Approve(ctx context.Context, _ ApprovalRequest) Appro
 	return ApprovalDecision{Approved: false, Reason: "cancelled"}
 }
 
+type cancelingTool struct {
+	started  chan struct{}
+	executed int32
+}
+
+func (c *cancelingTool) Name() string            { return "slow_tool" }
+func (c *cancelingTool) Description() string     { return "test tool" }
+func (c *cancelingTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (c *cancelingTool) RequiresApproval() bool  { return false }
+func (c *cancelingTool) Execute(ctx context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+	atomic.AddInt32(&c.executed, 1)
+	close(c.started)
+	<-ctx.Done()
+	return tools.ToolResult{}, ctx.Err()
+}
+
 // TestAgent_Run_CancelDuringApproval drives a turn that reaches the
 // approval gate and never resolves, then cancels the ctx. The agent
 // should unblock the approver (via ctx), record the rejection, and
@@ -614,6 +633,93 @@ drain:
 	assert.True(t, channelClosed, "events channel must close once approval unblocks on cancel")
 	assert.GreaterOrEqual(t, atomic.LoadInt32(&app.called), int32(1), "approver should have been invoked")
 	assert.Equal(t, int32(0), atomic.LoadInt32(&rt.executed), "rejected-on-cancel tool must not execute")
+}
+
+func TestAgent_Run_CancelDuringTool(t *testing.T) {
+	prov := &scriptedProvider{turns: [][]provider.StreamEvent{
+		{
+			{Type: provider.EventToolCallStart, ToolCall: &provider.ToolCallDelta{Index: 0, ID: "c1", Name: "slow_tool"}},
+			{Type: provider.EventToolCallDelta, ToolCall: &provider.ToolCallDelta{Index: 0, ArgumentsDelta: `{}`}},
+			{Type: provider.EventToolCallEnd, ToolCall: &provider.ToolCallDelta{Index: 0}},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		},
+	}}
+	ct := &cancelingTool{started: make(chan struct{})}
+	hookMarker := filepath.Join(t.TempDir(), "post-hook-ran")
+
+	reg := provider.NewRegistry()
+	reg.Register(prov)
+	require.NoError(t, reg.SetActive("scripted", "scripted-model"))
+	tr := tools.NewRegistry()
+	tr.Register(ct)
+	sm := session.NewManager(t.TempDir())
+	_, _ = sm.New("scripted", "scripted-model")
+	a := New(Config{
+		Registry: reg,
+		Tools:    tr,
+		Session:  sm,
+		Approver: AutoApprove(),
+		Hooks: hooks.New(config.HooksConfig{
+			PostToolUse: []config.HookConfig{{
+				Matcher:    "slow_tool",
+				Command:    touchCommand(hookMarker),
+				TimeoutSec: 2,
+			}},
+		}, t.TempDir()),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	events := a.Run(ctx, "run slow tool")
+
+	select {
+	case <-ct.started:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("tool did not start")
+	}
+	cancel()
+
+	deadline := time.After(1 * time.Second)
+	var channelClosed bool
+	var sawCancelErr bool
+	var sawExecuted bool
+drain:
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				channelClosed = true
+				break drain
+			}
+			if ev.Type == EventError && ev.Error != nil && errors.Is(ev.Error, context.Canceled) {
+				sawCancelErr = true
+			}
+			if ev.Type == EventToolCallExecuted {
+				sawExecuted = true
+			}
+		case <-deadline:
+			break drain
+		}
+	}
+
+	assert.True(t, channelClosed, "events channel must close once tool observes cancel")
+	assert.True(t, sawCancelErr, "tool cancellation should propagate as EventError(context.Canceled)")
+	assert.False(t, sawExecuted, "cancelled tool must not be reported as a completed tool result")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&ct.executed), "tool should have started exactly once")
+	assert.NoFileExists(t, hookMarker, "post-tool hook must not run after tool cancellation")
+
+	cur := sm.Current()
+	for _, m := range cur.Messages {
+		if m.Role == provider.RoleTool {
+			t.Fatalf("cancelled tool must not be saved as a tool-role failure message: %+v", m)
+		}
+	}
+}
+
+func touchCommand(path string) string {
+	if runtime.GOOS == "windows" {
+		return "New-Item -ItemType File -Path '" + strings.ReplaceAll(path, "'", "''") + "' -Force | Out-Null"
+	}
+	return "touch '" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 func TestContextManager_EstimateAndPercent(t *testing.T) {
@@ -675,4 +781,69 @@ func TestContextManager_CompactPreservesSystemAndTail(t *testing.T) {
 	tail := out[len(out)-2:]
 	assert.Equal(t, "msg 3", tail[0].Content)
 	assert.Equal(t, "reply 3", tail[1].Content)
+}
+
+func TestContextManager_CompactTailStartingOnToolMessageKeepsGroup(t *testing.T) {
+	prov := &scriptedProvider{turns: [][]provider.StreamEvent{
+		{
+			{Type: provider.EventTextDelta, TextDelta: "summary text"},
+			{Type: provider.EventDone},
+		},
+	}}
+
+	msgs := []provider.Message{
+		{Role: provider.RoleUser, Content: "before"},
+		{Role: provider.RoleAssistant, Content: "old reply"},
+		{Role: provider.RoleUser, Content: "run both tools"},
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{
+			{ID: "call-a", Name: "alpha", Arguments: `{}`},
+			{ID: "call-b", Name: "beta", Arguments: `{}`},
+		}},
+		{Role: provider.RoleTool, ToolCallID: "call-a", Name: "alpha", Content: "alpha result"},
+		{Role: provider.RoleTool, ToolCallID: "call-b", Name: "beta", Content: "beta result"},
+		{Role: provider.RoleAssistant, Content: "done"},
+	}
+
+	cm := NewContextManager(80)
+	out, err := cm.Compact(context.Background(), prov, "scripted-model", msgs, 2)
+	require.NoError(t, err)
+
+	require.Len(t, out, 5)
+	assert.Contains(t, out[0].Content, "summary text")
+	assert.Equal(t, provider.RoleAssistant, out[1].Role)
+	require.Len(t, out[1].ToolCalls, 2)
+	assert.Equal(t, provider.RoleTool, out[2].Role)
+	assert.Equal(t, "call-a", out[2].ToolCallID)
+	assert.Equal(t, provider.RoleTool, out[3].Role)
+	assert.Equal(t, "call-b", out[3].ToolCallID)
+	assert.Equal(t, "done", out[4].Content)
+}
+
+func TestAgent_BuildMessagesNormalizesSplitToolCallGroups(t *testing.T) {
+	sm := session.NewManager(t.TempDir())
+	_, err := sm.New("scripted", "scripted-model")
+	require.NoError(t, err)
+	require.NoError(t, sm.ReplaceMessages([]provider.Message{
+		{Role: provider.RoleUser, Content: "before"},
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{
+			{ID: "call-a", Name: "alpha", Arguments: `{}`},
+			{ID: "call-b", Name: "beta", Arguments: `{}`},
+		}},
+		{Role: provider.RoleTool, ToolCallID: "call-a", Name: "alpha", Content: "alpha result"},
+		{Role: provider.RoleUser, Content: "interrupted"},
+		{Role: provider.RoleTool, ToolCallID: "call-b", Name: "beta", Content: "beta result"},
+		{Role: provider.RoleAssistant, Content: "after"},
+	}))
+
+	a := New(Config{Session: sm})
+	msgs := a.buildMessages()
+
+	require.Len(t, msgs, 3)
+	assert.Equal(t, "before", msgs[0].Content)
+	assert.Equal(t, "interrupted", msgs[1].Content)
+	assert.Equal(t, "after", msgs[2].Content)
+	for _, msg := range msgs {
+		assert.NotEqual(t, provider.RoleTool, msg.Role)
+		assert.Empty(t, msg.ToolCalls)
+	}
 }

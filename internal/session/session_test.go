@@ -257,8 +257,98 @@ func TestManager_LoadRejectsTraversalID(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestManager_LoadRejectsDecodedTraversalID(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	path := filepath.Join(dir, "safe.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"id":"../escape","name":"x","messages":[]}`), 0o600))
+
+	_, err := m.Load("safe")
+	require.Error(t, err)
+	assert.Nil(t, m.Current())
+}
+
+func TestManager_LoadRejectsDecodedIDMismatch(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	path := filepath.Join(dir, "safe.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"id":"other","name":"x","messages":[]}`), 0o600))
+
+	_, err := m.Load("safe")
+	require.Error(t, err)
+	assert.Nil(t, m.Current())
+}
+
+func TestManager_SaveRejectsUnsafeCurrentID(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	m.current = &Session{ID: filepath.Join("..", "escape"), Name: "x"}
+
+	err := m.Save()
+	require.Error(t, err)
+
+	_, statErr := os.Stat(filepath.Join(dir, "..", "escape.json"))
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestManager_ListSkipsUnsafeDecodedIDs(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "safe.json"), []byte(`{"id":"safe","name":"safe","messages":[]}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.json"), []byte(`{"id":"../escape","name":"bad","messages":[]}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mismatch.json"), []byte(`{"id":"other","name":"bad","messages":[]}`), 0o600))
+
+	got, err := m.List()
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "safe", got[0].ID)
+}
+
 func TestManager_DeleteRejectsTraversalID(t *testing.T) {
 	m := NewManager(t.TempDir())
 	err := m.Delete(filepath.Join("..", "escape"))
 	require.Error(t, err)
+}
+
+func TestBackupManager_RejectsInitialTraversalSessionID(t *testing.T) {
+	root := t.TempDir()
+	backupsDir := filepath.Join(root, "backups")
+	target := filepath.Join(root, "target.txt")
+	require.NoError(t, os.WriteFile(target, []byte("data"), 0o600))
+
+	bk := NewBackupManager(backupsDir, filepath.Join("..", "escape"))
+	require.Error(t, bk.Backup(target))
+
+	_, err := os.Stat(filepath.Join(root, "escape"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestBackupManager_SwitchSessionRejectsTraversalAndKeepsRoot(t *testing.T) {
+	root := t.TempDir()
+	backupsDir := filepath.Join(root, "backups")
+	target := filepath.Join(root, "target.txt")
+	require.NoError(t, os.WriteFile(target, []byte("data"), 0o600))
+
+	bk := NewBackupManager(backupsDir, "safe")
+	require.Error(t, bk.SwitchSession(filepath.Join("..", "escape")))
+	require.NoError(t, bk.Backup(target))
+
+	entries, err := os.ReadDir(filepath.Join(backupsDir, "safe"))
+	require.NoError(t, err)
+	assert.NotEmpty(t, entries)
+	_, err = os.Stat(filepath.Join(root, "escape"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestBackupManager_CleanupSessionRejectsTraversal(t *testing.T) {
+	root := t.TempDir()
+	backupsDir := filepath.Join(root, "backups")
+	outside := filepath.Join(root, "escape")
+	require.NoError(t, os.MkdirAll(outside, 0o700))
+
+	bk := NewBackupManager(backupsDir, "safe")
+	require.Error(t, bk.CleanupSession(filepath.Join("..", "escape")))
+
+	_, err := os.Stat(outside)
+	require.NoError(t, err)
 }

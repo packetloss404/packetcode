@@ -25,6 +25,19 @@ func TestJobApprover_ReadOnlyRejects(t *testing.T) {
 	assert.Contains(t, strings.ToLower(dec.Reason), "read-only")
 }
 
+func TestJobApprover_ReadOnlyAllowsSpawnAgent(t *testing.T) {
+	parent := &fakeApprover{decision: agent.ApprovalDecision{Approved: false, Reason: "should not be called"}}
+	app := NewJobApprover(parent, "abc12345", false)
+
+	dec := app.Approve(context.Background(), agent.ApprovalRequest{
+		ToolCall: provider.ToolCall{Name: "spawn_agent"},
+		Params:   []byte(`{"prompt":"scout"}`),
+	})
+	assert.True(t, dec.Approved)
+	assert.JSONEq(t, `{"prompt":"scout"}`, string(dec.EditedParams))
+	assert.Empty(t, parent.snapshotCalls(), "read-only spawn_agent should not route through parent destructive approver")
+}
+
 // Test 14 — allowWrite mode forwards to the parent with the tool name
 // prefixed by "[job:<id>]".
 func TestJobApprover_AnnotatesJobID(t *testing.T) {

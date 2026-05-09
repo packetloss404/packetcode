@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/packetcode/packetcode/internal/agent"
@@ -10,10 +11,10 @@ import (
 // jobApprover is the per-job adapter around the main session's Approver.
 //
 // Approval policy (see docs/feature-background-agents.md):
-//   - When AllowWrite=false, every approval-gated tool call is rejected
-//     immediately with "background job is read-only". This is a defence in
-//     depth alongside buildJobToolRegistry which doesn't even register
-//     destructive tools in that mode.
+//   - When AllowWrite=false, approval-gated destructive tool calls are
+//     rejected immediately with "background job is read-only". spawn_agent
+//     is allowed through so read-only jobs can delegate read-only children
+//     until the depth cap is reached.
 //   - When AllowWrite=true, requests are forwarded to the parent approver
 //     (typically the main session's uiApprover) with the tool name
 //     prefixed by "[job:<id>]" so the user can tell where the prompt
@@ -32,6 +33,12 @@ func NewJobApprover(parent agent.Approver, jobID string, allowWrite bool) agent.
 }
 
 func (j *jobApprover) Approve(ctx context.Context, req agent.ApprovalRequest) agent.ApprovalDecision {
+	if req.ToolCall.Name == "spawn_agent" && !j.allowWrite {
+		return agent.ApprovalDecision{
+			Approved:     true,
+			EditedParams: cloneParams(req.Params),
+		}
+	}
 	if !j.allowWrite {
 		return agent.ApprovalDecision{
 			Approved: false,
@@ -48,4 +55,13 @@ func (j *jobApprover) Approve(ctx context.Context, req agent.ApprovalRequest) ag
 	annotated := req
 	annotated.ToolCall.Name = fmt.Sprintf("[job:%s] %s", j.jobID, req.ToolCall.Name)
 	return j.parent.Approve(ctx, annotated)
+}
+
+func cloneParams(params json.RawMessage) json.RawMessage {
+	if len(params) == 0 {
+		return nil
+	}
+	out := make(json.RawMessage, len(params))
+	copy(out, params)
+	return out
 }

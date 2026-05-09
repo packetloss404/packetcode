@@ -171,6 +171,41 @@ func TestMcpTool_Execute_CtxCancellation(t *testing.T) {
 		"unexpected error: %v", err)
 }
 
+// TestMcpTool_Execute_ToolTimeout surfaces the MCP server timeout as
+// a tool error result instead of aborting the agent turn.
+func TestMcpTool_Execute_ToolTimeout(t *testing.T) {
+	hold := make(chan struct{})
+	stub := makeBasicStub(t, "srv", []ServerTool{{Name: "blocky"}}, map[string]StubHandler{
+		"tools/call": func(_ json.RawMessage) (any, *ErrorObj) {
+			<-hold
+			return map[string]any{"content": []any{}, "isError": false}, nil
+		},
+	})
+	stub.Start()
+	defer func() {
+		close(hold)
+		stub.Stop()
+	}()
+
+	cli, err := newClientFromIO(
+		context.Background(),
+		"srv",
+		stub.StdinWriter(),
+		stub.StdoutReader(),
+		nil, nil,
+		50*time.Millisecond,
+		stubInfo,
+	)
+	require.NoError(t, err)
+	mt := NewMcpTool(cli, cli.Tools()[0])
+
+	res, err := mt.Execute(context.Background(), json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.True(t, res.IsError)
+	assert.Contains(t, res.Content, "mcp: tool call timeout")
+	assert.Contains(t, res.Content, "srv.blocky")
+}
+
 // TestMcpTool_Schema_PassesThrough asserts the inputSchema is forwarded
 // to callers verbatim.
 func TestMcpTool_Schema_PassesThrough(t *testing.T) {

@@ -19,7 +19,7 @@ var readOnlyToolNames = map[string]bool{
 }
 
 // destructiveToolNames is the set of tools only available when the job
-// was opted in to writes (--write or wait=true). buildJobToolRegistry
+// was explicitly opted in to writes (--write or allow_write=true). buildJobToolRegistry
 // re-instantiates these with the job-local BackupManager and a path-lock
 // wrapper for write_file/patch_file.
 var destructiveToolNames = map[string]bool{
@@ -76,10 +76,12 @@ func (m *Manager) buildJobToolRegistry(
 				continue
 			}
 			out.Register(cloneDestructiveTool(name, root, backups, m, t))
+		case name == "spawn_agent":
+			// spawn_agent is wired only through extraTools, where the
+			// worker has already applied depth and parent-write gates.
+			continue
 		default:
-			// Anything else (including spawn_agent if Bucket B happens to
-			// have wired it into the main registry) is forwarded as-is —
-			// Bucket B would normally use extraTools instead.
+			// Anything else (for example MCP tools) is forwarded as-is.
 			out.Register(t)
 		}
 	}

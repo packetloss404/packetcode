@@ -2,10 +2,14 @@ package jobs
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/packetcode/packetcode/internal/config"
+	"github.com/packetcode/packetcode/internal/hooks"
 )
 
 // TestSummarise_TrimsAndCaps spot-checks summarise's behaviour: it
@@ -85,6 +89,7 @@ func TestWaitForJob_HappyPath(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, StateCompleted, res.State)
 	assert.Equal(t, snap.ID, res.JobID)
+	assert.Empty(t, mgr.DrainResults(0), "waited result should not be delivered again through DrainResults")
 }
 
 // TestWaitForJob_Timeout returns ok=false when the job does not
@@ -97,6 +102,36 @@ func TestWaitForJob_Timeout(t *testing.T) {
 	_, ok := mgr.WaitForJob(snap.ID, 50_000_000) // 50ms
 	assert.False(t, ok)
 	mgr.Cancel(snap.ID)
+}
+
+func TestRunJob_PassesHooksToBackgroundAgent(t *testing.T) {
+	command := "printf background-hook-marker"
+	if runtime.GOOS == "windows" {
+		command = "Write-Output background-hook-marker"
+	}
+	prov := &scriptedProvider{turns: scriptedHello()}
+	mgr, _ := newTestManager(t, prov, func(c *Config) {
+		c.Hooks = hooks.New(config.HooksConfig{
+			UserPromptSubmit: []config.HookConfig{{Command: command, TimeoutSec: 2}},
+		}, t.TempDir())
+	})
+
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "x"})
+	assert.Nil(t, perr)
+	waitFor(t, 2e9, "job completes", func() bool {
+		got, _ := mgr.Get(snap.ID)
+		return got.State == StateCompleted
+	})
+
+	reqs := prov.snapshotRequests()
+	if assert.NotEmpty(t, reqs) {
+		var joined strings.Builder
+		for _, msg := range reqs[0].Messages {
+			joined.WriteString(msg.Content)
+			joined.WriteByte('\n')
+		}
+		assert.Contains(t, joined.String(), "background-hook-marker")
+	}
 }
 
 // _ silences unused-import warnings if we prune helpers later.

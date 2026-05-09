@@ -49,12 +49,13 @@ func TestExecuteCommand_NonZeroExit(t *testing.T) {
 }
 
 func TestExecuteCommand_Timeout(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("sleep semantics differ on Windows; covered indirectly via context handling")
-	}
 	tool := NewExecuteCommandTool(t.TempDir())
+	command := "sleep 5"
+	if runtime.GOOS == "windows" {
+		command = "ping -n 6 127.0.0.1 >NUL"
+	}
 	body, _ := json.Marshal(map[string]any{
-		"command":     "sleep 5",
+		"command":     command,
 		"timeout_sec": 1,
 	})
 	start := time.Now()
@@ -87,14 +88,12 @@ func TestExecuteCommand_RequiresApproval(t *testing.T) {
 // the ctx handed to Execute tears down the underlying process within
 // 1s. Round 5 relies on this: Ctrl+C at the App layer cancels the turn
 // ctx, which the agent passes through to tool.Execute, which must kill
-// anything mid-flight. Skipped on Windows — `timeout /t 30` has
-// tortured stdout semantics under cmd.exe and the payoff doesn't
-// justify the platform dance.
+// anything mid-flight.
 func TestExecuteCommand_ContextCancelKillsProcess(t *testing.T) {
 	tool := NewExecuteCommandTool(t.TempDir())
 	command := "sleep 30"
 	if runtime.GOOS == "windows" {
-		command = `powershell -NoProfile -Command "Start-Sleep -Seconds 30"`
+		command = "ping -n 31 127.0.0.1 >NUL"
 	}
 	body, _ := json.Marshal(map[string]any{"command": command})
 

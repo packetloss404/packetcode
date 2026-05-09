@@ -163,8 +163,8 @@ func (m *Model) rebuild() {
 }
 
 // View renders the popup. Returns "" when hidden OR when the filtered
-// list is empty — in the empty-match case the popup silently disappears
-// so an "/xyz" buffer falls through cleanly to the input's submit path.
+// list is empty; the App submit path renders the friendly unknown-command
+// message if the user sends that unmatched slash command.
 func (m Model) View() string {
 	if !m.visible || len(m.filtered) == 0 {
 		return ""

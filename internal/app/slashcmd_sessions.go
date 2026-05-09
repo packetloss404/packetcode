@@ -7,7 +7,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/session"
+	"github.com/packetcode/packetcode/internal/tools"
+	"github.com/packetcode/packetcode/internal/ui/components/conversation"
 )
 
 // handleSessionsCommand lists, resumes, or deletes sessions. The bare
@@ -43,17 +46,34 @@ func (a *App) handleSessionsCommand(args []string) (tea.Model, tea.Cmd) {
 
 	switch sub {
 	case "resume":
+		if a.streaming {
+			a.conversation.AppendSystem("sessions: turn already running; press Ctrl+C to cancel before resuming")
+			return a, nil
+		}
+		prev := a.deps.Sessions.Current()
 		s, loadErr := a.deps.Sessions.Load(fullID)
 		if loadErr != nil {
 			a.conversation.AppendSystem("sessions: " + loadErr.Error())
 			return a, nil
 		}
+		if s.Provider == "" || s.Model == "" {
+			a.restorePreviousSession(prev)
+			a.conversation.AppendSystem("sessions: resumed session has no provider/model metadata")
+			return a, nil
+		}
+		if err := a.deps.Registry.SetActive(s.Provider, s.Model); err != nil {
+			a.restorePreviousSession(prev)
+			a.conversation.AppendSystem("sessions: " + err.Error())
+			return a, nil
+		}
+		if err := a.rebindSessionScopedTools(s.ID); err != nil {
+			a.restorePreviousSession(prev)
+			a.conversation.AppendSystem("sessions: " + err.Error())
+			return a, nil
+		}
 		a.refreshTopBar()
-		a.conversation.AppendSystem(fmt.Sprintf(
-			"resumed session %s (%s) — %d messages",
-			s.Name, shortID(s.ID), len(s.Messages),
-		))
-		return a, nil
+		a.showResumedSession(s)
+		return a, a.renderStatusLine()
 
 	case "delete":
 		if !yes {
@@ -63,9 +83,50 @@ func (a *App) handleSessionsCommand(args []string) (tea.Model, tea.Cmd) {
 			))
 			return a, nil
 		}
+		current := a.deps.Sessions.Current()
+		deletingActive := current != nil && current.ID == fullID
+		if deletingActive && a.streaming {
+			a.conversation.AppendSystem("sessions: turn already running; press Ctrl+C to cancel before deleting the active session")
+			return a, nil
+		}
+		var replacement *session.Session
+		if deletingActive {
+			providerSlug, modelID := current.Provider, current.Model
+			if providerSlug == "" || modelID == "" {
+				if prov, activeModel := a.deps.Registry.Active(); prov != nil {
+					providerSlug = prov.Slug()
+					modelID = activeModel
+				}
+			}
+			if providerSlug == "" || modelID == "" {
+				a.conversation.AppendSystem("sessions: cannot delete active session without provider/model metadata")
+				return a, nil
+			}
+			var newErr error
+			replacement, newErr = a.deps.Sessions.New(providerSlug, modelID)
+			if newErr != nil {
+				a.conversation.AppendSystem("sessions: create replacement session: " + newErr.Error())
+				return a, nil
+			}
+		}
 		if delErr := a.deps.Sessions.Delete(fullID); delErr != nil {
+			if replacement != nil {
+				_, _ = a.deps.Sessions.Load(fullID)
+				_ = a.deps.Sessions.Delete(replacement.ID)
+				_ = a.rebindSessionScopedTools(fullID)
+			}
 			a.conversation.AppendSystem("sessions: " + delErr.Error())
 			return a, nil
+		}
+		if cleanupErr := a.cleanupSessionBackups(fullID); cleanupErr != nil {
+			a.conversation.AppendSystem("sessions: backup cleanup failed: " + cleanupErr.Error())
+			return a, nil
+		}
+		if replacement != nil {
+			if err := a.rebindSessionScopedTools(replacement.ID); err != nil {
+				a.conversation.AppendSystem("sessions: " + err.Error())
+				return a, nil
+			}
 		}
 		a.refreshTopBar()
 		a.conversation.AppendSystem("deleted session " + shortID(fullID))
@@ -77,7 +138,121 @@ func (a *App) handleSessionsCommand(args []string) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// resolveSessionID accepts either a full session ID (exact match) or any
+func (a *App) restorePreviousSession(prev *session.Session) {
+	if prev == nil {
+		return
+	}
+	_, _ = a.deps.Sessions.Load(prev.ID)
+}
+
+func (a *App) rebindSessionScopedTools(sessionID string) error {
+	bk := a.backups
+	if bk == nil {
+		bk = a.deps.Backups
+	}
+	if bk == nil {
+		return nil
+	}
+	if err := bk.SwitchSession(sessionID); err != nil {
+		return fmt.Errorf("rebind backups: %w", err)
+	}
+	a.backups = bk
+	a.deps.Backups = bk
+	if a.deps.Tools != nil {
+		if t, ok := a.deps.Tools.Get("write_file"); ok {
+			if wt, ok := t.(*tools.WriteFileTool); ok {
+				wt.Backups = bk
+			}
+		}
+		if t, ok := a.deps.Tools.Get("patch_file"); ok {
+			if pt, ok := t.(*tools.PatchFileTool); ok {
+				pt.Backups = bk
+			}
+		}
+	}
+	return nil
+}
+
+func (a *App) cleanupSessionBackups(sessionID string) error {
+	bk := a.backups
+	if bk == nil {
+		bk = a.deps.Backups
+	}
+	if bk == nil {
+		return nil
+	}
+	return bk.CleanupSession(sessionID)
+}
+
+func (a *App) showResumedSession(s *session.Session) {
+	conv := conversation.New()
+	if a.deps.Version != "" {
+		conv.SetVersion(a.deps.Version)
+	} else {
+		conv.SetVersion("v1")
+	}
+	conv.Resize(a.width, a.height)
+	a.conversation = conv
+	a.conversation.AppendSystem(fmt.Sprintf(
+		"resumed session %s (%s) — %s/%s — %d messages",
+		s.Name, shortID(s.ID), s.Provider, s.Model, len(s.Messages),
+	))
+	a.appendSessionTranscript(s.Provider, s.Model, s.Messages)
+}
+
+func (a *App) appendSessionTranscript(providerSlug, modelID string, messages []provider.Message) {
+	consumedToolResults := map[int]bool{}
+	for i, msg := range messages {
+		switch msg.Role {
+		case provider.RoleUser:
+			a.conversation.AppendUser(msg.Content)
+		case provider.RoleAssistant:
+			if strings.TrimSpace(msg.Content) != "" {
+				a.conversation.AppendAgentText(modelID, providerSlug, msg.Content)
+				a.conversation.FinaliseAgent()
+			}
+			for _, call := range msg.ToolCalls {
+				res, idx, ok := matchingToolResult(messages, i+1, call)
+				if !ok {
+					a.conversation.AppendSystem(fmt.Sprintf("tool call pending: %s %s", call.Name, call.Arguments))
+					continue
+				}
+				consumedToolResults[idx] = true
+				a.conversation.AppendToolCall(call.Name, call.Arguments)
+				a.conversation.CompleteToolCall(call.Name, tools.ToolResult{Content: res.Content})
+			}
+		case provider.RoleTool:
+			if consumedToolResults[i] {
+				continue
+			}
+			name := msg.Name
+			if name == "" {
+				name = "tool"
+			}
+			a.conversation.AppendSystem(fmt.Sprintf("%s result: %s", name, msg.Content))
+		case provider.RoleSystem:
+			a.conversation.AppendSystem(msg.Content)
+		}
+	}
+}
+
+func matchingToolResult(messages []provider.Message, start int, call provider.ToolCall) (provider.Message, int, bool) {
+	for i := start; i < len(messages); i++ {
+		msg := messages[i]
+		if msg.Role != provider.RoleTool {
+			return provider.Message{}, 0, false
+		}
+		if call.ID != "" && msg.ToolCallID == call.ID {
+			return msg, i, true
+		}
+		if call.ID == "" && msg.Name == call.Name {
+			return msg, i, true
+		}
+	}
+	return provider.Message{}, 0, false
+}
+
+// resolveSessionID accepts either a full session ID (exact match) or a
 // unique 8-character prefix. Returns an error when nothing matches or
 // when the prefix is ambiguous.
 func (a *App) resolveSessionID(prefix string) (string, error) {
@@ -94,7 +269,11 @@ func (a *App) resolveSessionID(prefix string) (string, error) {
 			return s.ID, nil
 		}
 	}
-	// Prefix match. Accept any prefix length, not just 8.
+	if len(prefix) != 8 {
+		return "", fmt.Errorf("session id prefix %q must be exactly 8 characters or a full session id", prefix)
+	}
+	// Prefix match. The table shows 8 characters, so only that shortened
+	// form is accepted to avoid surprising partial matches.
 	var matches []string
 	for _, s := range summaries {
 		if strings.HasPrefix(s.ID, prefix) {

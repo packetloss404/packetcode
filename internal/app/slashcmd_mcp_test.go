@@ -156,6 +156,51 @@ func TestTailMCPLog_TruncatesToLast50Lines(t *testing.T) {
 	}
 }
 
+func TestTailMCPLog_RedactsCommonSecrets(t *testing.T) {
+	home := isolateHome(t)
+	logPath := filepath.Join(home, ".packetcode", "mcp-secrets.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	log := strings.Join([]string{
+		`api_key=sk-live-secret`,
+		`{"token":"tok_123"}`,
+		`Authorization: Bearer abc.def.ghi`,
+	}, "\n")
+	if err := os.WriteFile(logPath, []byte(log), 0o600); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	out, err := tailMCPLog("secrets", 50)
+	if err != nil {
+		t.Fatalf("tailMCPLog: %v", err)
+	}
+	for _, leaked := range []string{"sk-live-secret", "tok_123", "abc.def.ghi"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("secret %q leaked in:\n%s", leaked, out)
+		}
+	}
+	if strings.Count(out, "[REDACTED]") < 3 {
+		t.Fatalf("expected redaction markers in:\n%s", out)
+	}
+}
+
+func TestReadLastLines_BoundsLargeLogs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "big.log")
+	content := strings.Repeat("old\n", (maxMCPLogTailBytes/4)+100) + "new 1\nnew 2\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	lines, err := readLastLines(path, 2)
+	if err != nil {
+		t.Fatalf("readLastLines: %v", err)
+	}
+	if got, want := strings.Join(lines, "\n"), "new 1\nnew 2"; got != want {
+		t.Fatalf("tail = %q, want %q", got, want)
+	}
+}
+
 // TestSlashHelp_IncludesMCP asserts the /help output exposes both the
 // bare /mcp and the /mcp logs <name> shapes so users can discover the
 // command without reading the spec.

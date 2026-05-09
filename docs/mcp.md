@@ -9,9 +9,8 @@ Tool calls are forwarded as `tools/call` RPCs; the server's reply is
 surfaced to the conversation pane and counts against the existing
 approval flow.
 
-Round 7 ships **stdio transport only** (the MCP spec's baseline). HTTP
-+ SSE, WebSocket, and StreamableHTTP remotes are out of scope for this
-round.
+MCP support uses **stdio transport only**. HTTP+SSE, WebSocket, and
+StreamableHTTP remotes are not supported yet.
 
 ---
 
@@ -19,9 +18,9 @@ round.
 
 Every server lives under a `[mcp.<name>]` block in
 `~/.packetcode/config.toml`. The `<name>` becomes the prefix on every
-tool the server exposes — i.e. the LLM sees `<name>.<tool>`, so a
+tool the server exposes — i.e. the LLM sees `<name>__<tool>`, so a
 `read_file` tool on the filesystem server shows up as
-`filesystem.read_file`.
+`filesystem__read_file`.
 
 ```toml
 [mcp.<name>]
@@ -37,8 +36,10 @@ Fields:
 - **command** — the executable packetcode spawns. If it's a bare name
   it must be on `$PATH`. Absolute paths are fine.
 - **args** — command-line arguments passed in order.
-- **env** — extra environment variables merged on top of packetcode's
-  own environment (your values win on conflict).
+- **env** — extra environment variables passed to this server. The
+  server inherits only a small launch allowlist from packetcode's
+  environment (path, home/cache/temp dirs, proxy, locale, and cert
+  settings); values here win on conflict.
 - **enabled** — set to `false` to keep the block on disk but skip
   spawning at startup. Omit the field to keep it enabled.
 - **timeout_sec** — how long packetcode waits for the server to reply
@@ -49,6 +50,12 @@ A failure to spawn a server — binary missing, handshake timeout,
 `tools/list` error — is logged to stderr and the `/mcp` table, but
 **never prevents packetcode from starting**. Native tools and other
 MCP servers keep working.
+
+Treat every configured MCP server as trusted local code. packetcode
+starts the configured command as your user, so approval prompts protect
+tool calls in the agent loop but do not sandbox the child process
+itself. Only add servers and command arguments you would be comfortable
+running in your terminal.
 
 ---
 
@@ -66,8 +73,8 @@ command = "npx"
 args    = ["-y", "@modelcontextprotocol/server-filesystem", "/home/alice/projects"]
 ```
 
-After packetcode starts, the LLM sees `filesystem.read_file`,
-`filesystem.write_file`, etc. Since all MCP tools are
+After packetcode starts, the LLM sees `filesystem__read_file`,
+`filesystem__write_file`, etc. Since all MCP tools are
 approval-gated, every call routes through the same Y/N prompt as a
 native `write_file`.
 
@@ -76,8 +83,8 @@ native `write_file`.
 ## Example: git server
 
 [`mcp-server-git`](https://github.com/modelcontextprotocol/servers/tree/main/src/git)
-wraps `git` with a tool surface: `git.log`, `git.diff`, `git.show`,
-`git.blame`, etc.
+wraps `git` with a tool surface: `git__log`, `git__diff`,
+`git__show`, `git__blame`, etc.
 
 ```toml
 [mcp.git]
@@ -105,7 +112,7 @@ args    = ["mcp-server-fetch"]
 ```
 
 No extra args, no extra env — `uvx` handles the pip install-cum-run.
-As with every MCP tool, every `fetch.fetch` call requires approval.
+As with every MCP tool, every `fetch__fetch` call requires approval.
 
 ---
 
@@ -145,23 +152,24 @@ legacy       disabled   0      -       (disabled)
 **`/mcp logs <name>`** — tail the last 50 lines of the server's stderr
 log. The log lives at `~/.packetcode/mcp-<name>.log` and is appended
 across runs (no auto-rotation — delete it manually when it grows).
-Use this when a server fails the handshake; a lot of servers print
-diagnostics to stderr before exiting.
+The display path reads only a bounded tail and redacts common secret
+patterns before rendering. Use this when a server fails the handshake;
+a lot of servers print diagnostics to stderr before exiting.
 
 ---
 
-## Known limits (Round 7)
+## Known limits
 
 - **No hot-reload.** Add or change a `[mcp.<name>]` block and you need
   to restart packetcode for it to take effect.
-- **No `/mcp restart <name>`.** Deferred to Round 8. If a server
+- **No `/mcp restart <name>`.** If a server
   crashes mid-session, every call to its tools returns a friendly
   "restart packetcode to reconnect" error; native tools and other
   MCP servers keep working.
 - **stdio transport only.** HTTP+SSE, WebSocket, StreamableHTTP
   remotes are deferred.
 - **No MCP prompts, resources, sampling, elicitation, logging, or
-  roots.** Round 7 implements tools-only. Server-initiated requests
+  roots.** packetcode implements tools-only. Server-initiated requests
   for those surfaces are refused with a JSON-RPC `-32601` (method not
   supported), so the server stays healthy; packetcode just ignores
   them.

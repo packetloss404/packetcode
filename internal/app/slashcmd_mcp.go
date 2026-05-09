@@ -1,9 +1,10 @@
 package app
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"os"
+	"regexp"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,6 +16,16 @@ import (
 // tailLogLineCount is the number of trailing stderr log lines shown by
 // /mcp logs <name>. Matches the spec's 50-line window.
 const tailLogLineCount = 50
+
+// maxMCPLogTailBytes bounds how much of an append-only MCP stderr log
+// /mcp logs reads into memory. The command is a diagnostic tail, not a
+// full log viewer.
+const maxMCPLogTailBytes = 256 * 1024
+
+var (
+	mcpBearerSecretRE = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+`)
+	mcpKeyValueRE     = regexp.MustCompile(`(?i)\b(api[_-]?key|token|secret|password)(["']?\s*[:=]\s*["']?)[^"',\s}]+`)
+)
 
 // handleMCPCommand routes the /mcp slash command. Empty args renders
 // the configured-servers table; `logs <name>` tails the named server's
@@ -163,37 +174,60 @@ func tailMCPLog(name string, n int) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "── mcp-%s.log (last %d lines) ──\n", name, n)
 	for _, ln := range lines {
-		b.WriteString(ln)
+		b.WriteString(redactMCPLogLine(ln))
 		b.WriteString("\n")
 	}
 	b.WriteString("── end ──")
 	return b.String(), nil
 }
 
-// readLastLines reads the file at `path` and returns its last `n` lines
-// as a slice (in original order). Implementation is a scan-all-then-
-// tail — stderr logs are append-only + manually rotated, so this stays
-// fast for typical sessions.
+// readLastLines reads at most the last maxMCPLogTailBytes from path and
+// returns its last n lines in original order.
 func readLastLines(path string, n int) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	// Match mcp.Client's reader buffer so a server that logs very long
-	// lines doesn't trip a "bufio.Scanner: token too long" here either.
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 8*1024*1024)
-	var all []string
-	for scanner.Scan() {
-		all = append(all, scanner.Text())
-	}
-	if err := scanner.Err(); err != nil {
+
+	info, err := f.Stat()
+	if err != nil {
 		return nil, err
 	}
+	size := info.Size()
+	if size == 0 || n <= 0 {
+		return nil, nil
+	}
+
+	start := int64(0)
+	if size > maxMCPLogTailBytes {
+		start = size - maxMCPLogTailBytes
+	}
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	text = strings.TrimRight(text, "\n")
+	if start > 0 {
+		if i := strings.IndexByte(text, '\n'); i >= 0 {
+			text = text[i+1:]
+		}
+	}
+	if text == "" {
+		return nil, nil
+	}
+	all := strings.Split(text, "\n")
 	if len(all) <= n {
 		return all, nil
 	}
 	return all[len(all)-n:], nil
+}
+
+func redactMCPLogLine(line string) string {
+	line = mcpBearerSecretRE.ReplaceAllString(line, "Bearer [REDACTED]")
+	return mcpKeyValueRE.ReplaceAllString(line, `${1}${2}[REDACTED]`)
 }

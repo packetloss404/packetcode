@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/packetcode/packetcode/internal/config"
 )
@@ -15,11 +17,13 @@ import (
 // launches a goroutine that tees stderr into that log file. The caller
 // owns the returned cmd / pipes / log file and must close them.
 //
-// The merged environment is os.Environ() overlaid with cfg.Env (cfg
-// wins on key collision).
+// The child receives a small allowlist of process-launch environment
+// variables overlaid with cfg.Env (cfg wins on key collision). MCP
+// servers are configured local code, but they do not need packetcode's
+// full provider/API-key environment by default.
 func spawnServerProcess(cfg ServerConfig, logDir string) (*exec.Cmd, io.WriteCloser, io.ReadCloser, *os.File, error) {
 	cmd := exec.Command(cfg.Command, cfg.Args...)
-	cmd.Env = mergeEnv(os.Environ(), cfg.Env)
+	cmd.Env = serverEnv(os.Environ(), cfg.Env)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -77,31 +81,92 @@ func spawnServerProcess(cfg ServerConfig, logDir string) (*exec.Cmd, io.WriteClo
 	return cmd, stdin, stdout, logFile, nil
 }
 
+var inheritedMCPEnvKeys = map[string]struct{}{
+	"APPDATA":             {},
+	"COMSPEC":             {},
+	"HOME":                {},
+	"HTTPS_PROXY":         {},
+	"HTTP_PROXY":          {},
+	"LANG":                {},
+	"LC_ALL":              {},
+	"LOCALAPPDATA":        {},
+	"NO_PROXY":            {},
+	"NODE_EXTRA_CA_CERTS": {},
+	"PATH":                {},
+	"PATHEXT":             {},
+	"SSL_CERT_DIR":        {},
+	"SSL_CERT_FILE":       {},
+	"SYSTEMROOT":          {},
+	"TEMP":                {},
+	"TMP":                 {},
+	"USERPROFILE":         {},
+	"WINDIR":              {},
+	"XDG_CACHE_HOME":      {},
+	"XDG_CONFIG_HOME":     {},
+	"XDG_DATA_HOME":       {},
+	"XDG_STATE_HOME":      {},
+	"http_proxy":          {},
+	"https_proxy":         {},
+	"no_proxy":            {},
+}
+
+func serverEnv(processEnv []string, configured map[string]string) []string {
+	return mergeEnv(filterInheritedEnv(processEnv), configured)
+}
+
+func filterInheritedEnv(env []string) []string {
+	out := make([]string, 0, len(inheritedMCPEnvKeys))
+	seen := map[string]struct{}{}
+	for _, kv := range env {
+		key, _, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		lookup := key
+		if runtime.GOOS == "windows" {
+			lookup = strings.ToUpper(key)
+		}
+		if _, keep := inheritedMCPEnvKeys[lookup]; !keep {
+			continue
+		}
+		if _, dup := seen[envKeyID(key)]; dup {
+			continue
+		}
+		seen[envKeyID(key)] = struct{}{}
+		out = append(out, kv)
+	}
+	return out
+}
+
 // mergeEnv overlays overlay onto base. Base entries are "KEY=VALUE"
-// strings (i.e. os.Environ() format). Keys present in overlay replace
-// any matching entry in base.
+// strings. Keys present in overlay replace any matching entry in base.
 func mergeEnv(base []string, overlay map[string]string) []string {
 	if len(overlay) == 0 {
 		return base
 	}
 	idx := map[string]int{}
 	for i, kv := range base {
-		for j := 0; j < len(kv); j++ {
-			if kv[j] == '=' {
-				idx[kv[:j]] = i
-				break
-			}
+		key, _, ok := strings.Cut(kv, "=")
+		if ok {
+			idx[envKeyID(key)] = i
 		}
 	}
 	out := make([]string, len(base))
 	copy(out, base)
 	for k, v := range overlay {
 		entry := k + "=" + v
-		if i, ok := idx[k]; ok {
+		if i, ok := idx[envKeyID(k)]; ok {
 			out[i] = entry
 		} else {
 			out = append(out, entry)
 		}
 	}
 	return out
+}
+
+func envKeyID(key string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToUpper(key)
+	}
+	return key
 }

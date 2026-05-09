@@ -11,11 +11,8 @@ var (
 		{"Esc", "Close jobs modal / approval / picker / autocomplete popup"},
 	}
 	ConversationKeys = []KeyHelp{
-		{"↑/k", "Scroll up"},
-		{"↓/j", "Scroll down"},
-		{"g", "Jump to top"},
-		{"G", "Jump to bottom"},
-		{"Tab", "Toggle collapse on most recent tool output"},
+		{"terminal scrollback", "Review finalized turns with your terminal or tmux"},
+		{"live region", "Shows the current streaming reply or tool call"},
 	}
 	ApprovalKeys = []KeyHelp{
 		{"Y", "Approve"},
@@ -45,6 +42,7 @@ var (
 		{"Ctrl+N/P", "Move cursor (down/up)"},
 		{"PgUp/PgDn", "Move a half page"},
 		{"Enter", "Select"},
+		{"Ctrl+A", "Set/update provider API key"},
 		{"Esc", "Close"},
 		{"Ctrl+U", "Clear filter"},
 		{"r", "Retry (error state)"},
@@ -58,7 +56,7 @@ var (
 		{"/jobs", "List background jobs"},
 		{"/jobs <id>", "View a job's transcript"},
 		{"/cancel <id|all>", "Cancel a job"},
-		{"/provider [slug]", "List providers or switch active"},
+		{"/provider [add [slug]|slug]", "Open picker, add key, or switch active"},
 		{"/model [id]", "List models or switch active"},
 		{"/sessions", "List sessions (resume|delete subcommands)"},
 		{"/undo", "Undo the most recent file change"},

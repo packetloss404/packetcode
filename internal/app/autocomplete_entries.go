@@ -7,15 +7,18 @@ import (
 )
 
 // buildAutocompleteEntries derives the autocomplete popup's entry list
-// from keymap.SlashCommands. Each row's Key is parsed into a verb (the
-// first whitespace-delimited token with a leading "/" stripped). Verbs
-// that appear more than once in SlashCommands (e.g. "/jobs" and
-// "/jobs <id>") collapse to a single entry, keeping the FIRST
+// from slash-command help rows. Each row's Key is parsed into a verb (the
+// first whitespace-delimited token with a leading "/" stripped). Verbs that
+// appear more than once collapse to a single entry, keeping the FIRST
 // occurrence's Usage + Desc so the popup shows the canonical form.
-func buildAutocompleteEntries() []autocomplete.Entry {
-	seen := make(map[string]struct{}, len(SlashCommands))
-	entries := make([]autocomplete.Entry, 0, len(SlashCommands))
-	for _, row := range SlashCommands {
+func buildAutocompleteEntries(rows ...[]KeyHelp) []autocomplete.Entry {
+	source := SlashCommands
+	if len(rows) > 0 {
+		source = rows[0]
+	}
+	seen := make(map[string]struct{}, len(source))
+	entries := make([]autocomplete.Entry, 0, len(source))
+	for _, row := range source {
 		verb := verbOf(row.Key)
 		if verb == "" {
 			continue

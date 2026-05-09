@@ -14,7 +14,8 @@ const spawnAgentSchema = `{
     "prompt":   { "type": "string", "description": "The task for the background agent. Be specific and self-contained — the spawned agent has no shared memory with you." },
     "provider": { "type": "string", "description": "Optional provider slug override (openai, gemini, minimax, openrouter, ollama). Defaults to the parent's provider." },
     "model":    { "type": "string", "description": "Optional model id override. Defaults to the parent's model." },
-    "wait":     { "type": "boolean", "description": "If true, this tool call blocks until the spawned job completes and returns its result inline. If false (default), returns the job id immediately and the result surfaces later." }
+    "wait":     { "type": "boolean", "description": "If true, this tool call blocks until the spawned job completes and returns its result inline. If false (default), returns the job id immediately and the result surfaces later." },
+    "allow_write": { "type": "boolean", "description": "If true, opt the child job into destructive tools (write_file, patch_file, execute_command). This is independent of wait and may be unavailable from read-only parent jobs." }
   },
   "required": ["prompt"]
 }`
@@ -39,17 +40,34 @@ type SpawnAgentTool struct {
 	Spawner     JobSpawner
 	ParentJobID string
 	ParentDepth int
-	WaitTimeout time.Duration // zero → spawnAgentDefaultWaitTimeout
+	// AllowWriteAllowed controls whether this spawning context may create
+	// write-enabled children. Main-session spawns may; read-only
+	// background jobs may not escalate themselves through a child.
+	AllowWriteAllowed bool
+	WaitTimeout       time.Duration // zero → spawnAgentDefaultWaitTimeout
 }
 
-// NewSpawnAgentTool is the standard constructor used by both main.go
-// (ParentJobID="", ParentDepth=0) and the per-job SpawnTool factory
-// (non-empty ParentJobID, real depth).
+// NewSpawnAgentTool is the standard constructor for main-session spawns
+// (ParentJobID="", ParentDepth=0). Main-session callers may explicitly
+// opt children into writes with allow_write=true.
 func NewSpawnAgentTool(spawner JobSpawner, parentJobID string, parentDepth int) Tool {
 	return &SpawnAgentTool{
-		Spawner:     spawner,
-		ParentJobID: parentJobID,
-		ParentDepth: parentDepth,
+		Spawner:           spawner,
+		ParentJobID:       parentJobID,
+		ParentDepth:       parentDepth,
+		AllowWriteAllowed: true,
+	}
+}
+
+// NewBackgroundSpawnAgentTool constructs a spawn_agent tool for a
+// background job. parentAllowWrite decides whether allow_write requests
+// are honored; read-only parents can still spawn read-only children.
+func NewBackgroundSpawnAgentTool(spawner JobSpawner, parentJobID string, parentDepth int, parentAllowWrite bool) Tool {
+	return &SpawnAgentTool{
+		Spawner:           spawner,
+		ParentJobID:       parentJobID,
+		ParentDepth:       parentDepth,
+		AllowWriteAllowed: parentAllowWrite,
 	}
 }
 
@@ -64,10 +82,11 @@ func (*SpawnAgentTool) Description() string {
 func (*SpawnAgentTool) RequiresApproval() bool { return true }
 
 type spawnAgentParams struct {
-	Prompt   string `json:"prompt"`
-	Provider string `json:"provider,omitempty"`
-	Model    string `json:"model,omitempty"`
-	Wait     bool   `json:"wait,omitempty"`
+	Prompt     string `json:"prompt"`
+	Provider   string `json:"provider,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Wait       bool   `json:"wait,omitempty"`
+	AllowWrite bool   `json:"allow_write,omitempty"`
 }
 
 func (t *SpawnAgentTool) Execute(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
@@ -90,17 +109,23 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, raw json.RawMessage) (Tool
 		}, nil
 	}
 
-	// When wait=true the parent already implicitly approved the child's
-	// side effects by approving this tool call. Route that through the
-	// jobApprover's AllowWrite path so the sub-agent can touch destructive
-	// tools without a second prompt.
+	if p.AllowWrite && !t.AllowWriteAllowed {
+		return ToolResult{
+			Content: "spawn_agent: allow_write is not available from this read-only background job",
+			IsError: true,
+			Metadata: map[string]any{
+				"error_code": "allow_write_denied",
+			},
+		}, nil
+	}
+
 	req := JobSpawnRequest{
 		Prompt:      p.Prompt,
 		Provider:    p.Provider,
 		Model:       p.Model,
 		ParentJobID: t.ParentJobID,
 		ParentDepth: t.ParentDepth,
-		AllowWrite:  p.Wait,
+		AllowWrite:  p.AllowWrite,
 	}
 
 	snap, spawnErr := t.Spawner.Spawn(req)

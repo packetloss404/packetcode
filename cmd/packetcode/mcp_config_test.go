@@ -89,6 +89,54 @@ func TestMCPConfigFlatten_IsEnabledPreserved(t *testing.T) {
 	}
 }
 
+func TestMCPConfigFlatten_EnvCopied(t *testing.T) {
+	cfg := &config.Config{
+		MCP: map[string]config.MCPServerConfig{
+			"server": {Command: "cmd", Env: map[string]string{"TOKEN": "configured"}},
+		},
+	}
+	got := mcpServerConfigsFrom(cfg)
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1", len(got))
+	}
+	got[0].Env["TOKEN"] = "mutated"
+	if cfg.MCP["server"].Env["TOKEN"] != "configured" {
+		t.Fatalf("flattened Env aliases source config: %v", cfg.MCP["server"].Env)
+	}
+}
+
+func TestShouldRunSetup_RespectsProviderOverride(t *testing.T) {
+	cfg := config.Default()
+	if shouldRunSetup(cfg, "openai") {
+		t.Fatalf("explicit provider override should skip first-run setup")
+	}
+}
+
+func TestShouldRunSetup_DefaultProviderMissingKey(t *testing.T) {
+	cfg := config.Default()
+	cfg.Default.Provider = "openai"
+	if !shouldRunSetup(cfg, "") {
+		t.Fatalf("saved default without key should run setup")
+	}
+}
+
+func TestShouldRunSetup_DefaultProviderConfigured(t *testing.T) {
+	cfg := config.Default()
+	cfg.Default.Provider = "openai"
+	cfg.Providers["openai"] = config.ProviderConfig{APIKey: "sk-test"}
+	if shouldRunSetup(cfg, "") {
+		t.Fatalf("saved default with a present key should skip setup")
+	}
+}
+
+func TestShouldRunSetup_OllamaNeedsNoKey(t *testing.T) {
+	cfg := config.Default()
+	cfg.Default.Provider = "ollama"
+	if shouldRunSetup(cfg, "") {
+		t.Fatalf("ollama should skip setup without an API key")
+	}
+}
+
 // names returns the slice of server names from the flattened config —
 // helper for error messages.
 func names(cfgs []mcp.ServerConfig) []string {

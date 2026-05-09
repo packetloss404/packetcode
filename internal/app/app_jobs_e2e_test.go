@@ -41,7 +41,7 @@ func (s *scriptedE2EProvider) Slug() string                                  { r
 func (s *scriptedE2EProvider) BrandColor() lipgloss.Color                    { return lipgloss.Color("#000000") }
 func (s *scriptedE2EProvider) ValidateKey(_ context.Context, _ string) error { return nil }
 func (s *scriptedE2EProvider) ListModels(_ context.Context) ([]provider.Model, error) {
-	return nil, nil
+	return []provider.Model{{ID: "scripted-model", ContextWindow: 100_000, SupportsTools: true}}, nil
 }
 func (s *scriptedE2EProvider) Pricing(_ string) (float64, float64) { return 0, 0 }
 func (s *scriptedE2EProvider) ContextWindow(_ string) int          { return 100_000 }

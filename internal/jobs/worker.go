@@ -88,6 +88,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	spawnToolFactory := m.cfg.SpawnTool
 	systemPromptFor := m.cfg.SystemPromptFor
 	parentApprover := m.cfg.Approver
+	hookRunner := m.cfg.Hooks
 	maxDepth := m.cfg.MaxDepth
 	m.mu.RUnlock()
 
@@ -96,7 +97,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	// cap). Bucket B passes its SpawnAgentTool factory through here.
 	var extraTools []tools.Tool
 	if spawnToolFactory != nil && j.Depth < maxDepth-1 {
-		if t := spawnToolFactory(j.ID, j.Depth); t != nil {
+		if t := spawnToolFactory(j.ID, j.Depth, j.AllowWrite); t != nil {
 			extraTools = append(extraTools, t)
 		}
 	}
@@ -116,6 +117,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 		CostTracker:  m.cfg.CostTracker,
 		Approver:     approver,
 		SystemPrompt: systemPrompt,
+		Hooks:        hookRunner,
 	})
 
 	events := a.Run(jobCtx, j.Prompt)

@@ -100,7 +100,7 @@ func (a *App) handlePromptSubmit(msg prompt.SubmitMsg) (tea.Model, tea.Cmd) {
 // ValidateKey resolves. On success: persist to config, re-seed the
 // registry with a fresh Provider instance carrying the new key, close
 // the prompt, and reopen the provider picker so the user sees the row
-// update to "key ✓". On failure: keep the prompt open with the error
+// update to "key present". On failure: keep the prompt open with the error
 // so the user can retry or paste a different key.
 func (a *App) handleProviderKeyValidated(msg providerKeyValidatedMsg) (tea.Model, tea.Cmd) {
 	if !a.prompt.Visible() || a.prompt.Context() != msg.slug {

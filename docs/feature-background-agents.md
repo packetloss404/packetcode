@@ -107,7 +107,7 @@ type SpawnRequest struct {
     Provider     string  // "" → use default
     Model        string  // "" → use default
     SystemPrompt string  // "" → use SystemPromptFor
-    AllowWrite   bool    // opt-in to destructive tools (--write or wait=true)
+    AllowWrite   bool    // opt-in to destructive tools (--write or allow_write=true)
 }
 type SpawnError struct{ Code string; Reason string } // "limit_reached", "depth_exceeded", "unknown_provider"
 
@@ -213,7 +213,8 @@ Schema:
     "prompt":   { "type": "string", "description": "The task for the background agent. Be specific and self-contained — the spawned agent has no shared memory with you." },
     "provider": { "type": "string", "description": "Optional provider slug override (openai, gemini, minimax, openrouter, ollama). Defaults to the parent's provider." },
     "model":    { "type": "string", "description": "Optional model id override. Defaults to the parent's model." },
-    "wait":     { "type": "boolean", "description": "If true, this tool call blocks until the spawned job completes and returns its result inline. If false (default), returns the job id immediately and the result surfaces later." }
+    "wait":     { "type": "boolean", "description": "If true, this tool call blocks until the spawned job completes and returns its result inline. If false (default), returns the job id immediately and the result surfaces later." },
+    "allow_write": { "type": "boolean", "description": "If true, opt the child into destructive tools. This is independent of wait and may be unavailable from read-only parent jobs." }
   },
   "required": ["prompt"]
 }
@@ -223,7 +224,7 @@ Semantics:
 - `RequiresApproval()` returns **true**. Spawning is a meaningful action — the user should consent to a parallel agent at least the first time. Trust mode auto-approves.
 - The tool's `Execute` calls `JobManager.Spawn(...)` and:
   - **wait=false** (default): returns immediately. `ToolResult.Content = "Spawned job 7f3a (gemini/gemini-2.5-flash). Result will appear when the job completes."`. Metadata carries `job_id`.
-  - **wait=true**: calls `JobManager.WaitForJob(id, timeout)` and blocks (default 5 min). Returns the spawned agent's final summary as the tool result content. Cancelling the parent's ctx cascades to the child via `Manager.Cancel`.
+  - **wait=true**: calls `JobManager.WaitForJob(id, timeout)` and blocks (default 5 min). Returns the spawned agent's final summary as the tool result content. Waiting does not grant write access; callers must request `allow_write=true`, and read-only parent jobs cannot escalate.
 - Constructor: `tools.NewSpawnAgentTool(spawner JobSpawner, parentJobID string, parentDepth int) tools.Tool`. `JobSpawner` is a tiny interface defined in `internal/tools` to avoid an import cycle: `Spawn(SpawnRequest) (Snapshot, *SpawnError)`, `WaitForJob(id, timeout) (Result, bool)`. `*jobs.Manager` satisfies it.
 - The tool is **registered conditionally** in the per-job tool registry only when the new job's depth is less than `MaxDepth-1`.
 
@@ -256,7 +257,7 @@ Both `/spawn` and `spawn_agent` are supported. `/spawn` is the first concrete us
 A background job's tool registry is built in two tiers:
 
 1. **Always available, never approval-gated:** `read_file`, `search_codebase`, `list_directory`, `spawn_agent` (gated by depth, not approval).
-2. **Available only when explicitly opted in via spawn flag `--write` or `wait=true`:** `write_file`, `patch_file`, `execute_command`. When opted in, these tools route their approval through the **main session's `uiApprover`**, prefixing the approval prompt header with `(from job:<id>)`.
+2. **Available only when explicitly opted in via spawn flag `--write` or tool argument `allow_write=true`:** `write_file`, `patch_file`, `execute_command`. When opted in, these tools route their approval through the **main session's `uiApprover`**, prefixing the approval prompt header with `(from job:<id>)`.
 
 Why this combination:
 
@@ -264,7 +265,7 @@ Why this combination:
 - **Inheriting the main approval flow for everything is too noisy.** The point of background jobs is they don't interrupt you. Read-only tools have no destructive effect, so we exempt them.
 - **Restricting to read-only by default with explicit opt-in gives users control.**
 - **Surfacing destructive prompts through the main approver** keeps the user in control without inventing a separate approval UI. The main `uiApprover` is already a single-slot channel-based queue, which naturally serialises prompts.
-- **`wait=true` is a special case:** when the parent agent waits synchronously, the user already implicitly approved (they approved the `spawn_agent` call). In that mode destructive tools are auto-approved within the sub-agent.
+- **`wait=true` is not a write grant:** waiting only changes result delivery. Destructive tools require `allow_write=true`, and read-only background parents cannot use that flag to escalate a child.
 
 Implementation: the per-job `Approver` is a small adapter:
 ```go
@@ -272,7 +273,7 @@ Implementation: the per-job `Approver` is a small adapter:
 type jobApprover struct {
     parent      agent.Approver  // the main uiApprover
     jobID       string
-    allowWrite  bool            // from --write or wait=true
+    allowWrite  bool            // from --write or allow_write=true
 }
 func (j *jobApprover) Approve(ctx context.Context, req agent.ApprovalRequest) agent.ApprovalDecision {
     if !j.allowWrite {

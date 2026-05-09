@@ -92,8 +92,9 @@ func (t *McpTool) Description() string { return t.desc }
 // Schema returns the inputSchema verbatim from the server.
 func (t *McpTool) Schema() json.RawMessage { return t.schema }
 
-// RequiresApproval is always true for MCP tools — the server is
-// untrusted and any tool may have side effects. Trust mode auto-approves.
+// RequiresApproval is always true for MCP tools. A configured MCP
+// server is trusted local code at spawn time, but individual tool calls
+// may still have side effects. Trust mode auto-approves.
 func (t *McpTool) RequiresApproval() bool { return true }
 
 // Execute forwards the call to the underlying client and flattens the
@@ -118,6 +119,12 @@ func (t *McpTool) Execute(ctx context.Context, params json.RawMessage) (tools.To
 			return tools.ToolResult{
 				IsError: true,
 				Content: fmt.Sprintf("MCP server %q has exited — restart packetcode to reconnect", t.serverName),
+			}, nil
+		}
+		if errors.Is(err, ErrToolCallTimeout) {
+			return tools.ToolResult{
+				IsError: true,
+				Content: fmt.Sprintf("%s.%s: %s", t.serverName, t.toolName, err),
 			}, nil
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

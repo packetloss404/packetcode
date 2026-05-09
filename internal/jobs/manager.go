@@ -12,10 +12,13 @@ import (
 
 	"github.com/packetcode/packetcode/internal/agent"
 	"github.com/packetcode/packetcode/internal/cost"
+	"github.com/packetcode/packetcode/internal/hooks"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/session"
 	"github.com/packetcode/packetcode/internal/tools"
 )
+
+const spawnModelValidationTimeout = 5 * time.Second
 
 // Config bundles the dependencies a Manager needs. Most are shared with
 // the main App (Registry, Tools, MainSessions, CostTracker, Approver) so
@@ -72,6 +75,10 @@ type Config struct {
 	// (jobApprover) gates destructive tools through it.
 	Approver agent.Approver
 
+	// Hooks is shared with the foreground agent so background jobs obey
+	// the same lifecycle hook configuration.
+	Hooks *hooks.Runner
+
 	// Root is the project root (typically the working directory). Used
 	// to instantiate per-job tool clones so they target the right
 	// codebase.
@@ -88,7 +95,7 @@ type Config struct {
 	// the tool. The factory is called only for jobs whose depth is
 	// strictly less than MaxDepth-1, since deeper spawns would breach
 	// the recursion cap.
-	SpawnTool func(parentJobID string, parentDepth int) tools.Tool
+	SpawnTool func(parentJobID string, parentDepth int, parentAllowWrite bool) tools.Tool
 }
 
 // SpawnRequest is the input to Manager.Spawn. ParentJobID/ParentDepth
@@ -234,7 +241,7 @@ func (m *Manager) Subscribe(fn func(Snapshot)) {
 // is passed by value into NewManager". Safe to call before any jobs
 // have been spawned; calling it concurrently with running workers is
 // safe but may affect subsequent job boots only.
-func (m *Manager) SetSpawnToolFactory(fn func(parentJobID string, parentDepth int) tools.Tool) {
+func (m *Manager) SetSpawnToolFactory(fn func(parentJobID string, parentDepth int, parentAllowWrite bool) tools.Tool) {
 	m.mu.Lock()
 	m.cfg.SpawnTool = fn
 	m.mu.Unlock()
@@ -406,22 +413,23 @@ func (m *Manager) DrainResults(n int) []Result {
 
 // WaitForJob blocks until the named job reaches a terminal state or
 // timeout elapses. Returns ok=false if the id is unknown or the timeout
-// fires before the job completes. The returned Result is the same
-// shape DrainResults yields, but the job is NOT removed from the
-// pending results queue.
+// fires before the job completes. The returned Result is consumed from
+// the pending results queue so a waited child is not delivered again by
+// DrainResults.
 func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
-	m.mu.RLock()
+	m.mu.Lock()
 	j, exists := m.jobs[id]
 	if !exists {
-		m.mu.RUnlock()
+		m.mu.Unlock()
 		return Result{}, false
 	}
 	if j.State.IsTerminal() {
-		m.mu.RUnlock()
-		return resultFromJob(j), true
+		out := m.consumeResultLocked(j)
+		m.mu.Unlock()
+		return out, true
 	}
 	ch, ok := m.terminalCh[id]
-	m.mu.RUnlock()
+	m.mu.Unlock()
 	if !ok {
 		// No channel set up — job is queued but worker hasn't
 		// initialised it yet. Poll briefly via a tiny ticker so we
@@ -441,8 +449,15 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 					return Result{}, false
 				}
 				if j2.State.IsTerminal() {
-					out := resultFromJob(j2)
 					m.mu.RUnlock()
+					m.mu.Lock()
+					j3 := m.jobs[id]
+					if j3 == nil {
+						m.mu.Unlock()
+						return Result{}, false
+					}
+					out := m.consumeResultLocked(j3)
+					m.mu.Unlock()
 					return out, true
 				}
 				m.mu.RUnlock()
@@ -453,16 +468,32 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 	}
 	select {
 	case <-ch:
-		m.mu.RLock()
+		m.mu.Lock()
 		j2 := m.jobs[id]
-		m.mu.RUnlock()
 		if j2 == nil {
+			m.mu.Unlock()
 			return Result{}, false
 		}
-		return resultFromJob(j2), true
+		out := m.consumeResultLocked(j2)
+		m.mu.Unlock()
+		return out, true
 	case <-time.After(timeout):
 		return Result{}, false
 	}
+}
+
+// consumeResultLocked returns j's terminal Result and removes the first
+// queued result for that job, if markTerminal has already enqueued it.
+// Caller must hold m.mu for writing.
+func (m *Manager) consumeResultLocked(j *Job) Result {
+	for i, r := range m.results {
+		if r.JobID == j.ID {
+			copy(m.results[i:], m.results[i+1:])
+			m.results = m.results[:len(m.results)-1]
+			return r
+		}
+	}
+	return resultFromJob(j)
 }
 
 // resultFromJob projects a Job into the Result tuple. Caller should
@@ -490,33 +521,26 @@ func resultFromJob(j *Job) Result {
 // receive a *SpawnError (not a generic error) so they can switch on
 // Code without string parsing.
 func (m *Manager) Spawn(req SpawnRequest) (Snapshot, *SpawnError) {
-	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
-		return Snapshot{}, &SpawnError{Code: "manager_closed"}
-	}
-	if m.totalSpawned >= m.cfg.MaxTotal {
-		m.mu.Unlock()
-		return Snapshot{}, &SpawnError{
-			Code:   "limit_reached",
-			Reason: fmt.Sprintf("max %d background jobs per app run", m.cfg.MaxTotal),
-		}
-	}
 	depth := req.ParentDepth
 	if req.ParentJobID != "" {
 		// When spawned by another job, depth is parent + 1.
 		depth = req.ParentDepth + 1
 	}
-	if depth >= m.cfg.MaxDepth {
+
+	m.mu.Lock()
+	if perr := m.checkSpawnAllowedLocked(depth); perr != nil {
 		m.mu.Unlock()
-		return Snapshot{}, &SpawnError{
-			Code:   "depth_exceeded",
-			Reason: fmt.Sprintf("max background depth is %d", m.cfg.MaxDepth),
-		}
+		return Snapshot{}, perr
 	}
+	m.mu.Unlock()
 
 	provSlug, modelID, perr := m.resolveProviderModel(req)
 	if perr != nil {
+		return Snapshot{}, perr
+	}
+
+	m.mu.Lock()
+	if perr := m.checkSpawnAllowedLocked(depth); perr != nil {
 		m.mu.Unlock()
 		return Snapshot{}, perr
 	}
@@ -570,6 +594,25 @@ func (m *Manager) Spawn(req SpawnRequest) (Snapshot, *SpawnError) {
 	return snap, nil
 }
 
+func (m *Manager) checkSpawnAllowedLocked(depth int) *SpawnError {
+	if m.closed {
+		return &SpawnError{Code: "manager_closed"}
+	}
+	if m.totalSpawned >= m.cfg.MaxTotal {
+		return &SpawnError{
+			Code:   "limit_reached",
+			Reason: fmt.Sprintf("max %d background jobs per app run", m.cfg.MaxTotal),
+		}
+	}
+	if depth >= m.cfg.MaxDepth {
+		return &SpawnError{
+			Code:   "depth_exceeded",
+			Reason: fmt.Sprintf("max background depth is %d", m.cfg.MaxDepth),
+		}
+	}
+	return nil
+}
+
 // buildJobProviderRegistry constructs a fresh single-provider Registry
 // containing only the (provider, model) pair the job is bound to. This
 // matches the spec's isolation philosophy: a hot-switch in the main
@@ -598,18 +641,25 @@ func (m *Manager) buildJobProviderRegistry(j *Job) (*provider.Registry, error) {
 //
 // At each step, missing slots fall through to the next.
 func (m *Manager) resolveProviderModel(req SpawnRequest) (string, string, *SpawnError) {
+	m.mu.RLock()
+	reg := m.cfg.Registry
+	defaultProvider := m.cfg.DefaultProvider
+	defaultModel := m.cfg.DefaultModel
+	baseCtx := m.baseCtx
+	m.mu.RUnlock()
+
 	provSlug := req.Provider
 	modelID := req.Model
 
 	if provSlug == "" {
-		provSlug = m.cfg.DefaultProvider
+		provSlug = defaultProvider
 	}
 	if modelID == "" {
-		modelID = m.cfg.DefaultModel
+		modelID = defaultModel
 	}
 
-	if (provSlug == "" || modelID == "") && m.cfg.Registry != nil {
-		if activeProv, activeModel := m.cfg.Registry.Active(); activeProv != nil {
+	if (provSlug == "" || modelID == "") && reg != nil {
+		if activeProv, activeModel := reg.Active(); activeProv != nil {
 			if provSlug == "" {
 				provSlug = activeProv.Slug()
 			}
@@ -621,12 +671,45 @@ func (m *Manager) resolveProviderModel(req SpawnRequest) (string, string, *Spawn
 	if provSlug == "" || modelID == "" {
 		return "", "", &SpawnError{Code: "no_provider", Reason: "no default (provider, model) pair available"}
 	}
-	if m.cfg.Registry != nil {
-		if _, ok := m.cfg.Registry.Get(provSlug); !ok {
+	if reg != nil {
+		prov, ok := reg.Get(provSlug)
+		if !ok {
 			return "", "", &SpawnError{Code: "unknown_provider", Reason: provSlug}
+		}
+		if perr := validateSpawnModel(baseCtx, reg, prov, modelID); perr != nil {
+			return "", "", perr
 		}
 	}
 	return provSlug, modelID, nil
+}
+
+func validateSpawnModel(ctx context.Context, reg *provider.Registry, prov provider.Provider, modelID string) *SpawnError {
+	models, ok := reg.CachedModels(prov.Slug())
+	if !ok {
+		listCtx, cancel := context.WithTimeout(ctx, spawnModelValidationTimeout)
+		fetched, err := prov.ListModels(listCtx)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+				return &SpawnError{Code: "manager_closed"}
+			}
+			return &SpawnError{
+				Code:   "unknown_model",
+				Reason: fmt.Sprintf("could not validate %s/%s: %v", prov.Slug(), modelID, err),
+			}
+		}
+		reg.SetCachedModels(prov.Slug(), fetched)
+		models = fetched
+	}
+	for _, m := range models {
+		if m.ID == modelID {
+			return nil
+		}
+	}
+	return &SpawnError{
+		Code:   "unknown_model",
+		Reason: fmt.Sprintf("%q is not exposed by provider %q", modelID, prov.Slug()),
+	}
 }
 
 // fanOut dispatches snap to every subscriber from a separate goroutine

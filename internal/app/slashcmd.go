@@ -7,35 +7,16 @@ import (
 	"strings"
 )
 
-// knownSlashCommands is the flat allow-list of recognised verbs. Each
-// handler is responsible for any further argument parsing; the parser's
-// job is only to distinguish "this looked like a slash command" from
-// "this is normal prose".
-var knownSlashCommands = map[string]struct{}{
-	"spawn":      {},
-	"jobs":       {},
-	"cancel":     {},
-	"provider":   {},
-	"model":      {},
-	"sessions":   {},
-	"undo":       {},
-	"compact":    {},
-	"cost":       {},
-	"trust":      {},
-	"help":       {},
-	"clear":      {},
-	"mcp":        {},
-	"statusline": {},
-	"exit":       {},
-	"quit":       {},
-}
-
 // ParseSlashCommand inspects a raw input line and, if it starts with "/"
 // and names a recognised verb, returns the command name (without the
 // leading slash) and its whitespace-split arguments. ok=false means the
 // input is not a slash command and should be treated as a normal user
 // prompt.
 func ParseSlashCommand(text string) (cmd string, args []string, ok bool) {
+	return NewBuiltinSlashRegistry().Parse(text)
+}
+
+func parseSlashCommandFields(text string) (cmd string, args []string, ok bool) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" || !strings.HasPrefix(trimmed, "/") {
 		return "", nil, false
@@ -45,11 +26,29 @@ func ParseSlashCommand(text string) (cmd string, args []string, ok bool) {
 		return "", nil, false
 	}
 	fields := strings.Fields(body)
-	name := fields[0]
-	if _, hit := knownSlashCommands[name]; !hit {
-		return "", nil, false
+	return fields[0], fields[1:], true
+}
+
+func slashCommandText(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return strings.HasPrefix(trimmed, "/") && !strings.HasPrefix(trimmed, "//")
+}
+
+func escapedSlashPrompt(text string) (string, bool) {
+	trimmed := strings.TrimSpace(text)
+	if !strings.HasPrefix(trimmed, "//") {
+		return "", false
 	}
-	return name, fields[1:], true
+	return strings.TrimPrefix(trimmed, "/"), true
+}
+
+func slashCommandArguments(text, cmd string) string {
+	trimmed := strings.TrimSpace(text)
+	body := strings.TrimPrefix(trimmed, "/")
+	if body == cmd {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(body, cmd))
 }
 
 // ParseSpawnFlags handles the argument tail of a /spawn command. Accepted

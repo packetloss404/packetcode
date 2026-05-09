@@ -97,6 +97,27 @@ func TestApp_CtrlP_ActiveMarkedAndCursored(t *testing.T) {
 	}
 }
 
+func TestProviderItems_KeyStatusSaysPresentNotValidated(t *testing.T) {
+	cfg := config.Default()
+	cfg.Providers["fake"] = config.ProviderConfig{APIKey: "sk-test", DefaultModel: "fake-model"}
+	items := providerItems([]provider.Provider{
+		&fakeProvider{slug: "fake", name: "Fake Provider"},
+		&fakeProvider{slug: "empty", name: "Empty Provider"},
+	}, cfg, "fake")
+	if len(items) != 2 {
+		t.Fatalf("providerItems len = %d, want 2", len(items))
+	}
+	if !strings.Contains(items[0].Detail, "key present") {
+		t.Fatalf("configured provider detail = %q, want key present", items[0].Detail)
+	}
+	if strings.Contains(items[0].Detail, "✓") {
+		t.Fatalf("configured provider detail implies validation: %q", items[0].Detail)
+	}
+	if !strings.Contains(items[1].Detail, "Ctrl+A") {
+		t.Fatalf("missing-key provider detail = %q, want Ctrl+A hint", items[1].Detail)
+	}
+}
+
 // TestApp_CtrlP_SelectAppliesSwitch verifies hitting Enter on a non-
 // active row applies the switch through applyProviderSwitch.
 func TestApp_CtrlP_SelectAppliesSwitch(t *testing.T) {

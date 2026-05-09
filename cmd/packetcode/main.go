@@ -95,8 +95,21 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 		"ollama":     func(_ string) provider.Provider { return ollama.New(ollamaHost(cfg)) },
 	}
 
-	// First-run: no provider configured yet → walk through setup.
-	if cfg.Default.Provider == "" || (cfg.Default.Provider != "ollama" && cfg.GetProviderKey(cfg.Default.Provider) == "") {
+	activeSlug := cfg.Default.Provider
+	activeModel := cfg.Default.Model
+	if providerOverride != "" {
+		activeSlug = providerOverride
+	}
+	if modelOverride != "" {
+		activeModel = modelOverride
+	}
+
+	// First-run: no saved default provider yet → walk through setup.
+	// An explicit --provider is a session override, so respect it before
+	// deciding whether onboarding is needed. If that override is not
+	// configured, startup reports the normal "active provider is not
+	// configured" error below instead of forcing unrelated setup.
+	if shouldRunSetup(cfg, providerOverride) {
 		_, err := app.RunSetup(os.Stdin, os.Stdout, cfg, factories)
 		if err != nil {
 			return err
@@ -106,16 +119,14 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 		if err != nil {
 			return err
 		}
-	}
-
-	// Apply CLI overrides over config defaults.
-	activeSlug := cfg.Default.Provider
-	activeModel := cfg.Default.Model
-	if providerOverride != "" {
-		activeSlug = providerOverride
-	}
-	if modelOverride != "" {
-		activeModel = modelOverride
+		activeSlug = cfg.Default.Provider
+		activeModel = cfg.Default.Model
+		if providerOverride != "" {
+			activeSlug = providerOverride
+		}
+		if modelOverride != "" {
+			activeModel = modelOverride
+		}
 	}
 
 	if trust {
@@ -191,6 +202,8 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 	toolReg.Register(tools.NewWriteFileTool(root, bk))
 	toolReg.Register(tools.NewPatchFileTool(root, bk))
 
+	hookRunner := hooks.New(cfg.Hooks, root)
+
 	// Cost tracker — pricing closure delegates to whichever provider is
 	// active *now* (post hot-switch), not the one when a token was
 	// recorded.
@@ -263,6 +276,7 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 		DefaultProvider: cfg.Behavior.BackgroundDefaultProvider,
 		DefaultModel:    cfg.Behavior.BackgroundDefaultModel,
 		Root:            root,
+		Hooks:           hookRunner,
 		// Approver and SpawnTool are set below, once jobsMgr and the
 		// App's uiApprover exist. Leaving them nil here is fine: the
 		// manager guards both before use.
@@ -277,8 +291,8 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 	// own spawn_agent tool bound to the spawning job's id/depth so the
 	// Manager can enforce recursion limits and annotate child-of-child
 	// approvals correctly.
-	jobsMgr.SetSpawnToolFactory(func(parentJobID string, parentDepth int) tools.Tool {
-		return tools.NewSpawnAgentTool(jobsMgr.AsToolsSpawner(), parentJobID, parentDepth)
+	jobsMgr.SetSpawnToolFactory(func(parentJobID string, parentDepth int, parentAllowWrite bool) tools.Tool {
+		return tools.NewBackgroundSpawnAgentTool(jobsMgr.AsToolsSpawner(), parentJobID, parentDepth, parentAllowWrite)
 	})
 	defer jobsMgr.Shutdown(5 * time.Second)
 
@@ -306,7 +320,7 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 		MCP:          mcpMgr,
 		WorkingDir:   root,
 		SystemPrompt: systemPrompt,
-		Hooks:        hooks.New(cfg.Hooks, root),
+		Hooks:        hookRunner,
 		Version:      welcomeVersion(),
 		Factories:    factories,
 	})
@@ -327,6 +341,22 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 		return err
 	}
 	return nil
+}
+
+func shouldRunSetup(cfg *config.Config, providerOverride string) bool {
+	if cfg == nil {
+		return true
+	}
+	if providerOverride != "" {
+		return false
+	}
+	if cfg.Default.Provider == "" {
+		return true
+	}
+	if cfg.Default.Provider == "ollama" {
+		return false
+	}
+	return cfg.GetProviderKey(cfg.Default.Provider) == ""
 }
 
 // welcomeVersion returns the label shown on the welcome splash. We

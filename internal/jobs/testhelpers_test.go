@@ -24,17 +24,31 @@ import (
 // package uses in its tests; duplicated here so we don't import a test
 // file across packages.
 type scriptedProvider struct {
-	turns    [][]provider.StreamEvent
-	turnIdx  int32
-	holdOpen bool // when true, ignore turns and stream until ctx cancels
-	pricing  func(string) (float64, float64)
+	turns     [][]provider.StreamEvent
+	turnIdx   int32
+	holdOpen  bool // when true, ignore turns and stream until ctx cancels
+	pricing   func(string) (float64, float64)
+	models    []provider.Model
+	listErr   error
+	listCalls int32
+	mu        sync.Mutex
+	requests  []provider.ChatRequest
 }
 
-func (s *scriptedProvider) Name() string                                           { return "scripted" }
-func (s *scriptedProvider) Slug() string                                           { return "scripted" }
-func (s *scriptedProvider) BrandColor() lipgloss.Color                             { return lipgloss.Color("#000000") }
-func (s *scriptedProvider) ValidateKey(_ context.Context, _ string) error          { return nil }
-func (s *scriptedProvider) ListModels(_ context.Context) ([]provider.Model, error) { return nil, nil }
+func (s *scriptedProvider) Name() string                                  { return "scripted" }
+func (s *scriptedProvider) Slug() string                                  { return "scripted" }
+func (s *scriptedProvider) BrandColor() lipgloss.Color                    { return lipgloss.Color("#000000") }
+func (s *scriptedProvider) ValidateKey(_ context.Context, _ string) error { return nil }
+func (s *scriptedProvider) ListModels(_ context.Context) ([]provider.Model, error) {
+	atomic.AddInt32(&s.listCalls, 1)
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	if s.models == nil {
+		return []provider.Model{{ID: "scripted-model"}}, nil
+	}
+	return s.models, nil
+}
 func (s *scriptedProvider) Pricing(model string) (float64, float64) {
 	if s.pricing != nil {
 		return s.pricing(model)
@@ -44,7 +58,10 @@ func (s *scriptedProvider) Pricing(model string) (float64, float64) {
 func (s *scriptedProvider) ContextWindow(string) int  { return 100_000 }
 func (s *scriptedProvider) SupportsTools(string) bool { return true }
 
-func (s *scriptedProvider) ChatCompletion(ctx context.Context, _ provider.ChatRequest) (<-chan provider.StreamEvent, error) {
+func (s *scriptedProvider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.StreamEvent, error) {
+	s.mu.Lock()
+	s.requests = append(s.requests, req)
+	s.mu.Unlock()
 	if s.holdOpen {
 		ch := make(chan provider.StreamEvent)
 		go func() {
@@ -72,6 +89,14 @@ func (s *scriptedProvider) ChatCompletion(ctx context.Context, _ provider.ChatRe
 	}
 	close(ch)
 	return ch, nil
+}
+
+func (s *scriptedProvider) snapshotRequests() []provider.ChatRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]provider.ChatRequest, len(s.requests))
+	copy(out, s.requests)
+	return out
 }
 
 // scriptedAlias registers the scripted provider under a custom slug.

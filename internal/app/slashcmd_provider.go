@@ -15,6 +15,18 @@ func (a *App) handleProviderCommand(args []string) (tea.Model, tea.Cmd) {
 	if len(args) == 0 {
 		return a, a.openProviderPicker()
 	}
+	if args[0] == "add" {
+		switch len(args) {
+		case 1:
+			a.conversation.AppendSystem("provider add: choose a provider, then press Ctrl+A to set or update its key")
+			return a, a.openProviderPicker()
+		case 2:
+			return a, a.openProviderKeyPrompt(args[1])
+		default:
+			a.conversation.AppendSystem("provider add: usage: /provider add [slug]")
+			return a, nil
+		}
+	}
 	if err := a.applyProviderSwitch(args[0]); err != nil {
 		a.conversation.AppendSystem("provider: " + err.Error())
 	}

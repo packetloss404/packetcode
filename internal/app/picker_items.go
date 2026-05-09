@@ -28,12 +28,12 @@ func providerItems(regs []provider.Provider, cfg *config.Config, activeSlug stri
 					defModel = pc.DefaultModel
 				}
 				if slug != "ollama" && (pc.APIKey != "" || cfg.GetProviderKey(slug) != "") {
-					keyStatus = "key ✓"
+					keyStatus = "key present"
 				}
 			}
 			// Env-var-only key case when the provider has no config entry.
 			if keyStatus == "(no key)" && slug != "ollama" && cfg.GetProviderKey(slug) != "" {
-				keyStatus = "key ✓"
+				keyStatus = "key present"
 			}
 		}
 		detail := keyStatus
@@ -41,7 +41,7 @@ func providerItems(regs []provider.Provider, cfg *config.Config, activeSlug stri
 			detail = defModel + " · " + keyStatus
 		}
 		if keyStatus == "(no key)" {
-			detail = "ctrl+a to set key"
+			detail = "Ctrl+A to set key"
 		}
 		marker := ""
 		if slug == activeSlug {

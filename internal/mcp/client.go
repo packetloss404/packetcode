@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// defaultInitTimeoutSec is the fall-back timeout applied to initialize +
-// tools/list when ServerConfig.TimeoutSec is zero or negative.
+// defaultInitTimeoutSec is the fall-back timeout applied to initialize,
+// tools/list, and tools/call when ServerConfig.TimeoutSec is zero or negative.
 const defaultInitTimeoutSec = 10
 
 // ServerInfo is the inner serverInfo block of an initialize response.
@@ -65,19 +65,20 @@ type rpcResponse struct {
 // Client drives a single MCP server over stdio. All public methods are
 // safe for concurrent use.
 type Client struct {
-	name       string
-	cmd        *exec.Cmd
-	stdin      io.WriteCloser
-	stdout     io.ReadCloser
-	logFile    *os.File
-	wmu        sync.Mutex // serialises stdin writes
-	deathMu    sync.Mutex
-	nextID     atomic.Int64
-	pending    sync.Map // map[int64]chan rpcResponse
-	dead       atomic.Bool
-	deadErr    atomic.Value // error
-	serverInfo ServerInfo
-	tools      []ServerTool
+	name        string
+	cmd         *exec.Cmd
+	stdin       io.WriteCloser
+	stdout      io.ReadCloser
+	logFile     *os.File
+	wmu         sync.Mutex // serialises stdin writes
+	deathMu     sync.Mutex
+	nextID      atomic.Int64
+	pending     sync.Map // map[int64]chan rpcResponse
+	dead        atomic.Bool
+	deadErr     atomic.Value // error
+	serverInfo  ServerInfo
+	tools       []ServerTool
+	callTimeout time.Duration
 }
 
 // NewClient spawns the configured server, performs the MCP handshake
@@ -93,21 +94,22 @@ func NewClient(ctx context.Context, cfg ServerConfig, logDir string, info Client
 		return nil, err
 	}
 
-	c := &Client{
-		name:    cfg.Name,
-		cmd:     cmd,
-		stdin:   stdin,
-		stdout:  stdout,
-		logFile: logFile,
-	}
-
-	go c.readerLoop()
-	go c.reaperLoop()
-
 	timeout := time.Duration(cfg.TimeoutSec) * time.Second
 	if cfg.TimeoutSec <= 0 {
 		timeout = defaultInitTimeoutSec * time.Second
 	}
+
+	c := &Client{
+		name:        cfg.Name,
+		cmd:         cmd,
+		stdin:       stdin,
+		stdout:      stdout,
+		logFile:     logFile,
+		callTimeout: timeout,
+	}
+
+	go c.readerLoop()
+	go c.reaperLoop()
 
 	if err := c.handshake(ctx, timeout, info); err != nil {
 		// Kill + drain so we don't leak the child.
@@ -122,11 +124,12 @@ func NewClient(ctx context.Context, cfg ServerConfig, logDir string, info Client
 // Production callers go through NewClient. logFile may be nil.
 func newClientFromIO(ctx context.Context, name string, stdin io.WriteCloser, stdout io.ReadCloser, logFile *os.File, cmd *exec.Cmd, timeout time.Duration, info ClientInfo) (*Client, error) {
 	c := &Client{
-		name:    name,
-		cmd:     cmd,
-		stdin:   stdin,
-		stdout:  stdout,
-		logFile: logFile,
+		name:        name,
+		cmd:         cmd,
+		stdin:       stdin,
+		stdout:      stdout,
+		logFile:     logFile,
+		callTimeout: timeout,
 	}
 	go c.readerLoop()
 	if cmd != nil {
@@ -239,8 +242,18 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 		"name":      name,
 		"arguments": json.RawMessage(args),
 	}
-	raw, err := c.callTimed(ctx, "tools/call", params)
+	timeout := c.callTimeout
+	if timeout <= 0 {
+		timeout = defaultInitTimeoutSec * time.Second
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	raw, err := c.callTimed(callCtx, "tools/call", params)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil && errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			return ToolCallResult{}, fmt.Errorf("%w after %s", ErrToolCallTimeout, timeout)
+		}
 		return ToolCallResult{}, err
 	}
 	var res ToolCallResult

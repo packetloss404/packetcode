@@ -47,7 +47,7 @@ func RunSetup(in io.Reader, out io.Writer, cfg *config.Config, factories Factory
 	fmt.Fprintln(out, "  ⚡ Welcome to packetcode")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "  No providers configured yet. Let's set one up.")
-	fmt.Fprintln(out, "  (Configure additional providers later via /provider add)")
+	fmt.Fprintln(out, "  (Configure additional providers later with Ctrl+P, then Ctrl+A on a provider row)")
 	fmt.Fprintln(out, "")
 
 	for {

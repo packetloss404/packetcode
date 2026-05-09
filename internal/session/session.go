@@ -108,6 +108,12 @@ func (m *Manager) Load(id string) (*Session, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("decode session: %w", err)
 	}
+	if err := validateSessionID(s.ID); err != nil {
+		return nil, fmt.Errorf("decode session: %w", err)
+	}
+	if s.ID != id {
+		return nil, fmt.Errorf("decode session: id mismatch %q != %q", s.ID, id)
+	}
 	m.mu.Lock()
 	m.current = &s
 	m.mu.Unlock()
@@ -121,6 +127,9 @@ func (m *Manager) Save() error {
 	s := m.current
 	if s == nil {
 		return fmt.Errorf("save session: no current session")
+	}
+	if err := validateSessionID(s.ID); err != nil {
+		return fmt.Errorf("save session: %w", err)
 	}
 	if err := os.MkdirAll(m.dir, 0o700); err != nil {
 		return err
@@ -217,6 +226,9 @@ func (m *Manager) List() ([]Summary, error) {
 		}
 		var s Session
 		if err := json.Unmarshal(data, &s); err != nil {
+			continue
+		}
+		if err := validateSessionID(s.ID); err != nil || e.Name() != s.ID+".json" {
 			continue
 		}
 		out = append(out, Summary{

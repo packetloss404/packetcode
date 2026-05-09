@@ -333,6 +333,9 @@ func (a *Agent) handleToolCall(ctx context.Context, call provider.ToolCall, even
 
 	res, err := tool.Execute(ctx, params)
 	if err != nil {
+		if isContextCancellation(err) {
+			return err
+		}
 		// Distinguish "tool returned an error result" (res.IsError) from
 		// "tool itself failed to run" (err != nil). The latter still
 		// becomes a tool-role message so the LLM can adapt.
@@ -361,6 +364,10 @@ func (a *Agent) handleToolCall(ctx context.Context, call provider.ToolCall, even
 		Name:       call.Name,
 		Content:    res.Content,
 	})
+}
+
+func isContextCancellation(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func (a *Agent) currentSessionID() string {
@@ -419,7 +426,7 @@ func (a *Agent) buildMessages() []provider.Message {
 		})
 	}
 	if cur != nil {
-		msgs = append(msgs, cur.Messages...)
+		msgs = append(msgs, normalizeToolTranscript(cur.Messages)...)
 	}
 	return msgs
 }

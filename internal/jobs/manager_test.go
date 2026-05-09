@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -127,7 +128,7 @@ func TestManager_DepthLimit(t *testing.T) {
 	var spawnFactoryCalled int32
 	mgr, _ := newTestManager(t, prov, func(c *Config) {
 		c.MaxDepth = 2
-		c.SpawnTool = func(parentJobID string, parentDepth int) tools.Tool {
+		c.SpawnTool = func(parentJobID string, parentDepth int, parentAllowWrite bool) tools.Tool {
 			atomic.AddInt32(&spawnFactoryCalled, 1)
 			return &noopTool{name: "spawn_agent"}
 		}
@@ -172,6 +173,50 @@ func TestManager_LifetimeLimit(t *testing.T) {
 	_, perr := mgr.Spawn(SpawnRequest{Prompt: "x"})
 	require.NotNil(t, perr)
 	assert.Equal(t, "limit_reached", perr.Code)
+}
+
+func TestManager_SpawnRejectsUnknownModelFromCache(t *testing.T) {
+	prov := &scriptedProvider{turns: scriptedHello()}
+	mgr, _ := newTestManager(t, prov)
+	mgr.cfg.Registry.SetCachedModels("scripted", []provider.Model{{ID: "scripted-model"}})
+
+	_, perr := mgr.Spawn(SpawnRequest{Prompt: "x", Model: "made-up-model"})
+	require.NotNil(t, perr)
+	assert.Equal(t, "unknown_model", perr.Code)
+	assert.Empty(t, mgr.List(), "invalid model must not enqueue a job")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&prov.listCalls), "cache hit should not call ListModels")
+}
+
+func TestManager_SpawnValidatesAndCachesUncachedModel(t *testing.T) {
+	prov := &scriptedProvider{
+		turns: [][]provider.StreamEvent{
+			scriptedHello()[0],
+			scriptedHello()[0],
+		},
+		models: []provider.Model{{ID: "custom-model"}},
+	}
+	mgr, _ := newTestManager(t, prov)
+
+	first, perr := mgr.Spawn(SpawnRequest{Prompt: "x", Model: "custom-model"})
+	require.Nil(t, perr)
+	assert.Equal(t, "custom-model", first.Model)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&prov.listCalls))
+
+	second, perr := mgr.Spawn(SpawnRequest{Prompt: "x", Model: "custom-model"})
+	require.Nil(t, perr)
+	assert.Equal(t, "custom-model", second.Model)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&prov.listCalls), "second spawn should use cached models")
+}
+
+func TestManager_SpawnRejectsWhenModelCatalogFails(t *testing.T) {
+	prov := &scriptedProvider{turns: scriptedHello(), listErr: errors.New("catalog down")}
+	mgr, _ := newTestManager(t, prov)
+
+	_, perr := mgr.Spawn(SpawnRequest{Prompt: "x"})
+	require.NotNil(t, perr)
+	assert.Equal(t, "unknown_model", perr.Code)
+	assert.Contains(t, perr.Reason, "catalog down")
+	assert.Empty(t, mgr.List(), "unvalidated model must not enqueue a job")
 }
 
 // Test 5 — Cancel transitions a holdOpen job to StateCancelled.
@@ -327,6 +372,50 @@ func TestManager_DrainResults(t *testing.T) {
 	results := mgr.DrainResults(10)
 	assert.Len(t, results, N)
 	assert.Empty(t, mgr.DrainResults(10))
+}
+
+func TestManager_ReadOnlyJobCanSpawnReadOnlyChild(t *testing.T) {
+	prov := &scriptedProvider{turns: [][]provider.StreamEvent{
+		{
+			{Type: provider.EventToolCallStart, ToolCall: &provider.ToolCallDelta{Index: 0, ID: "spawn1", Name: "spawn_agent"}},
+			{Type: provider.EventToolCallDelta, ToolCall: &provider.ToolCallDelta{Index: 0, ArgumentsDelta: `{"prompt":"child scout","wait":true}`}},
+			{Type: provider.EventToolCallEnd, ToolCall: &provider.ToolCallDelta{Index: 0}},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		},
+		{
+			{Type: provider.EventTextDelta, TextDelta: "child done"},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		},
+		{
+			{Type: provider.EventTextDelta, TextDelta: "parent done"},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		},
+	}}
+	mgr, _ := newTestManager(t, prov, func(c *Config) {
+		c.MaxDepth = 2
+	})
+	mgr.SetSpawnToolFactory(func(parentJobID string, parentDepth int, parentAllowWrite bool) tools.Tool {
+		return tools.NewBackgroundSpawnAgentTool(mgr.AsToolsSpawner(), parentJobID, parentDepth, parentAllowWrite)
+	})
+
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "parent", AllowWrite: false})
+	require.Nil(t, perr)
+	waitFor(t, 3*time.Second, "parent and child complete", func() bool {
+		if len(mgr.List()) != 2 {
+			return false
+		}
+		for _, got := range mgr.List() {
+			if got.State != StateCompleted {
+				return false
+			}
+		}
+		parent, _ := mgr.Get(snap.ID)
+		return parent.Summary == "parent done"
+	})
+
+	results := mgr.DrainResults(0)
+	require.Len(t, results, 1, "wait=true child result should be consumed by the parent job")
+	assert.Equal(t, snap.ID, results[0].JobID)
 }
 
 // Test 10 — backup isolation: a job's write_file should land in the

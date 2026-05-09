@@ -154,9 +154,10 @@ func TestSpawnAgentTool_Wait_Completed(t *testing.T) {
 	if f.spawned.Load() != 1 || f.waited.Load() != 1 {
 		t.Fatalf("spawn=%d wait=%d, want 1 / 1", f.spawned.Load(), f.waited.Load())
 	}
-	// wait=true implicitly approves destructive tool usage in the child.
-	if !f.lastReq.AllowWrite {
-		t.Fatalf("wait=true should set AllowWrite on SpawnRequest")
+	// Waiting is result routing only; write access is an explicit
+	// allow_write opt-in.
+	if f.lastReq.AllowWrite {
+		t.Fatalf("wait=true must not set AllowWrite without allow_write")
 	}
 	// Parent context propagated into the SpawnRequest.
 	if f.lastReq.ParentJobID != "parent-01" || f.lastReq.ParentDepth != 1 {
@@ -234,7 +235,7 @@ func TestSpawnAgentTool_Schema(t *testing.T) {
 	if !ok {
 		t.Fatalf("schema missing properties")
 	}
-	for _, name := range []string{"prompt", "provider", "model", "wait"} {
+	for _, name := range []string{"prompt", "provider", "model", "wait", "allow_write"} {
 		if _, ok := props[name]; !ok {
 			t.Fatalf("schema missing property %q", name)
 		}
@@ -248,6 +249,45 @@ func TestSpawnAgentTool_Schema(t *testing.T) {
 	}
 	if !foundPrompt {
 		t.Fatalf("schema required should include 'prompt': %v", required)
+	}
+}
+
+func TestSpawnAgentTool_AllowWriteExplicit(t *testing.T) {
+	f := &fakeSpawner{
+		spawnResult: JobSpawnResult{ID: "abc123", Provider: "gemini", Model: "flash"},
+	}
+	tool := NewSpawnAgentTool(f, "", 0)
+
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"edit","allow_write":true}`))
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("IsError=true unexpected: %+v", res)
+	}
+	if !f.lastReq.AllowWrite {
+		t.Fatalf("allow_write=true should set AllowWrite on SpawnRequest")
+	}
+}
+
+func TestBackgroundSpawnAgentTool_ReadOnlyDeniesAllowWrite(t *testing.T) {
+	f := &fakeSpawner{
+		spawnResult: JobSpawnResult{ID: "abc123", Provider: "gemini", Model: "flash"},
+	}
+	tool := NewBackgroundSpawnAgentTool(f, "parent", 0, false)
+
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"edit","allow_write":true}`))
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected IsError=true when read-only parent requests allow_write")
+	}
+	if f.spawned.Load() != 0 {
+		t.Fatalf("spawn called %d times, want 0", f.spawned.Load())
+	}
+	if !strings.Contains(res.Content, "allow_write") {
+		t.Fatalf("Content %q should mention allow_write", res.Content)
 	}
 }
 

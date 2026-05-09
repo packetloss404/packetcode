@@ -44,3 +44,16 @@ func TestThemePath_UnderHomeDir(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dir, ".packetcode", "theme.toml"), got)
 }
+
+func TestCommandsDirs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+
+	user, err := UserCommandsDir()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, ".packetcode", "commands"), user)
+
+	project := ProjectCommandsDir(filepath.Join(dir, "work"))
+	assert.Equal(t, filepath.Join(dir, "work", ".packetcode", "commands"), project)
+}

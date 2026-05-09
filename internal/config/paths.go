@@ -95,6 +95,28 @@ func ThemePath() (string, error) {
 	return filepath.Join(dir, "theme.toml"), nil
 }
 
+// UserCommandsDir returns ~/.packetcode/commands/, creating it if missing.
+func UserCommandsDir() (string, error) {
+	dir, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	commands := filepath.Join(dir, "commands")
+	if err := EnsureDir(commands); err != nil {
+		return "", err
+	}
+	return commands, nil
+}
+
+// ProjectCommandsDir returns <working-dir>/.packetcode/commands/.
+// Project command directories are optional, so this helper does not create it.
+func ProjectCommandsDir(workingDir string) string {
+	if strings.TrimSpace(workingDir) == "" {
+		workingDir = "."
+	}
+	return filepath.Join(workingDir, dirName, "commands")
+}
+
 // MCPLogPath returns ~/.packetcode/mcp-<name>.log. The directory is
 // created if missing; the file is not. Names are deliberately restricted
 // to filename-safe characters so a configured MCP server cannot escape

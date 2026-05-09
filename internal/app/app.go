@@ -99,15 +99,16 @@ type App struct {
 	deps Deps
 
 	// UI components.
-	topbar       topbar.Model
-	conversation conversation.Model
-	input        input.Model
-	approval     approval.Model
-	jobsPanel    jobs_ui.Model
-	picker       picker.Model
-	prompt       prompt.Model
-	spinner      spinner.Model
-	autocomplete autocomplete.Model
+	topbar        topbar.Model
+	conversation  conversation.Model
+	input         input.Model
+	approval      approval.Model
+	jobsPanel     jobs_ui.Model
+	picker        picker.Model
+	prompt        prompt.Model
+	spinner       spinner.Model
+	autocomplete  autocomplete.Model
+	slashCommands *SlashCommandRegistry
 
 	// Agent + bridge.
 	agent    *agent.Agent
@@ -206,25 +207,27 @@ func New(deps Deps) (*App, error) {
 		statusRunner = statusline.New(deps.Config.StatusLine, deps.WorkingDir)
 	}
 
+	slashCommands := LoadSlashRegistry(deps.WorkingDir)
 	app := &App{
-		deps:         deps,
-		topbar:       topbar.New(),
-		conversation: conv,
-		input:        input.New(),
-		approval:     approval.New(),
-		jobsPanel:    jobs_ui.New(),
-		picker:       picker.New("", ""),
-		prompt:       prompt.New(""),
-		spinner:      spinner.New(),
-		autocomplete: autocomplete.New(buildAutocompleteEntries()),
-		agent:        a,
-		approver:     approver,
-		jobs:         deps.Jobs,
-		backups:      deps.Backups,
-		mcp:          deps.MCP,
-		contextMgr:   ctxMgr,
-		statusLine:   statusRunner,
-		startedAt:    time.Now(),
+		deps:          deps,
+		topbar:        topbar.New(),
+		conversation:  conv,
+		input:         input.New(),
+		approval:      approval.New(),
+		jobsPanel:     jobs_ui.New(),
+		picker:        picker.New("", ""),
+		prompt:        prompt.New(""),
+		spinner:       spinner.New(),
+		autocomplete:  autocomplete.New(buildAutocompleteEntries(slashCommands.HelpRows())),
+		slashCommands: slashCommands,
+		agent:         a,
+		approver:      approver,
+		jobs:          deps.Jobs,
+		backups:       deps.Backups,
+		mcp:           deps.MCP,
+		contextMgr:    ctxMgr,
+		statusLine:    statusRunner,
+		startedAt:     time.Now(),
 	}
 
 	if deps.Jobs != nil {
@@ -302,8 +305,20 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Slash commands are UI-side concerns: they don't hit the LLM.
 		// Intercept them before startTurn so /spawn, /jobs, /cancel etc.
 		// take effect immediately without invoking agent.Run.
-		if cmd, args, ok := ParseSlashCommand(msg.Text); ok {
+		if cmd, args, ok := a.slashRegistry().Parse(msg.Text); ok {
 			return a.handleSlashCommand(cmd, args, msg.Text)
+		}
+		if slashCommandText(msg.Text) {
+			a.input.Reset()
+			a.conversation.AppendSystem(unknownSlashCommandMessage(msg.Text))
+			return a, nil
+		}
+		if prompt, ok := escapedSlashPrompt(msg.Text); ok {
+			if a.streaming {
+				a.conversation.AppendSystem("turn already running; press Ctrl+C to cancel before sending another prompt")
+				return a, nil
+			}
+			return a.startTurn(prompt)
 		}
 		if a.streaming {
 			a.conversation.AppendSystem("turn already running; press Ctrl+C to cancel before sending another prompt")
@@ -333,6 +348,9 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.cancelTurn = nil
 		}
 		return a, nil
+
+	case compactDoneMsg:
+		return a.handleCompactDone(msg)
 
 	case approval.ResultMsg:
 		switch msg.Result {
@@ -1011,11 +1029,34 @@ func (a *App) handleSlashCommand(cmd string, args []string, original string) (te
 	case "exit", "quit":
 		return a, tea.Quit
 	}
-	// ParseSlashCommand only returns ok=true for the names above, so
-	// this branch is unreachable — but render a friendly fallback for
-	// forward compatibility.
-	a.conversation.AppendSystem("unknown command: " + original)
+	if custom, ok := a.slashRegistry().Lookup(cmd); ok && !custom.Builtin {
+		if a.streaming {
+			a.conversation.AppendSystem("turn already running; press Ctrl+C to cancel before sending another prompt")
+			return a, nil
+		}
+		return a.startTurn(custom.Expand(slashCommandArguments(original, cmd)))
+	}
+	a.conversation.AppendSystem(unknownSlashCommandMessage(original))
 	return a, nil
+}
+
+func (a *App) slashRegistry() *SlashCommandRegistry {
+	if a == nil || a.slashCommands == nil {
+		return NewBuiltinSlashRegistry()
+	}
+	return a.slashCommands
+}
+
+func (a *App) slashHelpRows() []KeyHelp {
+	return a.slashRegistry().HelpRows()
+}
+
+func unknownSlashCommandMessage(text string) string {
+	name, _, ok := parseSlashCommandFields(text)
+	if !ok || name == "" {
+		return `empty slash command; type // to send a prompt that starts with "/"`
+	}
+	return fmt.Sprintf("unknown slash command /%s; type //%s to send it as a prompt", name, name)
 }
 
 func (a *App) handleSpawnCommand(args []string) (tea.Model, tea.Cmd) {

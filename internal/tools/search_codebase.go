@@ -95,6 +95,7 @@ func (t *SearchCodebaseTool) searchWithRipgrep(ctx context.Context, rg, pattern,
 	args := []string{"--no-heading", "--with-filename", "--line-number", "--color=never", "--max-filesize", "1M"}
 	for dir := range skippedDirs {
 		args = append(args, "--glob", "!"+dir+"/**")
+		args = append(args, "--glob", "!**/"+dir+"/**")
 	}
 	if glob != "" {
 		args = append(args, "--glob", glob)

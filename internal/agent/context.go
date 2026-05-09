@@ -85,7 +85,7 @@ func (cm *ContextManager) Compact(
 	keepRecent int,
 ) ([]provider.Message, error) {
 	if len(messages) <= keepRecent+1 {
-		return messages, nil
+		return normalizeToolTranscript(messages), nil
 	}
 
 	// Identify the system prompt (if any) and the tail to preserve.
@@ -96,10 +96,12 @@ func (cm *ContextManager) Compact(
 		body = messages[1:]
 	}
 	if len(body) <= keepRecent {
-		return messages, nil
+		return normalizeToolTranscript(messages), nil
 	}
 	toSummarize := body[:len(body)-keepRecent]
-	tail := body[len(body)-keepRecent:]
+	tailStart := compactTailStart(body, len(body)-keepRecent)
+	toSummarize = body[:tailStart]
+	tail := body[tailStart:]
 
 	prompt := buildSummaryPrompt(toSummarize)
 
@@ -131,7 +133,7 @@ func (cm *ContextManager) Compact(
 	out := append([]provider.Message{}, systemMsgs...)
 	out = append(out, summaryMsg)
 	out = append(out, tail...)
-	return out, nil
+	return normalizeToolTranscript(out), nil
 }
 
 func buildSummaryPrompt(messages []provider.Message) string {
@@ -151,4 +153,128 @@ func buildSummaryPrompt(messages []provider.Message) string {
 		b.WriteString("\n\n")
 	}
 	return b.String()
+}
+
+type toolGroup struct {
+	start int
+	end   int
+}
+
+func compactTailStart(messages []provider.Message, start int) int {
+	if start <= 0 {
+		return 0
+	}
+	if start >= len(messages) {
+		return len(messages)
+	}
+	for _, group := range completeToolGroups(messages) {
+		if start > group.start && start < group.end {
+			return group.start
+		}
+	}
+	return start
+}
+
+func completeToolGroups(messages []provider.Message) []toolGroup {
+	var groups []toolGroup
+	for i := 0; i < len(messages); i++ {
+		msg := messages[i]
+		if msg.Role != provider.RoleAssistant || len(msg.ToolCalls) == 0 {
+			continue
+		}
+		_, next, ok := collectToolResults(messages, i)
+		if !ok {
+			continue
+		}
+		groups = append(groups, toolGroup{start: i, end: next})
+		i = next - 1
+	}
+	return groups
+}
+
+func normalizeToolTranscript(messages []provider.Message) []provider.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	out := make([]provider.Message, 0, len(messages))
+	for i := 0; i < len(messages); i++ {
+		msg := messages[i]
+		switch {
+		case msg.Role == provider.RoleTool:
+			continue
+		case msg.Role == provider.RoleAssistant && len(msg.ToolCalls) > 0:
+			results, next, ok := collectToolResults(messages, i)
+			if !ok {
+				msg.ToolCalls = nil
+				if msg.Content != "" {
+					out = append(out, msg)
+				}
+				continue
+			}
+			out = append(out, msg)
+			out = append(out, results...)
+			i = next - 1
+		default:
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
+func collectToolResults(messages []provider.Message, assistantIndex int) ([]provider.Message, int, bool) {
+	if assistantIndex < 0 || assistantIndex >= len(messages) {
+		return nil, assistantIndex + 1, false
+	}
+	calls := messages[assistantIndex].ToolCalls
+	if len(calls) == 0 {
+		return nil, assistantIndex + 1, true
+	}
+
+	matched := make([]bool, len(calls))
+	results := make([]provider.Message, 0, len(calls))
+	next := assistantIndex + 1
+	for next < len(messages) && messages[next].Role == provider.RoleTool {
+		result := messages[next]
+		if callIdx := matchingToolCallIndex(calls, result, matched); callIdx >= 0 {
+			call := calls[callIdx]
+			if result.ToolCallID == "" && call.ID != "" {
+				result.ToolCallID = call.ID
+			}
+			if result.Name == "" {
+				result.Name = call.Name
+			}
+			matched[callIdx] = true
+			results = append(results, result)
+		}
+		next++
+	}
+	if len(results) != len(calls) {
+		return results, next, false
+	}
+	for _, ok := range matched {
+		if !ok {
+			return results, next, false
+		}
+	}
+	return results, next, true
+}
+
+func matchingToolCallIndex(calls []provider.ToolCall, result provider.Message, matched []bool) int {
+	for i, call := range calls {
+		if matched[i] {
+			continue
+		}
+		if call.ID != "" && result.ToolCallID == call.ID {
+			return i
+		}
+	}
+	for i, call := range calls {
+		if matched[i] {
+			continue
+		}
+		if call.Name != "" && result.Name == call.Name {
+			return i
+		}
+	}
+	return -1
 }
