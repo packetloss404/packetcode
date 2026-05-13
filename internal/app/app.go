@@ -68,6 +68,11 @@ type statusLineMsg struct {
 	manual bool
 }
 
+type queuedInput struct {
+	Text string
+	At   time.Time
+}
+
 // jobUpdateMsg is dispatched from the jobs.Manager Subscribe callback
 // (which runs in its own goroutine) into the Bubble Tea Update loop via
 // tea.Program.Send. The App uses it to refresh the top bar and, on
@@ -152,12 +157,17 @@ type App struct {
 	// means "turn is live"; cancelTurn==nil plus streaming==true means
 	// "cancel requested, waiting for goroutine drain" — in that window a
 	// second Ctrl+C is a no-op (not a quit). Single-writer from Update.
-	cancelTurn        context.CancelFunc
-	startedAt         time.Time
-	statusSeq         int
-	lastStatusLineErr error
-	jobSeqSeen        map[string]int64
-	jobTerminalSeen   map[string]bool
+	cancelTurn         context.CancelFunc
+	startedAt          time.Time
+	operationLabel     string
+	operationStarted   time.Time
+	queuedInputs       []queuedInput
+	statusSeq          int
+	statusLineInFlight int
+	statusLineLastRun  time.Time
+	lastStatusLineErr  error
+	jobSeqSeen         map[string]int64
+	jobTerminalSeen    map[string]bool
 }
 
 // isCancellation reports whether err is (or wraps) a context cancellation
@@ -324,16 +334,16 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if prompt, ok := escapedSlashPrompt(msg.Text); ok {
 			if a.streaming {
-				a.conversation.AppendSystem("turn already running; press Ctrl+C to cancel before sending another prompt")
+				a.queueInput(prompt)
 				return a, nil
 			}
-			return a.startTurn(prompt)
+			return a.startTurn(prompt, true)
 		}
 		if a.streaming {
-			a.conversation.AppendSystem("turn already running; press Ctrl+C to cancel before sending another prompt")
+			a.queueInput(msg.Text)
 			return a, nil
 		}
-		return a.startTurn(msg.Text)
+		return a.startTurn(msg.Text, true)
 
 	case jobUpdateMsg:
 		if a.agentView.Visible() && a.jobs != nil {
@@ -351,6 +361,7 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.streaming = false
 		a.spinner.Stop()
 		a.conversation.FinaliseAgent()
+		a.clearOperation()
 		// Release the turn ctx now that the goroutine has drained. In
 		// the normal-exit path this is a no-op (ctx already done); in
 		// the error-exit path EventError already cleared it. This is
@@ -359,7 +370,7 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.cancelTurn()
 			a.cancelTurn = nil
 		}
-		return a, nil
+		return a.startNextQueuedInput()
 
 	case compactDoneMsg:
 		return a.handleCompactDone(msg)
@@ -424,11 +435,13 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pollApproverMsg:
 		if a.approval.Visible() {
+			a.approval.SetQueueDepth(a.approver.QueueDepth())
 			return a, pollApprover()
 		}
 		if req, ok := a.approver.Pending(); ok {
 			a.approval.Show(req.Tool, req.ToolCall)
 			a.approval.SetWidth(a.width)
+			a.approval.SetQueueDepth(a.approver.QueueDepth())
 		}
 		return a, pollApprover()
 
@@ -437,6 +450,9 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(tickTopbar(), a.renderStatusLine(false))
 
 	case statusLineMsg:
+		if msg.seq == a.statusLineInFlight {
+			a.statusLineInFlight = 0
+		}
 		if msg.seq == a.statusSeq {
 			if msg.err == nil {
 				a.lastStatusLineErr = nil
@@ -568,6 +584,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if a.approval.Visible() {
 				a.approval.Hide()
 			}
+			a.clearQueuedInputs()
 			return a, nil
 		}
 		return a, tea.Quit
@@ -748,14 +765,25 @@ func (a *App) refreshTopBar() {
 	} else {
 		a.topbar.SetJobs(0)
 	}
+	a.topbar.SetOperation(a.streaming, a.operationLabel, a.operationStarted, len(a.queuedInputs))
 }
 
 func (a *App) renderStatusLine(manual bool) tea.Cmd {
 	if a.statusLine == nil || !a.statusLine.Enabled() {
 		return nil
 	}
+	if !manual {
+		if a.statusLineInFlight != 0 {
+			return nil
+		}
+		if !a.statusLineLastRun.IsZero() && time.Since(a.statusLineLastRun) < 15*time.Second {
+			return nil
+		}
+	}
 	a.statusSeq++
 	seq := a.statusSeq
+	a.statusLineInFlight = seq
+	a.statusLineLastRun = time.Now()
 	snap := a.statusLineSnapshot()
 	return func() tea.Msg {
 		line, err := a.statusLine.Render(context.Background(), snap)
@@ -796,36 +824,39 @@ func (a *App) statusLineSnapshot() statusline.Snapshot {
 	if a.jobs != nil {
 		activeJobs = a.jobs.ActiveCount()
 	}
+	opElapsed := 0
+	if a.streaming && !a.operationStarted.IsZero() {
+		opElapsed = int(time.Since(a.operationStarted).Seconds())
+	}
 	return statusline.Snapshot{
-		SessionID:       sessionID,
-		WorkingDir:      root,
-		Project:         project,
-		GitBranch:       branch,
-		Provider:        statusline.ProviderInfo{Slug: provSlug, DisplayName: provName},
-		Model:           statusline.ModelInfo{ID: modelID},
-		ContextWindow:   statusline.ContextInfo{Used: used, Max: max, UsedPercentage: pct},
-		Cost:            statusline.CostInfo{TotalCostUSD: totalCost},
-		Jobs:            statusline.JobsInfo{Active: activeJobs},
+		SessionID:     sessionID,
+		WorkingDir:    root,
+		Project:       project,
+		GitBranch:     branch,
+		Provider:      statusline.ProviderInfo{Slug: provSlug, DisplayName: provName},
+		Model:         statusline.ModelInfo{ID: modelID},
+		ContextWindow: statusline.ContextInfo{Used: used, Max: max, UsedPercentage: pct},
+		Cost:          statusline.CostInfo{TotalCostUSD: totalCost},
+		Jobs:          statusline.JobsInfo{Active: activeJobs},
+		Operation: statusline.OperationInfo{
+			Active:         a.streaming,
+			Label:          a.operationLabel,
+			ElapsedSeconds: opElapsed,
+			QueuedInputs:   len(a.queuedInputs),
+		},
 		DurationSeconds: int(time.Since(a.startedAt).Seconds()),
 		Version:         a.deps.Version,
 	}
 }
 
-func (a *App) startTurn(text string) (tea.Model, tea.Cmd) {
+func (a *App) startTurn(text string, emitUser bool) (tea.Model, tea.Cmd) {
 	a.input.Reset()
-	a.conversation.AppendUser(text)
-	a.streaming = true
-
-	prov, modelID := a.deps.Registry.Active()
-	providerSlug := ""
-	if prov != nil {
-		providerSlug = prov.Slug()
+	if emitUser {
+		a.conversation.AppendUser(text)
 	}
+	a.streaming = true
+	a.setOperation("thinking")
 
-	// Spin off the agent run on a background goroutine. We forward each
-	// AgentEvent to the Bubble Tea program via Send(); the message
-	// arrives in Update as an agentEventMsg.
-	//
 	// The ctx is cancellable so Ctrl+C can tear down the in-flight
 	// provider HTTP request, kill any running tool, and unblock any
 	// pending approval prompt. The CancelFunc is stashed on App so the
@@ -834,15 +865,51 @@ func (a *App) startTurn(text string) (tea.Model, tea.Cmd) {
 	a.cancelTurn = cancel
 	stream := a.agent.Run(ctx, text)
 
-	go func() {
-		defer func() { _ = providerSlug; _ = modelID }()
-		// We can't call Program.Send here without the program reference.
-		// Instead we accumulate events into a channel that Update polls
-		// via tea.Cmd. Simpler approach: read from the stream using a
-		// blocking tea.Cmd that fires once per event.
-	}()
-
 	return a, tea.Batch(a.spinner.Start("Thinking..."), readAgentEvent(stream))
+}
+
+func (a *App) queueInput(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		a.input.Reset()
+		return
+	}
+	a.input.Reset()
+	a.queuedInputs = append(a.queuedInputs, queuedInput{Text: text, At: time.Now()})
+	a.conversation.AppendQueuedUser(text)
+	a.refreshTopBar()
+}
+
+func (a *App) clearQueuedInputs() {
+	if len(a.queuedInputs) == 0 {
+		return
+	}
+	a.queuedInputs = nil
+	a.refreshTopBar()
+	a.conversation.AppendSystem("cleared queued prompts")
+}
+
+func (a *App) startNextQueuedInput() (tea.Model, tea.Cmd) {
+	if len(a.queuedInputs) == 0 {
+		a.refreshTopBar()
+		return a, nil
+	}
+	next := a.queuedInputs[0]
+	copy(a.queuedInputs, a.queuedInputs[1:])
+	a.queuedInputs = a.queuedInputs[:len(a.queuedInputs)-1]
+	return a.startTurn(next.Text, false)
+}
+
+func (a *App) setOperation(label string) {
+	a.operationLabel = label
+	a.operationStarted = time.Now()
+	a.refreshTopBar()
+}
+
+func (a *App) clearOperation() {
+	a.operationLabel = ""
+	a.operationStarted = time.Time{}
+	a.refreshTopBar()
 }
 
 func (a *App) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
@@ -1149,15 +1216,17 @@ func (a *App) handleSlashCommand(cmd string, args []string, original string) (te
 		return a.handleStatusLineCommand(args)
 	case "mcp":
 		return a.handleMCPCommand(args)
+	case "transcript":
+		return a.handleTranscriptCommand(args)
 	case "exit", "quit":
 		return a, tea.Quit
 	}
 	if custom, ok := a.slashRegistry().Lookup(cmd); ok && !custom.Builtin {
 		if a.streaming {
-			a.conversation.AppendSystem("turn already running; press Ctrl+C to cancel before sending another prompt")
+			a.queueInput(custom.Expand(slashCommandArguments(original, cmd)))
 			return a, nil
 		}
-		return a.startTurn(custom.Expand(slashCommandArguments(original, cmd)))
+		return a.startTurn(custom.Expand(slashCommandArguments(original, cmd)), true)
 	}
 	a.conversation.AppendSystem(unknownSlashCommandMessage(original))
 	return a, nil
@@ -1311,6 +1380,34 @@ func (a *App) openJobTranscript(id, label string) (tea.Model, tea.Cmd) {
 	// underlying component is still jobs-oriented because background
 	// agents are represented by jobs.Manager snapshots.
 	a.jobsPanel.Show(snap, transcript)
+	return a, nil
+}
+
+func (a *App) handleTranscriptCommand(args []string) (tea.Model, tea.Cmd) {
+	if len(args) > 0 {
+		a.conversation.AppendSystem("transcript: unexpected argument " + args[0])
+		return a, nil
+	}
+	if a.deps.Sessions == nil {
+		a.conversation.AppendSystem("transcript: sessions not available")
+		return a, nil
+	}
+	cur := a.deps.Sessions.Current()
+	if cur == nil {
+		a.conversation.AppendSystem("transcript: no current session")
+		return a, nil
+	}
+	title := fmt.Sprintf("[session:%s]", shortID(cur.ID))
+	prov := cur.Provider
+	if cur.Model != "" {
+		if prov != "" {
+			prov += "/" + cur.Model
+		} else {
+			prov = cur.Model
+		}
+	}
+	meta := fmt.Sprintf("%s · %d messages · $%.4f", prov, len(cur.Messages), cur.Cost.TotalUSD)
+	a.jobsPanel.ShowSession(title, meta, cur.Messages)
 	return a, nil
 }
 
@@ -1475,7 +1572,7 @@ func pollApprover() tea.Cmd {
 }
 
 func tickTopbar() tea.Cmd {
-	return tea.Tick(15*time.Second, func(time.Time) tea.Msg {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
 		return tickTopbarMsg{}
 	})
 }

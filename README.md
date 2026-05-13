@@ -55,11 +55,13 @@ packetcode --version
 - [Configuration](docs/configuration.md)
 - [Hooks and statusline](docs/hooks-and-statusline.md)
 - [MCP servers](docs/mcp.md)
+- [Agent View](docs/feature-agent-view.md)
+- [Packet Computers and Packet Control](PACKETCOMPUTERS.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
 ## Core Workflow
 
-Type a prompt and press `Enter`. Use `Shift+Enter` for a newline. During a generation, `Ctrl+C` cancels the current provider request, running tool, or approval prompt; pressing `Ctrl+C` again while idle exits.
+Type a prompt and press `Enter`. Use `Shift+Enter` for a newline. If you submit while a foreground generation or `/compact` is still running, packetcode queues the prompt, shows it as `You (queued)`, and runs it when the active operation finishes. During a generation, `Ctrl+C` cancels the current provider request, running tool, approval prompt, or queued foreground prompts; pressing `Ctrl+C` again while idle exits.
 
 Destructive actions show an approval prompt:
 
@@ -67,7 +69,9 @@ Destructive actions show an approval prompt:
 - `N` or `Esc` rejects.
 - `--trust` or `trust_mode = true` auto-approves for the session.
 
-Finalized messages are printed into your terminal scrollback. Use your terminal scroll, `Shift+PageUp`, or tmux copy mode to review older output. `/clear` and `Ctrl+L` clear packetcode's live transcript pane; they do not delete the saved session.
+Finalized messages are printed into your terminal scrollback. Use your terminal scroll, `Shift+PageUp`, or tmux copy mode to review older output. `/transcript` opens the current saved session transcript in the transcript viewer. `/clear` and `Ctrl+L` clear packetcode's live transcript pane; they do not delete the saved session.
+
+The top bar shows foreground operation state such as `thinking` or `compacting`, elapsed time, queued prompt count, context usage, active background jobs, and provider/model information. Custom statusline commands receive the same operation data in their JSON snapshot.
 
 ## Providers
 
@@ -92,6 +96,14 @@ PACKETCODE_OPENROUTER_API_KEY
 
 Environment variables take precedence over `~/.packetcode/config.toml`.
 
+## Background Agents
+
+`/spawn <prompt>` starts a background agent. Background agents are read-only by default; use `/spawn --write <prompt>` when a delegated task may need file writes, patches, or shell commands. Write-capable background agents still go through the normal approval flow unless trust mode is enabled.
+
+`/agents` opens Agent View, which groups jobs by state and shows provider/model, age, token counts, estimated cost, status badges, and recent activity. `Enter` or `/agents <id>` opens the transcript for a selected agent, `p` peeks, `i` injects a completed result, and `c` cancels.
+
+See [Agent View](docs/feature-agent-view.md) for the full workflow.
+
 ## MCP Servers
 
 MCP servers are configured under `[mcp.<name>]` and exposed as
@@ -100,8 +112,10 @@ configured command as your user, so treat MCP servers as trusted local
 code; approval prompts gate tool calls, not the child process itself.
 MCP children inherit only a small launch environment allowlist by
 default, plus any per-server `env` values you configure. The
-`/mcp logs <name>` command shows a bounded, redacted tail of the
-server stderr log.
+`/mcp` command lists configured servers, `/mcp status <name>` shows
+health/config details, `/mcp tools <name>` lists provider-safe callable
+tool aliases, and `/mcp logs <name>` shows a bounded, redacted tail of
+the server stderr log.
 
 ## Slash Commands
 
@@ -126,8 +140,9 @@ Built-in commands:
 | `/trust [on\|off]` | Show or set trust mode. |
 | `/help` | Show keybindings and commands. |
 | `/clear` | Clear the transcript pane only. |
+| `/transcript` | Open the current saved session transcript. |
 | `/statusline [refresh]` | Show or refresh a custom statusline. |
-| `/mcp` / `/mcp logs <name>` | Inspect configured MCP servers. |
+| `/mcp` / `/mcp status <name>` / `/mcp tools <name>` / `/mcp logs <name>` | Inspect configured MCP servers. |
 | `/exit` / `/quit` | Quit packetcode. |
 
 Typing `/` opens command autocomplete. Unknown slash commands show an error; type `//something` to send `/something` as a normal prompt.
@@ -201,6 +216,10 @@ golangci-lint run ./...
 ```
 
 The repository also contains feature-design notes under `docs/feature-*.md`. User-facing behavior should be checked against the guides linked above and the current code.
+
+## Roadmap Notes
+
+packetcode is pre-1.0. See [BACKLOG.md](BACKLOG.md) for the current backlog and [PACKETCOMPUTERS.md](PACKETCOMPUTERS.md) for the Packet Computers and Packet Control research plan.
 
 ## License
 

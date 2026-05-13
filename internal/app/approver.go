@@ -99,6 +99,19 @@ func (u *uiApprover) Pending() (agent.ApprovalRequest, bool) {
 	}
 }
 
+func (u *uiApprover) QueueDepth() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	depth := len(u.pendingCh)
+	if u.active != nil && u.active.ctx.Err() == nil {
+		depth++
+	}
+	if depth < 1 {
+		return 1
+	}
+	return depth
+}
+
 // Resolve posts the user's decision back to the approval currently visible.
 func (u *uiApprover) Resolve(decision agent.ApprovalDecision) {
 	u.mu.Lock()

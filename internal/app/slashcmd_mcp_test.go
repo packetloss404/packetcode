@@ -39,6 +39,18 @@ func TestParseSlashCommand_MCP(t *testing.T) {
 			t.Fatalf("expected error for /mcp logs with no name")
 		}
 	})
+	t.Run("status with name", func(t *testing.T) {
+		sub, name, err := parseMCPArgs([]string{"status", "foo"})
+		if err != nil || sub != "status" || name != "foo" {
+			t.Fatalf("parseMCPArgs status = %q %q %v", sub, name, err)
+		}
+	})
+	t.Run("tools with name", func(t *testing.T) {
+		sub, name, err := parseMCPArgs([]string{"tools", "foo"})
+		if err != nil || sub != "tools" || name != "foo" {
+			t.Fatalf("parseMCPArgs tools = %q %q %v", sub, name, err)
+		}
+	})
 	t.Run("restart defers", func(t *testing.T) {
 		_, _, err := parseMCPArgs([]string{"restart", "foo"})
 		if err == nil {
@@ -94,6 +106,33 @@ func TestRenderMCPTable_MixedStatuses(t *testing.T) {
 		if !found {
 			t.Errorf("expected row for %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestRenderMCPStatus_IncludesHealthDetails(t *testing.T) {
+	reports := []mcp.StartupReport{{
+		Name: "fetch", Status: "failed", ToolCount: 0, Command: "uvx fetch",
+		Err: "command not found", TimeoutSec: 15, Auth: "env:FETCH_TOKEN",
+	}}
+	got, ok := renderMCPStatus("fetch", reports, nil)
+	if !ok {
+		t.Fatalf("expected status for fetch")
+	}
+	for _, want := range []string{"MCP server fetch", "state: failed", "timeout: 15s", "auth: env:FETCH_TOKEN", "last error: command not found", "/mcp logs fetch"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("status missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderMCPTools_NotRunning(t *testing.T) {
+	reports := []mcp.StartupReport{{Name: "fetch", Status: "failed"}}
+	got, ok := renderMCPTools("fetch", reports, nil)
+	if !ok {
+		t.Fatalf("expected tools output for configured server")
+	}
+	if !strings.Contains(got, "server is not running") {
+		t.Fatalf("tools output =\n%s", got)
 	}
 }
 
@@ -219,7 +258,7 @@ func TestReadLastLines_BoundsLargeLogs(t *testing.T) {
 // command without reading the spec.
 func TestSlashHelp_IncludesMCP(t *testing.T) {
 	got := renderHelp()
-	for _, want := range []string{"/mcp", "/mcp logs <name>"} {
+	for _, want := range []string{"/mcp", "/mcp status <name>", "/mcp tools <name>", "/mcp logs <name>"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help missing %q; got:\n%s", want, got)
 		}

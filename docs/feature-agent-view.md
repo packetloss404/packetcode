@@ -12,7 +12,7 @@ Agent View is the foreground dashboard for background agents. It is inspired by 
 | `/spawn --write <prompt>` | Starts a background agent that may request approval for writes, patches, and commands. |
 | `/cancel <id\|all>` | Cancels one background agent or every active one. |
 
-Agent View groups jobs by state, keeps the current selection stable as live updates arrive, and shows the most recent useful activity: prompt, assistant text, tool activity, approval wait, summary, or error. Keyboard controls are local to the dashboard:
+Agent View groups jobs by state, keeps the current selection stable as live updates arrive, and shows per-agent telemetry: provider/model, age, input/output tokens, estimated cost, and a compact status badge such as `approval`, `ready`, `seen`, or `injected`. The final column shows the most recent useful activity: prompt, assistant text, tool activity, approval wait, summary, or error. Keyboard controls are local to the dashboard:
 
 | Key | Action |
 |---|---|

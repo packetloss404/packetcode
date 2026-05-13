@@ -15,11 +15,13 @@ import (
 
 func TestRunUserPromptSubmit_CollectsStdout(t *testing.T) {
 	command := "input=$(cat); case \"$input\" in *hello*) printf injected-context;; *) exit 1;; esac"
+	timeoutSec := 2
 	if runtime.GOOS == "windows" {
 		command = "$data = [Console]::In.ReadToEnd(); if ($data -match 'hello') { 'injected-context' } else { exit 1 }"
+		timeoutSec = 5
 	}
 	r := New(config.HooksConfig{
-		UserPromptSubmit: []config.HookConfig{{Command: command, TimeoutSec: 2}},
+		UserPromptSubmit: []config.HookConfig{{Command: command, TimeoutSec: timeoutSec}},
 	}, t.TempDir())
 
 	out, err := r.RunUserPromptSubmit(context.Background(), PromptPayload{Prompt: "hello"})

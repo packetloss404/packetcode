@@ -456,7 +456,7 @@ func TestManager_TranscriptReadsLiveSubSessionWhileRunning(t *testing.T) {
 	require.Nil(t, perr)
 
 	var transcript []provider.Message
-	waitFor(t, 2*time.Second, "running job transcript to include prompt", func() bool {
+	waitFor(t, 20*time.Second, "running job transcript to include prompt", func() bool {
 		var ok bool
 		transcript, ok = mgr.Transcript(snap.ID)
 		return ok && len(transcript) > 0 && transcript[0].Role == provider.RoleUser

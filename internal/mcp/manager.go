@@ -60,29 +60,35 @@ func (m *Manager) Start(ctx context.Context) []StartupReport {
 
 			if !sc.Enabled {
 				reports[i] = StartupReport{
-					Name:    sc.Name,
-					Status:  "disabled",
-					Command: renderServerCommand(sc),
+					Name:       sc.Name,
+					Status:     "disabled",
+					Command:    renderServerCommand(sc),
+					TimeoutSec: effectiveTimeoutSec(sc),
+					Auth:       authSummary(sc),
 				}
 				return
 			}
 			cli, err := NewClient(ctx, sc, m.cfg.LogDir, m.cfg.ClientInfo)
 			if err != nil {
 				reports[i] = StartupReport{
-					Name:    sc.Name,
-					Status:  "failed",
-					Command: renderServerCommand(sc),
-					Err:     err.Error(),
+					Name:       sc.Name,
+					Status:     "failed",
+					Command:    renderServerCommand(sc),
+					Err:        err.Error(),
+					TimeoutSec: effectiveTimeoutSec(sc),
+					Auth:       authSummary(sc),
 				}
 				return
 			}
 			clients[i] = cli
 			reports[i] = StartupReport{
-				Name:      sc.Name,
-				Status:    "running",
-				ToolCount: len(cli.Tools()),
-				PID:       cli.PID(),
-				Command:   renderServerCommand(sc),
+				Name:       sc.Name,
+				Status:     "running",
+				ToolCount:  len(cli.Tools()),
+				PID:        cli.PID(),
+				Command:    renderServerCommand(sc),
+				TimeoutSec: effectiveTimeoutSec(sc),
+				Auth:       authSummary(sc),
 			}
 		}()
 	}
@@ -166,6 +172,43 @@ func renderServerCommand(sc ServerConfig) string {
 	}
 	parts = append(parts, sc.Args...)
 	return strings.Join(parts, " ")
+}
+
+func effectiveTimeoutSec(sc ServerConfig) int {
+	if sc.TimeoutSec > 0 {
+		return sc.TimeoutSec
+	}
+	return defaultInitTimeoutSec
+}
+
+func authSummary(sc ServerConfig) string {
+	if len(sc.Env) == 0 {
+		return "none"
+	}
+	names := make([]string, 0, len(sc.Env))
+	for k := range sc.Env {
+		if looksSecretKey(k) {
+			names = append(names, k)
+		}
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	sort.Strings(names)
+	if len(names) > 3 {
+		return fmt.Sprintf("env:%s,+%d", strings.Join(names[:3], ","), len(names)-3)
+	}
+	return "env:" + strings.Join(names, ",")
+}
+
+func looksSecretKey(k string) bool {
+	k = strings.ToLower(k)
+	for _, token := range []string{"api_key", "apikey", "token", "secret", "password", "bearer"} {
+		if strings.Contains(k, token) {
+			return true
+		}
+	}
+	return false
 }
 
 // Shutdown closes every alive client in parallel. Returns a composite

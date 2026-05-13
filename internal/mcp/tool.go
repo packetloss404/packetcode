@@ -49,7 +49,7 @@ func NewMcpTool(c *Client, t ServerTool) *McpTool {
 		client:     c,
 		serverName: c.Name(),
 		toolName:   t.Name,
-		safeName:   safeToolName(c.Name(), t.Name),
+		safeName:   ToolAlias(c.Name(), t.Name),
 		desc:       t.Description,
 		schema:     schema,
 	}
@@ -157,7 +157,7 @@ func (t *McpTool) Execute(ctx context.Context, params json.RawMessage) (tools.To
 	}, nil
 }
 
-func safeToolName(serverName, toolName string) string {
+func ToolAlias(serverName, toolName string) string {
 	raw := serverName + "__" + toolName
 	var b strings.Builder
 	for _, r := range raw {

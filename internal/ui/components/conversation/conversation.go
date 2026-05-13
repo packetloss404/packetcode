@@ -120,6 +120,18 @@ func (m *Model) AppendUser(content string) {
 	}, m.contentWidth()))
 }
 
+// AppendQueuedUser commits an optimistic user message while another
+// foreground operation is still running. The App later sends the same
+// text without emitting a duplicate user bubble.
+func (m *Model) AppendQueuedUser(content string) {
+	m.emit(renderMessage(Message{
+		Kind:    KindUser,
+		Author:  "You (queued)",
+		Color:   theme.Warning,
+		Content: content,
+	}, m.contentWidth()))
+}
+
 // AppendAgentText appends a streaming chunk to the pending agent
 // message, creating it if absent. Not committed yet — the live region
 // shows the in-progress render via PendingView.

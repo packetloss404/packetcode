@@ -43,6 +43,11 @@ type Model struct {
 
 	activeJobs int
 	customLine string
+
+	operationActive  bool
+	operationLabel   string
+	operationStarted time.Time
+	queuedInputs     int
 }
 
 func New() Model {
@@ -93,6 +98,19 @@ func (m *Model) SetJobs(n int) {
 // state transition without having to parse the rendered view.
 func (m Model) Jobs() int { return m.activeJobs }
 
+// SetOperation updates the foreground operation segment. label should
+// be a short gerund such as "thinking" or "compacting"; queued is the
+// number of user prompts waiting behind that operation.
+func (m *Model) SetOperation(active bool, label string, started time.Time, queued int) {
+	m.operationActive = active
+	m.operationLabel = strings.TrimSpace(label)
+	m.operationStarted = started
+	if queued < 0 {
+		queued = 0
+	}
+	m.queuedInputs = queued
+}
+
 func (m *Model) SetCustomLine(line string) {
 	m.customLine = strings.TrimRight(line, "\r\n")
 }
@@ -132,6 +150,7 @@ func (m Model) View() string {
 		gitSeg = theme.StyleSecondary.Render("⎇ " + m.gitBranch)
 	}
 	durSeg := theme.StyleDim.Render("⏱ " + formatDuration(time.Since(m.startTime)))
+	opSeg := m.renderOperation()
 
 	jobsSeg := ""
 	if m.activeJobs > 0 {
@@ -155,7 +174,7 @@ func (m Model) View() string {
 	// narrow-mode drop sequence becomes:
 	//   duration → git → project → context → jobs
 	required := []string{brand, providerSeg}
-	droppable := []string{jobsSeg, contextSeg, projectSeg, gitSeg, durSeg}
+	droppable := []string{jobsSeg, opSeg, contextSeg, projectSeg, gitSeg, durSeg}
 
 	// Drop right-most droppable segments until the line fits inside the
 	// content area (width minus border + padding budget).
@@ -173,6 +192,31 @@ func (m Model) View() string {
 	}
 	line := joinWithSep(segments)
 	return theme.StyleTopBar.Width(width - 2).Render(line)
+}
+
+func (m Model) renderOperation() string {
+	if !m.operationActive && m.queuedInputs == 0 {
+		return ""
+	}
+	parts := []string{}
+	if m.operationActive {
+		label := m.operationLabel
+		if label == "" {
+			label = "working"
+		}
+		elapsed := time.Duration(0)
+		if !m.operationStarted.IsZero() {
+			elapsed = time.Since(m.operationStarted)
+		}
+		parts = append(parts, fmt.Sprintf("%s %s", label, formatSeconds(elapsed)))
+	}
+	if m.queuedInputs > 0 {
+		parts = append(parts, fmt.Sprintf("%d queued", m.queuedInputs))
+	}
+	return lipgloss.NewStyle().
+		Foreground(theme.Warning).
+		Bold(true).
+		Render("◷ " + strings.Join(parts, " · "))
 }
 
 func (m Model) renderContext() string {
@@ -194,6 +238,19 @@ func (m Model) renderContext() string {
 		humanTokens(m.tokensUsed),
 		humanTokens(m.tokensMax),
 	))
+}
+
+func formatSeconds(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	m := int(d / time.Minute)
+	s := int((d % time.Minute) / time.Second)
+	return fmt.Sprintf("%dm%02ds", m, s)
 }
 
 func joinWithSep(segments []string) string {

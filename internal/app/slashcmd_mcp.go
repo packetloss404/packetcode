@@ -44,6 +44,22 @@ func (a *App) handleMCPCommand(args []string) (tea.Model, tea.Cmd) {
 	case "":
 		a.conversation.AppendSystem(renderMCPTable(a.mcp.Reports(), a.mcp.Clients()))
 		return a, nil
+	case "status":
+		out, ok := renderMCPStatus(name, a.mcp.Reports(), a.mcp.Clients())
+		if !ok {
+			a.conversation.AppendSystem(fmt.Sprintf("mcp status: no server named %s", name))
+			return a, nil
+		}
+		a.conversation.AppendSystem(out)
+		return a, nil
+	case "tools":
+		out, ok := renderMCPTools(name, a.mcp.Reports(), a.mcp.Clients())
+		if !ok {
+			a.conversation.AppendSystem(fmt.Sprintf("mcp tools: no server named %s", name))
+			return a, nil
+		}
+		a.conversation.AppendSystem(out)
+		return a, nil
 	case "logs":
 		if _, ok := a.mcp.Client(name); !ok && !mcpReportExists(a.mcp.Reports(), name) {
 			a.conversation.AppendSystem(fmt.Sprintf("mcp logs: no server named %s", name))
@@ -72,9 +88,7 @@ func mcpReportExists(reports []mcp.StartupReport, name string) bool {
 }
 
 // renderMCPTable formats a monospace ASCII table of configured MCP
-// servers. Widths: NAME 12, STATE 10, TOOLS 6, PID 7, COMMAND fills
-// the remainder (truncated with "..." on overflow). Empty reports
-// produces the "nothing configured" sentinel.
+// servers. Empty reports produces the "nothing configured" sentinel.
 func renderMCPTable(reports []mcp.StartupReport, clients []*mcp.Client) string {
 	if len(reports) == 0 {
 		return "no MCP servers configured (add [mcp.<name>] to ~/.packetcode/config.toml)"
@@ -112,7 +126,6 @@ func renderMCPTable(reports []mcp.StartupReport, clients []*mcp.Client) string {
 			}
 		}
 		tools := fmt.Sprintf("%d", r.ToolCount)
-
 		r.Status = status
 		command := commandForReport(r)
 
@@ -125,6 +138,103 @@ func renderMCPTable(reports []mcp.StartupReport, clients []*mcp.Client) string {
 		)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func renderMCPStatus(name string, reports []mcp.StartupReport, clients []*mcp.Client) (string, bool) {
+	report, ok := findMCPReport(reports, name)
+	if !ok {
+		return "", false
+	}
+	client := findMCPClient(clients, name)
+	status := report.Status
+	pid := report.PID
+	lastErr := report.Err
+	if status == "running" {
+		if client == nil || !client.IsAlive() {
+			status = "exited"
+			pid = -1
+			if client != nil && client.DeathReason() != nil {
+				lastErr = client.DeathReason().Error()
+			}
+		}
+	}
+	if report.TimeoutSec <= 0 {
+		report.TimeoutSec = 10
+	}
+	auth := report.Auth
+	if auth == "" {
+		auth = "none"
+	}
+	serverInfo := "-"
+	if client != nil {
+		info := client.ServerInfo()
+		if info.Name != "" || info.Version != "" {
+			serverInfo = strings.TrimSpace(info.Name + " " + info.Version)
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "MCP server %s\n", name)
+	fmt.Fprintf(&b, "state: %s\n", status)
+	fmt.Fprintf(&b, "pid: %s\n", pidString(pid))
+	fmt.Fprintf(&b, "tools: %d\n", report.ToolCount)
+	fmt.Fprintf(&b, "timeout: %ds\n", report.TimeoutSec)
+	fmt.Fprintf(&b, "auth: %s\n", auth)
+	fmt.Fprintf(&b, "server: %s\n", serverInfo)
+	fmt.Fprintf(&b, "command: %s\n", report.Command)
+	if lastErr != "" {
+		fmt.Fprintf(&b, "last error: %s\n", lastErr)
+	}
+	fmt.Fprintf(&b, "logs: /mcp logs %s", name)
+	return b.String(), true
+}
+
+func renderMCPTools(name string, reports []mcp.StartupReport, clients []*mcp.Client) (string, bool) {
+	if _, ok := findMCPReport(reports, name); !ok {
+		return "", false
+	}
+	client := findMCPClient(clients, name)
+	if client == nil || !client.IsAlive() {
+		return fmt.Sprintf("MCP tools for %s\nserver is not running", name), true
+	}
+	serverTools := client.Tools()
+	if len(serverTools) == 0 {
+		return fmt.Sprintf("MCP tools for %s\n(no tools)", name), true
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "MCP tools for %s\n", name)
+	for _, t := range serverTools {
+		desc := strings.TrimSpace(t.Description)
+		if desc == "" {
+			desc = "(no description)"
+		}
+		fmt.Fprintf(&b, "- %s — %s\n", mcp.ToolAlias(name, t.Name), trunc(desc, 72))
+	}
+	return strings.TrimRight(b.String(), "\n"), true
+}
+
+func findMCPReport(reports []mcp.StartupReport, name string) (mcp.StartupReport, bool) {
+	for _, r := range reports {
+		if r.Name == name {
+			return r, true
+		}
+	}
+	return mcp.StartupReport{}, false
+}
+
+func findMCPClient(clients []*mcp.Client, name string) *mcp.Client {
+	for _, c := range clients {
+		if c != nil && c.Name() == name {
+			return c
+		}
+	}
+	return nil
+}
+
+func pidString(pid int) string {
+	if pid <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d", pid)
 }
 
 // commandForReport returns the COMMAND column text for a StartupReport.

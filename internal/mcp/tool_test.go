@@ -32,10 +32,10 @@ func TestMcpTool_AdaptsNameAsProviderSafe(t *testing.T) {
 }
 
 func TestMcpTool_SafeNameSanitizesAndCaps(t *testing.T) {
-	got := safeToolName("my.server", "read/file")
+	got := ToolAlias("my.server", "read/file")
 	assert.Equal(t, "my_server__read_file", got)
 
-	long := safeToolName(strings.Repeat("server", 20), strings.Repeat("tool", 20))
+	long := ToolAlias(strings.Repeat("server", 20), strings.Repeat("tool", 20))
 	assert.LessOrEqual(t, len(long), 64)
 	assert.NotContains(t, long, ".")
 	assert.NotContains(t, long, "/")

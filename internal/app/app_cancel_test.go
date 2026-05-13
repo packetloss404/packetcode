@@ -51,6 +51,42 @@ func (h *hangingProvider) ChatCompletion(ctx context.Context, _ provider.ChatReq
 	return ch, nil
 }
 
+type releaseProvider struct {
+	started int32
+	release chan struct{}
+}
+
+func (r *releaseProvider) Name() string                                         { return "release" }
+func (r *releaseProvider) Slug() string                                         { return "release" }
+func (r *releaseProvider) BrandColor() lipgloss.Color                           { return lipgloss.Color("#000000") }
+func (r *releaseProvider) ValidateKey(context.Context, string) error            { return nil }
+func (r *releaseProvider) ListModels(context.Context) ([]provider.Model, error) { return nil, nil }
+func (r *releaseProvider) Pricing(string) (float64, float64)                    { return 0, 0 }
+func (r *releaseProvider) ContextWindow(string) int                             { return 100_000 }
+func (r *releaseProvider) SupportsTools(string) bool                            { return true }
+
+func (r *releaseProvider) ChatCompletion(ctx context.Context, _ provider.ChatRequest) (<-chan provider.StreamEvent, error) {
+	idx := atomic.AddInt32(&r.started, 1)
+	ch := make(chan provider.StreamEvent, 4)
+	go func() {
+		defer close(ch)
+		if idx == 1 {
+			ch <- provider.StreamEvent{Type: provider.EventTextDelta, TextDelta: "first"}
+			select {
+			case <-r.release:
+			case <-ctx.Done():
+				ch <- provider.StreamEvent{Type: provider.EventError, Error: ctx.Err()}
+				return
+			}
+			ch <- provider.StreamEvent{Type: provider.EventDone}
+			return
+		}
+		ch <- provider.StreamEvent{Type: provider.EventTextDelta, TextDelta: "second done"}
+		ch <- provider.StreamEvent{Type: provider.EventDone}
+	}()
+	return ch, nil
+}
+
 // approvalProvider emits a write_file tool call on turn 0 — used to
 // drive the App into a state where the approval modal is visible.
 type approvalProvider struct {
@@ -335,6 +371,54 @@ func TestApp_DoubleCtrlC_DuringShutdown_DoesNotQuit(t *testing.T) {
 	}
 	// And the ctx is truly cancelled under the hood, so draining finishes.
 	pump.RunUntil(2*time.Second, func() bool { return !a.streaming })
+}
+
+func TestApp_SubmitWhileStreamingQueuesAndRunsNext(t *testing.T) {
+	r := newTestApp(t)
+	prov := &releaseProvider{release: make(chan struct{})}
+	wireAgent(r, prov)
+	r.app.resize(120, 40)
+
+	_, cmd := r.app.Update(input.SubmitMsg{Text: "first prompt"})
+	a := r.app
+	pump := newDrainPump(t, a, cmd)
+	pump.RunUntil(500*time.Millisecond, func() bool {
+		return atomic.LoadInt32(&prov.started) == 1
+	})
+	if !a.streaming {
+		t.Fatalf("expected first turn to be streaming")
+	}
+
+	_, follow := a.Update(input.SubmitMsg{Text: "second prompt"})
+	if follow != nil {
+		pump.cmds = append(pump.cmds, follow)
+	}
+	if got := len(a.queuedInputs); got != 1 {
+		t.Fatalf("queuedInputs = %d, want 1", got)
+	}
+	if a.input.Value() != "" {
+		t.Fatalf("input should reset after queued submit, got %q", a.input.Value())
+	}
+	if !strings.Contains(convText(a), "You (queued)") {
+		t.Fatalf("queued user bubble missing:\n%s", convText(a))
+	}
+	if !strings.Contains(a.topbar.View(), "1 queued") {
+		t.Fatalf("topbar missing queued count:\n%s", a.topbar.View())
+	}
+
+	close(prov.release)
+	pump.RunUntil(2*time.Second, func() bool {
+		return atomic.LoadInt32(&prov.started) == 2 && !a.streaming
+	})
+	if a.streaming {
+		t.Fatalf("expected queued turn to finish")
+	}
+	if got := len(a.queuedInputs); got != 0 {
+		t.Fatalf("queuedInputs after drain = %d, want 0", got)
+	}
+	if !strings.Contains(convText(a), "second done") {
+		t.Fatalf("queued turn did not run:\n%s", convText(a))
+	}
 }
 
 // Sanity: confirm isCancellation walks wrapped chains.

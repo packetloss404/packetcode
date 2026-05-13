@@ -3,6 +3,7 @@ package topbar
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -130,4 +131,16 @@ func TestTopbar_CustomLineOverridesBuiltInSegments(t *testing.T) {
 	out := m.View()
 	assert.Contains(t, out, "custom status")
 	assert.NotContains(t, out, "OpenAI")
+}
+
+func TestTopbar_OperationShowsElapsedAndQueuedInputs(t *testing.T) {
+	m := New()
+	m.SetWidth(200)
+	m.SetProvider("openai", "OpenAI", "gpt-4.1")
+	m.SetOperation(true, "thinking", time.Now().Add(-12*time.Second), 2)
+
+	out := m.View()
+	assert.Contains(t, out, "thinking")
+	assert.Contains(t, out, "12s")
+	assert.Contains(t, out, "2 queued")
 }

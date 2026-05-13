@@ -51,6 +51,7 @@ func (a *App) handleCompactCommand(args []string) (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	a.streaming = true
 	a.cancelTurn = cancel
+	a.setOperation("compacting")
 
 	cmd := runCompact(ctx, a.contextMgr, prov, modelID, cur.ID, before, beforeTok, keep)
 	return a, tea.Batch(a.spinner.Start("Compacting..."), cmd)
@@ -82,6 +83,7 @@ func runCompact(
 func (a *App) handleCompactDone(msg compactDoneMsg) (tea.Model, tea.Cmd) {
 	a.streaming = false
 	a.spinner.Stop()
+	a.clearOperation()
 	if a.cancelTurn != nil {
 		a.cancelTurn()
 		a.cancelTurn = nil
@@ -93,18 +95,18 @@ func (a *App) handleCompactDone(msg compactDoneMsg) (tea.Model, tea.Cmd) {
 		} else {
 			a.conversation.AppendSystem("compact: " + msg.err.Error())
 		}
-		return a, nil
+		return a.startNextQueuedInput()
 	}
 
 	cur := a.deps.Sessions.Current()
 	if cur == nil || cur.ID != msg.sessionID {
 		a.conversation.AppendSystem("compact: session changed before save; discarded result")
-		return a, nil
+		return a.startNextQueuedInput()
 	}
 
 	if saveErr := a.deps.Sessions.ReplaceMessages(msg.after); saveErr != nil {
 		a.conversation.AppendSystem("compact: save failed: " + saveErr.Error())
-		return a, nil
+		return a.startNextQueuedInput()
 	}
 
 	afterTok := a.contextMgr.EstimateTokens(msg.after)
@@ -113,5 +115,5 @@ func (a *App) handleCompactDone(msg compactDoneMsg) (tea.Model, tea.Cmd) {
 		msg.beforeTok, afterTok, msg.keep,
 	))
 	a.refreshTopBar()
-	return a, nil
+	return a.startNextQueuedInput()
 }

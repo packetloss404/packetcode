@@ -26,6 +26,7 @@ Statusline stdin:
   "context_window": { "used": 12000, "max": 400000, "used_percentage": 3 },
   "cost": { "total_cost_usd": 0.42 },
   "jobs": { "active": 1 },
+  "operation": { "active": true, "label": "thinking", "elapsed_seconds": 12, "queued_inputs": 1 },
   "duration_seconds": 360,
   "version": "v0.0.0"
 }

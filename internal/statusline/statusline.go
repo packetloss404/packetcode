@@ -27,17 +27,18 @@ type Runner struct {
 }
 
 type Snapshot struct {
-	SessionID       string       `json:"session_id,omitempty"`
-	WorkingDir      string       `json:"working_dir,omitempty"`
-	Project         string       `json:"project,omitempty"`
-	GitBranch       string       `json:"git_branch,omitempty"`
-	Provider        ProviderInfo `json:"provider"`
-	Model           ModelInfo    `json:"model"`
-	ContextWindow   ContextInfo  `json:"context_window"`
-	Cost            CostInfo     `json:"cost"`
-	Jobs            JobsInfo     `json:"jobs"`
-	DurationSeconds int          `json:"duration_seconds"`
-	Version         string       `json:"version,omitempty"`
+	SessionID       string        `json:"session_id,omitempty"`
+	WorkingDir      string        `json:"working_dir,omitempty"`
+	Project         string        `json:"project,omitempty"`
+	GitBranch       string        `json:"git_branch,omitempty"`
+	Provider        ProviderInfo  `json:"provider"`
+	Model           ModelInfo     `json:"model"`
+	ContextWindow   ContextInfo   `json:"context_window"`
+	Cost            CostInfo      `json:"cost"`
+	Jobs            JobsInfo      `json:"jobs"`
+	Operation       OperationInfo `json:"operation"`
+	DurationSeconds int           `json:"duration_seconds"`
+	Version         string        `json:"version,omitempty"`
 }
 
 type ProviderInfo struct {
@@ -61,6 +62,13 @@ type CostInfo struct {
 
 type JobsInfo struct {
 	Active int `json:"active"`
+}
+
+type OperationInfo struct {
+	Active         bool   `json:"active"`
+	Label          string `json:"label,omitempty"`
+	ElapsedSeconds int    `json:"elapsed_seconds"`
+	QueuedInputs   int    `json:"queued_inputs"`
 }
 
 func New(cfg config.StatusLineConfig, cwd string) *Runner {

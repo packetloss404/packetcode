@@ -63,6 +63,7 @@ func TestJobsPanel_RendersTranscript(t *testing.T) {
 
 	// Footer keybinding hint is always visible.
 	assert.Contains(t, out, "Esc / q close")
+	assert.Contains(t, out, "G newest")
 }
 
 // TestJobsPanel_EscClosesPanel verifies Esc toggles Visible() off. We
@@ -107,4 +108,18 @@ func TestJobsPanel_EmptyTranscriptShowsPlaceholder(t *testing.T) {
 	out := m.View()
 	assert.True(t, strings.Contains(out, "(no messages yet)"),
 		"empty transcript should render a placeholder")
+}
+
+func TestJobsPanel_ShowSessionRendersStickySessionHeader(t *testing.T) {
+	m := New()
+	m.Resize(100, 20)
+	m.ShowSession("[session:abcd1234]", "openai/gpt · 2 messages · $0.0100", []provider.Message{
+		{Role: provider.RoleUser, Content: "hello"},
+	})
+
+	out := m.View()
+	assert.Contains(t, out, "[session:abcd1234]")
+	assert.Contains(t, out, "openai/gpt")
+	assert.Contains(t, out, "hello")
+	assert.Contains(t, out, "G newest")
 }

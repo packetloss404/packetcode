@@ -70,8 +70,29 @@ func TestAgentView_RendersGroupedJobRows(t *testing.T) {
 	assert.Contains(t, out, "run11111")
 	assert.Contains(t, out, "done1111")
 	assert.Contains(t, out, "gemini/gemini")
+	assert.Contains(t, out, "$0.0000")
+	assert.Contains(t, out, "120/45")
 	assert.Contains(t, out, "find call sites")
 	assert.Contains(t, out, "p peek")
+}
+
+func TestAgentView_RendersStatusBadges(t *testing.T) {
+	now := time.Now()
+	waiting := snap("wait1111", StateRunning, now, "patch files")
+	waiting.NeedsApproval = true
+	waiting.LastMessage = "patch_file"
+	done := snap("done1111", StateCompleted, now.Add(-time.Minute), "summarise")
+	done.ResultStatus = "seen"
+	done.CostUSD = 0.0123
+
+	m := New()
+	m.Resize(120, 20)
+	m.Show([]Job{waiting, done})
+
+	out := m.View()
+	assert.Contains(t, out, "approval")
+	assert.Contains(t, out, "seen")
+	assert.Contains(t, out, "$0.0123")
 }
 
 func TestAgentView_SelectionMovesAcrossGroups(t *testing.T) {

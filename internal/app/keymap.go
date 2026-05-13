@@ -69,7 +69,10 @@ var (
 		{"/clear", "Clear the transcript pane"},
 		{"/statusline", "Show or refresh the configured statusline command"},
 		{"/mcp", "List configured MCP servers"},
+		{"/mcp status <name>", "Show MCP server health details"},
+		{"/mcp tools <name>", "List tools exposed by an MCP server"},
 		{"/mcp logs <name>", "Tail an MCP server's stderr log"},
+		{"/transcript", "Open the current session transcript"},
 		{"/exit", "Quit packetcode"},
 		{"/quit", "Quit packetcode"},
 	}

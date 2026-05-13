@@ -184,6 +184,8 @@ func parseCostArgs(args []string) (reset, yes bool, err error) {
 //
 //	<nothing>             — list configured servers
 //	logs <name>           — tail the named server's stderr log
+//	status <name>         — show server health/config detail
+//	tools <name>          — list tools exposed by one server
 //
 // /mcp restart <name> is deferred to Round 8; it is parsed just enough
 // to return a friendly "not yet supported" error rather than falling
@@ -193,14 +195,14 @@ func parseMCPArgs(args []string) (sub, name string, err error) {
 		return "", "", nil
 	}
 	switch args[0] {
-	case "logs":
+	case "logs", "status", "tools":
 		if len(args) < 2 {
-			return "", "", fmt.Errorf("logs requires a server name")
+			return "", "", fmt.Errorf("%s requires a server name", args[0])
 		}
 		if len(args) > 2 {
 			return "", "", fmt.Errorf("unexpected argument %q", args[2])
 		}
-		return "logs", args[1], nil
+		return args[0], args[1], nil
 	case "restart":
 		return "", "", fmt.Errorf("restart not yet supported — restart packetcode to reconnect")
 	default:

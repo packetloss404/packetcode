@@ -39,6 +39,9 @@ type Model struct {
 	vp      viewport.Model
 	width   int
 	height  int
+	mode    string
+	title   string
+	meta    string
 }
 
 // New returns an empty, hidden Model. The caller typically holds it as
@@ -54,6 +57,22 @@ func New() Model {
 func (m *Model) Show(snap jobs.Snapshot, msgs []provider.Message) {
 	m.snap = snap
 	m.msgs = append([]provider.Message(nil), msgs...)
+	m.mode = "job"
+	m.title = ""
+	m.meta = ""
+	m.visible = true
+	m.refresh()
+}
+
+// ShowSession opens the same transcript viewer for the active chat
+// session. The header stays outside the viewport, which gives the
+// modal a useful sticky anchor while the body scrolls.
+func (m *Model) ShowSession(title, meta string, msgs []provider.Message) {
+	m.snap = jobs.Snapshot{}
+	m.msgs = append([]provider.Message(nil), msgs...)
+	m.mode = "session"
+	m.title = title
+	m.meta = meta
 	m.visible = true
 	m.refresh()
 }
@@ -135,7 +154,7 @@ func (m Model) View() string {
 
 	header := m.renderHeader()
 	body := m.vp.View()
-	footer := theme.StyleDim.Render("Esc / q close · j/k scroll")
+	footer := theme.StyleDim.Render(m.renderFooter())
 
 	content := strings.Join([]string{header, body, footer}, "\n")
 
@@ -154,6 +173,18 @@ func (m Model) View() string {
 // Each field is rendered in the theme's secondary-text style so the
 // ID stays the visual anchor.
 func (m Model) renderHeader() string {
+	if m.mode == "session" {
+		title := strings.TrimSpace(m.title)
+		if title == "" {
+			title = "current session"
+		}
+		head := theme.StyleAccent.Render(title)
+		meta := strings.TrimSpace(m.meta)
+		if meta == "" {
+			return head
+		}
+		return head + " " + theme.StyleSecondary.Render(meta)
+	}
 	s := m.snap
 	prov := s.Provider
 	if s.Model != "" {
@@ -180,6 +211,19 @@ func (m Model) renderHeader() string {
 	return id + " " + rest
 }
 
+func (m Model) renderFooter() string {
+	total := m.vp.TotalLineCount()
+	if total <= m.vp.Height || m.vp.Height <= 0 {
+		return "Esc / q close · j/k scroll · G newest"
+	}
+	top := m.vp.YOffset + 1
+	bottom := m.vp.YOffset + m.vp.Height
+	if bottom > total {
+		bottom = total
+	}
+	return fmt.Sprintf("Esc / q close · j/k scroll · g top · G newest · lines %d-%d/%d", top, bottom, total)
+}
+
 // refresh re-renders the transcript into the inner viewport. Called
 // from Show and Resize.
 func (m *Model) refresh() {
@@ -198,7 +242,7 @@ func (m *Model) refresh() {
 		b.WriteString(theme.StyleDim.Render("(no messages yet)"))
 	}
 	m.vp.SetContent(b.String())
-	m.vp.GotoTop()
+	m.vp.GotoBottom()
 }
 
 // renderMessage formats a single provider.Message for the modal body.

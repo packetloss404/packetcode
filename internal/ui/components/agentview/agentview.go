@@ -502,8 +502,10 @@ func (m Model) renderJobRow(j Job, selected bool, w int) string {
 	prov := providerLabel(j)
 	age := roundedAge(j)
 	tokens := fmt.Sprintf("%d/%d", j.Tokens.Input, j.Tokens.Output)
+	cost := fmt.Sprintf("$%.4f", j.CostUSD)
+	badge := statusBadge(j)
 
-	fixedW := lipgloss.Width(cursor) + 1 + 8 + 1 + 10 + 1 + 22 + 1 + 6 + 1 + 11 + 1
+	fixedW := lipgloss.Width(cursor) + 1 + 8 + 1 + 10 + 1 + 22 + 1 + 6 + 1 + 11 + 1 + 8 + 1 + 10 + 1
 	promptW := w - fixedW
 	if promptW < 8 {
 		promptW = 8
@@ -520,6 +522,8 @@ func (m Model) renderJobRow(j Job, selected bool, w int) string {
 		padOrTrunc(prov, 22),
 		padOrTrunc(age, 6),
 		padOrTrunc(tokens, 11),
+		padOrTrunc(cost, 8),
+		padOrTrunc(badge, 10),
 		prompt,
 	}, " ")
 	line = truncate(line, w)
@@ -527,6 +531,32 @@ func (m Model) renderJobRow(j Job, selected bool, w int) string {
 		return lipgloss.NewStyle().Background(theme.BaseSurfaceBright).Render(line)
 	}
 	return line
+}
+
+func statusBadge(j Job) string {
+	switch {
+	case j.NeedsApproval:
+		return "approval"
+	case j.NeedsInput:
+		return "input"
+	}
+	switch strings.ToLower(strings.TrimSpace(j.ResultStatus)) {
+	case "injected":
+		return "injected"
+	case "ignored":
+		return "ignored"
+	case "seen":
+		return "seen"
+	case "pending":
+		if groupForState(j.State) != groupActive {
+			return "ready"
+		}
+	}
+	activity := strings.ToLower(strings.TrimSpace(j.LastActivity))
+	if activity != "" {
+		return activity
+	}
+	return strings.ToLower(strings.TrimSpace(j.State))
 }
 
 func renderState(s string, w int) string {

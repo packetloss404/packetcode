@@ -20,6 +20,7 @@ import (
 	"github.com/packetcode/packetcode/internal/jobs"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/session"
+	"github.com/packetcode/packetcode/internal/statusline"
 	"github.com/packetcode/packetcode/internal/tools"
 	"github.com/packetcode/packetcode/internal/ui/components/agentview"
 	"github.com/packetcode/packetcode/internal/ui/components/approval"
@@ -1146,6 +1147,99 @@ func TestApp_Agents_ViewDoesNotOverrideJobsPanelOverlay(t *testing.T) {
 	out := r.app.View()
 	if !strings.Contains(out, "[job:"+snap.ID+"]") {
 		t.Fatalf("jobs panel should remain above agent view overlay:\n%s", out)
+	}
+}
+
+func TestApp_Transcript_UnexpectedArg(t *testing.T) {
+	r := newTestApp(t)
+
+	r.app.handleSlashCommand("transcript", []string{"extra"}, "/transcript extra")
+
+	convContains(t, r.app, "transcript: unexpected argument extra")
+}
+
+func TestApp_Transcript_NoSessions(t *testing.T) {
+	r := newTestApp(t)
+	r.app.deps.Sessions = nil
+
+	r.app.handleSlashCommand("transcript", nil, "/transcript")
+
+	convContains(t, r.app, "transcript: sessions not available")
+}
+
+func TestApp_Transcript_NoCurrentSession(t *testing.T) {
+	r := newTestApp(t)
+	r.app.deps.Sessions = session.NewManager(filepath.Join(r.tmp, "empty-sessions"))
+
+	r.app.handleSlashCommand("transcript", nil, "/transcript")
+
+	convContains(t, r.app, "transcript: no current session")
+}
+
+func TestApp_Transcript_OpensCurrentSession(t *testing.T) {
+	r := newTestApp(t)
+	if err := r.sessions.AddMessage(provider.Message{Role: provider.RoleUser, Content: "show current session"}); err != nil {
+		t.Fatalf("AddMessage: %v", err)
+	}
+	if err := r.sessions.UpdateUsage(provider.Usage{InputTokens: 100, OutputTokens: 25}, 2, 8); err != nil {
+		t.Fatalf("UpdateUsage: %v", err)
+	}
+
+	r.app.handleSlashCommand("transcript", nil, "/transcript")
+
+	if !r.app.jobsPanel.Visible() {
+		t.Fatalf("/transcript should open the transcript panel")
+	}
+	r.app.jobsPanel.Resize(100, 20)
+	out := r.app.jobsPanel.View()
+	if !strings.Contains(out, "[session:") || !strings.Contains(out, "fake/fake-model") || !strings.Contains(out, "show current session") {
+		t.Fatalf("transcript panel missing session metadata or message:\n%s", out)
+	}
+}
+
+func TestApp_StatusLineAutoRefreshThrottlesWhileTopbarTicks(t *testing.T) {
+	r := newTestApp(t)
+	r.app.statusLine = statusline.New(config.StatusLineConfig{Command: "echo ok", TimeoutSec: 5}, r.tmp)
+	if r.app.statusLine == nil {
+		t.Fatalf("statusline should be enabled")
+	}
+
+	first := r.app.renderStatusLine(false)
+	if first == nil {
+		t.Fatalf("first automatic statusline render should be scheduled")
+	}
+	if r.app.statusLineInFlight != 1 {
+		t.Fatalf("statusLineInFlight = %d, want 1", r.app.statusLineInFlight)
+	}
+	if got := r.app.renderStatusLine(false); got != nil {
+		t.Fatalf("automatic statusline render should not overlap while one is in flight")
+	}
+
+	manual := r.app.renderStatusLine(true)
+	if manual == nil {
+		t.Fatalf("manual statusline render should still be scheduled")
+	}
+	if r.app.statusLineInFlight != 2 {
+		t.Fatalf("statusLineInFlight = %d, want 2", r.app.statusLineInFlight)
+	}
+
+	r.app.updateInner(statusLineMsg{seq: 1, line: "stale"})
+	if r.app.statusLineInFlight != 2 {
+		t.Fatalf("stale statusline result cleared in-flight seq")
+	}
+	if got := r.app.topbar.CustomLine(); got != "" {
+		t.Fatalf("stale statusline result set custom line %q", got)
+	}
+
+	r.app.updateInner(statusLineMsg{seq: 2, line: "manual"})
+	if r.app.statusLineInFlight != 0 {
+		t.Fatalf("statusLineInFlight = %d, want cleared", r.app.statusLineInFlight)
+	}
+	if got := r.app.topbar.CustomLine(); got != "manual" {
+		t.Fatalf("custom line = %q, want manual", got)
+	}
+	if got := r.app.renderStatusLine(false); got != nil {
+		t.Fatalf("automatic statusline render should respect refresh interval")
 	}
 }
 

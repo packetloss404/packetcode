@@ -25,8 +25,9 @@ type RenderContext struct {
 type BodyRenderer func(RenderContext) string
 
 var renderers = map[string]BodyRenderer{
-	"write_file": renderWriteFile,
-	"patch_file": renderPatchFile,
+	"write_file":      renderWriteFile,
+	"patch_file":      renderPatchFile,
+	"execute_command": renderExecuteCommand,
 }
 
 // Register is the extension point for future tool-specific renderers.
@@ -101,6 +102,35 @@ func renderPatchFile(ctx RenderContext) string {
 	}
 	m = m.SetWidth(ctx.Width).SetMaxRows(maxApprovalDiffRows)
 	return renderDiffWithHeader(m, params.Path)
+}
+
+func renderExecuteCommand(ctx RenderContext) string {
+	var params struct {
+		Command    string `json:"command"`
+		CWD        string `json:"cwd"`
+		TimeoutSec int    `json:"timeout_sec"`
+	}
+	if err := json.Unmarshal([]byte(ctx.Arguments), &params); err != nil {
+		return summariseParams(ctx.Arguments)
+	}
+	timeout := params.TimeoutSec
+	if timeout <= 0 {
+		timeout = 60
+	}
+	if timeout > 600 {
+		timeout = 600
+	}
+	cwd := strings.TrimSpace(params.CWD)
+	if cwd == "" {
+		cwd = "(project root)"
+	}
+	info := tools.DetectShellRuntime()
+	lines := []string{
+		theme.StylePrimary.Render("$ " + params.Command),
+		theme.StyleDim.Render(fmt.Sprintf("cwd: %s · timeout: %ds · runtime: %s", cwd, timeout, info.Default)),
+		theme.StyleWarning.Render("Review shell syntax and side effects before approving. On Windows, PowerShell/WSL/Git Bash commands must invoke that runtime explicitly."),
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderDiffWithHeader lays out header badge + stats line + blank line

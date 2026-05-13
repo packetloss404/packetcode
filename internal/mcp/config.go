@@ -32,12 +32,14 @@ type ClientInfo struct {
 // StartupReport is the per-server result of Manager.Start. Status is
 // one of "running", "disabled", "failed", or "exited".
 type StartupReport struct {
-	Name      string
-	Status    string
-	ToolCount int
-	PID       int
-	Command   string
-	Err       string
+	Name       string
+	Status     string
+	ToolCount  int
+	PID        int
+	Command    string
+	Err        string
+	TimeoutSec int
+	Auth       string
 }
 
 // ErrServerExited is returned by CallTool (and surfaced by the McpTool

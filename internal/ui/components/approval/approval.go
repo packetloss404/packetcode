@@ -36,11 +36,12 @@ type ResultMsg struct {
 }
 
 type Model struct {
-	visible  bool
-	tool     tools.Tool
-	toolCall provider.ToolCall
-	width    int
-	result   Result
+	visible    bool
+	tool       tools.Tool
+	toolCall   provider.ToolCall
+	width      int
+	result     Result
+	queueDepth int
 }
 
 func New() Model { return Model{} }
@@ -52,12 +53,20 @@ func (m *Model) Show(tool tools.Tool, call provider.ToolCall) {
 	m.toolCall = call
 	m.visible = true
 	m.result = Pending
+	m.queueDepth = 1
 }
 
 func (m *Model) Hide()         { m.visible = false }
 func (m *Model) Visible() bool { return m.visible }
 
 func (m *Model) SetWidth(w int) { m.width = w }
+
+func (m *Model) SetQueueDepth(n int) {
+	if n < 1 {
+		n = 1
+	}
+	m.queueDepth = n
+}
 
 // Update handles approve/reject keys.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -95,7 +104,15 @@ func (m Model) View() string {
 	if m.toolCall.Name != "" && m.toolCall.Name != displayName {
 		displayName = m.toolCall.Name
 	}
-	header := theme.LabelBadge(displayName, theme.Warning)
+	source, action := splitApprovalDisplay(displayName)
+	headerText := action
+	if source != "" {
+		headerText = source + " · " + action
+	}
+	header := theme.LabelBadge(headerText, theme.Warning)
+	if m.queueDepth > 1 {
+		header += " " + theme.StyleDim.Render(fmt.Sprintf("1 of %d pending approvals", m.queueDepth))
+	}
 	var body string
 	if r, ok := renderers[m.tool.Name()]; ok {
 		body = r(RenderContext{
@@ -114,6 +131,16 @@ func (m Model) View() string {
 
 	content := strings.Join([]string{header, "", body, "", actions}, "\n")
 	return theme.StyleApprovalPrompt.Width(width - 4).Render(content)
+}
+
+func splitApprovalDisplay(name string) (source, action string) {
+	name = strings.TrimSpace(name)
+	if strings.HasPrefix(name, "[job:") {
+		if end := strings.Index(name, "]"); end >= 0 {
+			return name[:end+1], strings.TrimSpace(name[end+1:])
+		}
+	}
+	return "", name
 }
 
 // summariseParams renders the tool's JSON arguments as a readable two-line

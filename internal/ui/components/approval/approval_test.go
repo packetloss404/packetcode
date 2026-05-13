@@ -175,14 +175,35 @@ func TestRegisterAddsCustomRenderer(t *testing.T) {
 func TestUnregisteredToolFallsThroughToSummariseParams(t *testing.T) {
 	m := New()
 	m.SetWidth(80)
-	m.Show(fakeTool{name: "execute_command"}, provider.ToolCall{
-		Name:      "execute_command",
+	m.Show(fakeTool{name: "custom_shell"}, provider.ToolCall{
+		Name:      "custom_shell",
 		Arguments: `{"cmd":"ls -la"}`,
 	})
 	out := stripANSI(m.View())
 	// summariseParams pretty-prints JSON
 	assert.Contains(t, out, `"cmd"`)
 	assert.Contains(t, out, "ls -la")
+}
+
+func TestApprovalHeaderShowsJobSourceAndQueueDepth(t *testing.T) {
+	m := New()
+	m.SetWidth(100)
+	m.Show(fakeTool{name: "write_file"}, provider.ToolCall{
+		Name:      "[job:abcd1234] write_file",
+		Arguments: `{"path":"x.txt","content":"y"}`,
+	})
+	m.SetQueueDepth(3)
+	out := stripANSI(m.View())
+	assert.Contains(t, out, "[job:abcd1234] · write_file")
+	assert.Contains(t, out, "1 of 3 pending approvals")
+}
+
+func TestRenderExecuteCommand_ShowsRuntimeSafety(t *testing.T) {
+	out := showFor(t, fakeTool{name: "execute_command"}, `{"command":"dir","timeout_sec":5}`)
+	assert.Contains(t, out, "$ dir")
+	assert.Contains(t, out, "timeout: 5s")
+	assert.Contains(t, out, "runtime:")
+	assert.Contains(t, out, "Review shell syntax")
 }
 
 func TestView_HeaderAndActionsPresent(t *testing.T) {

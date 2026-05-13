@@ -358,6 +358,13 @@ func TestParseSlashCommand_StatusLine(t *testing.T) {
 	}
 }
 
+func TestParseSlashCommand_Transcript(t *testing.T) {
+	cmd, args, ok := ParseSlashCommand("/transcript")
+	if !ok || cmd != "transcript" || len(args) != 0 {
+		t.Fatalf("parse = %q %v %v", cmd, args, ok)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Regression: autocomplete's acceptAutocomplete leaves a trailing space in
 // the input buffer ("/spawn "). The parser must tolerate that so the
