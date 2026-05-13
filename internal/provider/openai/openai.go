@@ -60,19 +60,16 @@ func (p *Provider) ValidateKey(ctx context.Context, apiKey string) error {
 // have pricing for yet — so newly-released chat models appear in the
 // selector without requiring a code release here.
 //
-// Entries in the local pricingTable that the upstream catalog omits are
-// appended afterwards. OpenAI's /v1/models endpoint is not fully
-// authoritative for what a key can call — newer models (e.g. gpt-5.5)
-// are callable on certain accounts without being listed. Surfacing
-// them anyway lets the user pick them; if the key truly lacks access,
-// the failure surfaces cleanly on the next ChatCompletion request.
+// The upstream catalog is the source of truth for what the current key
+// can choose in setup and the model picker. Pricing metadata enriches
+// models that the API actually returned; it does not seed speculative
+// aliases that may be inaccessible to the account.
 func (p *Provider) ListModels(ctx context.Context) ([]provider.Model, error) {
 	raw, err := p.client.ListModels(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]provider.Model, 0, len(raw)+len(pricingTable))
-	seen := make(map[string]struct{}, len(raw))
+	out := make([]provider.Model, 0, len(raw))
 	for _, m := range raw {
 		if !isChatModel(m.ID) {
 			continue
@@ -86,20 +83,6 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.Model, error) {
 		out = append(out, provider.Model{
 			ID:            m.ID,
 			DisplayName:   m.ID,
-			ContextWindow: entry.ContextWindow,
-			SupportsTools: entry.SupportsTools,
-			InputPer1M:    entry.Input,
-			OutputPer1M:   entry.Output,
-		})
-		seen[m.ID] = struct{}{}
-	}
-	for id, entry := range pricingTable {
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		out = append(out, provider.Model{
-			ID:            id,
-			DisplayName:   id,
 			ContextWindow: entry.ContextWindow,
 			SupportsTools: entry.SupportsTools,
 			InputPer1M:    entry.Input,

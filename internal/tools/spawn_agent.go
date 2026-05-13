@@ -12,7 +12,7 @@ const spawnAgentSchema = `{
   "type": "object",
   "properties": {
     "prompt":   { "type": "string", "description": "The task for the background agent. Be specific and self-contained — the spawned agent has no shared memory with you." },
-    "provider": { "type": "string", "description": "Optional provider slug override (openai, gemini, minimax, openrouter, ollama). Defaults to the parent's provider." },
+    "provider": { "type": "string", "description": "Optional provider slug override (openai, anthropic, gemini, minimax, openrouter, ollama). Defaults to the parent's provider." },
     "model":    { "type": "string", "description": "Optional model id override. Defaults to the parent's model." },
     "wait":     { "type": "boolean", "description": "If true, this tool call blocks until the spawned job completes and returns its result inline. If false (default), returns the job id immediately and the result surfaces later." },
     "allow_write": { "type": "boolean", "description": "If true, opt the child job into destructive tools (write_file, patch_file, execute_command). This is independent of wait and may be unavailable from read-only parent jobs." }

@@ -112,6 +112,12 @@ func (t *McpTool) Execute(ctx context.Context, params json.RawMessage) (tools.To
 	if len(trimmed) == 0 || string(trimmed) == "null" {
 		args = json.RawMessage("{}")
 	}
+	if !json.Valid(args) {
+		return tools.ToolResult{
+			IsError: true,
+			Content: fmt.Sprintf("%s.%s: invalid JSON arguments", t.serverName, t.toolName),
+		}, nil
+	}
 
 	res, err := t.client.CallTool(ctx, t.toolName, args)
 	if err != nil {

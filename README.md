@@ -4,20 +4,20 @@ A keyboard-first, multi-provider AI coding agent for the terminal.
 
 > Status: pre-release / active development. This README describes the current main branch, not a tagged 1.0 release.
 
-packetcode runs in your terminal, keeps your project in your hands, and can talk to OpenAI, Gemini, MiniMax, OpenRouter, and local Ollama models through one interface. It can read, search, edit, patch, and run commands in the current project. File writes, patches, shell commands, background-agent writes, and MCP tool calls go through approval unless trust mode is enabled.
+packetcode runs in your terminal, keeps your project in your hands, and can talk to OpenAI, Anthropic, Gemini, MiniMax, OpenRouter, and Ollama models through one interface. It can read, search, edit, patch, and run commands in the current project. File writes, patches, shell commands, background-agent writes, and MCP tool calls go through approval unless trust mode is enabled.
 
 ## Start Here
 
 Install the latest Linux/macOS release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/packetcode/packetcode/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | bash
 ```
 
 Set `INSTALL_DIR=$HOME/.local/bin` to install without sudo. The installer verifies the release checksum before installing and warns if the install directory is not on `PATH`.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/packetcode/packetcode/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
+curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
 ```
 
 Build from source:
@@ -35,7 +35,7 @@ go build -trimpath -ldflags "-s -w -X main.version=dev -X main.commit=$commit" -
 .\bin\packetcode.exe
 ```
 
-First run starts a line-based setup flow: choose a provider, enter an API key if needed, pick a model, and save `~/.packetcode/config.toml`. Ollama does not need a key, but it does need a running Ollama server.
+First run starts a line-based setup flow: choose a provider, enter an API key if needed, pick a model, and save `~/.packetcode/config.toml`. Ollama does not need a key, but it does need a reachable Ollama server.
 
 Common launch flags:
 
@@ -84,6 +84,7 @@ API keys can also be set in the environment:
 
 ```text
 PACKETCODE_OPENAI_API_KEY
+PACKETCODE_ANTHROPIC_API_KEY
 PACKETCODE_GEMINI_API_KEY
 PACKETCODE_MINIMAX_API_KEY
 PACKETCODE_OPENROUTER_API_KEY
@@ -110,6 +111,7 @@ Built-in commands:
 | --- | --- |
 | `/spawn <prompt>` | Start a read-only background agent. |
 | `/spawn --write <prompt>` | Start a background agent that may request write/command approval. |
+| `/agents` / `/agents <id>` | Open Agent View or a selected agent transcript. |
 | `/jobs` / `/jobs <id>` | List jobs or open a job transcript. |
 | `/cancel <id\|all>` | Cancel one job or all jobs. |
 | `/provider [slug]` | Open the provider picker or switch provider. |
@@ -160,6 +162,14 @@ model = "gpt-5.5"
 [providers.openai]
 api_key = "sk-..."
 default_model = "gpt-5.5"
+
+[providers.anthropic]
+api_key = "sk-ant-..."
+default_model = "claude-opus-4-7"
+
+[providers.minimax]
+api_key = "sk-..."
+default_model = "MiniMax-M2.7-highspeed"
 
 [providers.ollama]
 host = "http://localhost:11434"

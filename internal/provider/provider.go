@@ -19,7 +19,7 @@ type Provider interface {
 
 	// ValidateKey performs a cheap authenticated request (typically a
 	// model list) to confirm the key is accepted. Returns nil on success.
-	// Local providers (Ollama) return nil unconditionally.
+	// Keyless providers can use this to validate reachability instead.
 	ValidateKey(ctx context.Context, apiKey string) error
 
 	// ListModels enumerates models available to the current key. The
@@ -41,7 +41,7 @@ type Provider interface {
 	ContextWindow(modelID string) int
 
 	// SupportsTools reports whether the model can handle native function
-	// calling. False for some local Ollama models — callers fall back to
-	// prompt-based tool injection in that case.
+	// calling. False for some local Ollama models; callers omit native
+	// tool definitions and may warn the model that tools are unavailable.
 	SupportsTools(modelID string) bool
 }

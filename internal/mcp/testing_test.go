@@ -247,7 +247,7 @@ func NewClientWithStub(name string, stub *StubServer, info ClientInfo, timeoutSe
 }
 
 // bytesReader is a tiny io.Reader over a []byte. We avoid importing
-// bytes here only to keep the testing.go import set minimal.
+// bytes here only to keep the test helper import set minimal.
 type bytesReader struct {
 	buf []byte
 	off int

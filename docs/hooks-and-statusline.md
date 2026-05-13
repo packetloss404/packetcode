@@ -35,6 +35,8 @@ Use `/statusline` to show the active output and `/statusline refresh` to force a
 
 ## Hooks
 
+Unix/macOS shell examples:
+
 ```toml
 [[hooks.user_prompt_submit]]
 command = "cat .packetcode-context 2>/dev/null || true"
@@ -48,6 +50,19 @@ timeout_sec = 5
 [[hooks.post_tool_use]]
 matcher = "patch_file"
 command = "gofmt -w $(git diff --name-only -- '*.go') 2>/dev/null || true"
+timeout_sec = 10
+```
+
+PowerShell examples:
+
+```toml
+[[hooks.user_prompt_submit]]
+command = "if (Test-Path .packetcode-context) { Get-Content .packetcode-context -Raw }"
+timeout_sec = 2
+
+[[hooks.post_tool_use]]
+matcher = "patch_file"
+command = "$files = git diff --name-only -- '*.go'; if ($files) { gofmt -w $files }"
 timeout_sec = 10
 ```
 

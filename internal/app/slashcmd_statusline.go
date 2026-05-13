@@ -18,7 +18,11 @@ func (a *App) handleStatusLineCommand(args []string) (tea.Model, tea.Cmd) {
 	}
 	if len(args) > 0 && args[0] == "refresh" {
 		a.conversation.AppendSystem("statusline: refresh requested")
-		return a, a.renderStatusLine()
+		return a, a.renderStatusLine(true)
+	}
+	if a.lastStatusLineErr != nil {
+		a.conversation.AppendSystem("statusline: custom command active\nlast error: " + a.lastStatusLineErr.Error())
+		return a, nil
 	}
 	line := strings.TrimSpace(a.topbar.CustomLine())
 	if line == "" {

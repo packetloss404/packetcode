@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -61,4 +62,18 @@ func TestListDirectory_RejectsTraversal(t *testing.T) {
 	res, err := tool.Execute(context.Background(), body)
 	require.NoError(t, err)
 	assert.True(t, res.IsError)
+}
+
+func TestListDirectory_MaxEntriesTruncates(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 5; i++ {
+		require.NoError(t, os.WriteFile(filepath.Join(root, fmt.Sprintf("f%d.txt", i)), []byte("x"), 0o644))
+	}
+	tool := NewListDirectoryTool(root)
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"max_entries":2}`))
+	require.NoError(t, err)
+	assert.False(t, res.IsError)
+	assert.Contains(t, res.Content, "output truncated")
+	assert.Equal(t, true, res.Metadata["truncated"])
+	assert.Equal(t, 2, res.Metadata["entries_shown"])
 }

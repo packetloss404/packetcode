@@ -17,9 +17,11 @@ import (
 	"github.com/packetcode/packetcode/internal/agent"
 	"github.com/packetcode/packetcode/internal/config"
 	"github.com/packetcode/packetcode/internal/cost"
+	"github.com/packetcode/packetcode/internal/jobs"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/session"
 	"github.com/packetcode/packetcode/internal/tools"
+	"github.com/packetcode/packetcode/internal/ui/components/agentview"
 	"github.com/packetcode/packetcode/internal/ui/components/approval"
 	"github.com/packetcode/packetcode/internal/ui/components/autocomplete"
 	"github.com/packetcode/packetcode/internal/ui/components/conversation"
@@ -192,8 +194,8 @@ type testAppRig struct {
 func newTestApp(t *testing.T) *testAppRig {
 	t.Helper()
 	tmp := t.TempDir()
-	_ = os.Setenv("HOME", tmp)
-	_ = os.Setenv("USERPROFILE", tmp)
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
 
 	sessionsDir := filepath.Join(tmp, "sessions")
 	backupsDir := filepath.Join(tmp, "backups")
@@ -260,6 +262,7 @@ func newTestApp(t *testing.T) *testAppRig {
 		input:         input.New(),
 		approval:      approval.New(),
 		jobsPanel:     jobs_ui.New(),
+		agentView:     agentview.New(),
 		spinner:       spinner.New(),
 		autocomplete:  autocomplete.New(buildAutocompleteEntries()),
 		slashCommands: NewBuiltinSlashRegistry(),
@@ -278,6 +281,33 @@ func newTestApp(t *testing.T) *testAppRig {
 		cfg:      cfg,
 		tmp:      tmp,
 	}
+}
+
+func wireJobsManagerForSlashTest(t *testing.T, r *testAppRig) *jobs.Manager {
+	t.Helper()
+	jobsDir := filepath.Join(r.tmp, "jobs")
+	if err := os.MkdirAll(jobsDir, 0o700); err != nil {
+		t.Fatalf("mkdir jobs: %v", err)
+	}
+	mgr, _, err := jobs.NewManager(jobs.Config{
+		Registry:      r.reg,
+		Tools:         r.app.deps.Tools,
+		MainSessions:  r.sessions,
+		SessionsDir:   filepath.Join(r.tmp, "sessions"),
+		BackupsDir:    filepath.Join(r.tmp, "backups"),
+		JobsDir:       jobsDir,
+		CostTracker:   r.tracker,
+		MaxConcurrent: 1,
+		MaxTotal:      4,
+		Root:          r.tmp,
+		Approver:      agent.AutoApprove(),
+	})
+	if err != nil {
+		t.Fatalf("jobs.NewManager: %v", err)
+	}
+	r.app.jobs = mgr
+	r.app.deps.Jobs = mgr
+	return mgr
 }
 
 // convText renders the current conversation to a string so tests can
@@ -1017,7 +1047,7 @@ func TestApp_Help_ContainsAllSections(t *testing.T) {
 	convContains(t, r.app, "Ctrl+A")
 	convContains(t, r.app, "Set/update provider API key")
 	// Lists itself and all nine new verbs.
-	for _, verb := range []string{"/help", "/clear", "/provider", "/model", "/sessions", "/undo", "/compact", "/cost", "/trust"} {
+	for _, verb := range []string{"/help", "/clear", "/agents", "/provider", "/model", "/sessions", "/undo", "/compact", "/cost", "/trust"} {
 		convContains(t, r.app, verb)
 	}
 }
@@ -1038,6 +1068,121 @@ func TestApp_Clear_EquivalentToCtrlL(t *testing.T) {
 	}
 	if !r.app.conversation.IsEmpty() {
 		t.Fatalf("conversation should be empty post-clear")
+	}
+}
+
+// ─── /agents ──────────────────────────────────────────────────────────
+
+func TestApp_Agents_ListUsesBackgroundJobs(t *testing.T) {
+	r := newTestApp(t)
+	mgr := wireJobsManagerForSlashTest(t, r)
+	defer mgr.Shutdown(2 * time.Second)
+
+	snap, spawnErr := mgr.Spawn(jobs.SpawnRequest{
+		Prompt:   "audit fixtures",
+		Provider: "fake",
+		Model:    "fake-model",
+	})
+	if spawnErr != nil {
+		t.Fatalf("Spawn: %v", spawnErr)
+	}
+
+	r.app.handleSlashCommand("agents", nil, "/agents")
+	if !r.app.agentView.Visible() {
+		t.Fatalf("/agents should open the agent view")
+	}
+	out := r.app.agentView.View()
+	if !strings.Contains(out, snap.ID) {
+		t.Fatalf("agent view missing spawned job:\n%s", out)
+	}
+}
+
+func TestApp_Agents_DetailOpensJobsPanel(t *testing.T) {
+	r := newTestApp(t)
+	mgr := wireJobsManagerForSlashTest(t, r)
+	defer mgr.Shutdown(2 * time.Second)
+
+	snap, spawnErr := mgr.Spawn(jobs.SpawnRequest{
+		Prompt:   "inspect flaky test",
+		Provider: "fake",
+		Model:    "fake-model",
+	})
+	if spawnErr != nil {
+		t.Fatalf("Spawn: %v", spawnErr)
+	}
+
+	r.app.handleSlashCommand("agents", []string{snap.ID}, "/agents "+snap.ID)
+	if !r.app.jobsPanel.Visible() {
+		t.Fatalf("/agents <id> should open the existing jobs transcript panel")
+	}
+}
+
+func TestApp_Agents_NotFoundUsesAgentLabel(t *testing.T) {
+	r := newTestApp(t)
+	mgr := wireJobsManagerForSlashTest(t, r)
+	defer mgr.Shutdown(2 * time.Second)
+
+	r.app.handleSlashCommand("agents", []string{"missing"}, "/agents missing")
+	convContains(t, r.app, "[agent:missing not found]")
+}
+
+func TestApp_Agents_ViewDoesNotOverrideJobsPanelOverlay(t *testing.T) {
+	r := newTestApp(t)
+	mgr := wireJobsManagerForSlashTest(t, r)
+	defer mgr.Shutdown(2 * time.Second)
+
+	snap, spawnErr := mgr.Spawn(jobs.SpawnRequest{
+		Prompt:   "inspect overlay",
+		Provider: "fake",
+		Model:    "fake-model",
+	})
+	if spawnErr != nil {
+		t.Fatalf("Spawn: %v", spawnErr)
+	}
+
+	r.app.resize(120, 40)
+	r.app.handleSlashCommand("agents", nil, "/agents")
+	r.app.handleSlashCommand("jobs", []string{snap.ID}, "/jobs "+snap.ID)
+	out := r.app.View()
+	if !strings.Contains(out, "[job:"+snap.ID+"]") {
+		t.Fatalf("jobs panel should remain above agent view overlay:\n%s", out)
+	}
+}
+
+func TestApp_HandleJobUpdate_IgnoresStaleSeqAndDedupesTerminal(t *testing.T) {
+	r := newTestApp(t)
+	mgr := wireJobsManagerForSlashTest(t, r)
+	defer mgr.Shutdown(2 * time.Second)
+
+	snap, spawnErr := mgr.Spawn(jobs.SpawnRequest{
+		Prompt:   "finish once",
+		Provider: "fake",
+		Model:    "fake-model",
+	})
+	if spawnErr != nil {
+		t.Fatalf("Spawn: %v", spawnErr)
+	}
+	waitForEq(t, 2*time.Second, "job terminal", func() int {
+		got, _ := mgr.Get(snap.ID)
+		if got.State.IsTerminal() {
+			return 1
+		}
+		return 0
+	}, 1)
+	terminal, _ := mgr.Get(snap.ID)
+
+	r.app.handleJobUpdate(terminal)
+	r.app.handleJobUpdate(terminal)
+	if got := strings.Count(convText(r.app), "[job:"+terminal.ID); got != 1 {
+		t.Fatalf("terminal line count = %d, want 1\n%s", got, convText(r.app))
+	}
+
+	stale := terminal
+	stale.Seq--
+	stale.Summary = "stale summary should be ignored"
+	r.app.handleJobUpdate(stale)
+	if strings.Contains(convText(r.app), stale.Summary) {
+		t.Fatalf("stale update rendered:\n%s", convText(r.app))
 	}
 }
 
@@ -1072,9 +1217,9 @@ func TestApp_Dispatch_NonJobsVerbsWorkWithoutJobsManager(t *testing.T) {
 
 func TestApp_Dispatch_JobsVerbsGuardOnMissingManager(t *testing.T) {
 	r := newTestApp(t)
-	for _, v := range []string{"spawn", "jobs", "cancel"} {
+	for _, v := range []string{"spawn", "agents", "jobs", "cancel"} {
 		r.app.handleSlashCommand(v, []string{"hello"}, "/"+v+" hello")
-		convContains(t, r.app, "background jobs are disabled")
+		convContains(t, r.app, "background")
 	}
 }
 

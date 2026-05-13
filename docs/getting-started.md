@@ -18,7 +18,7 @@ go build -o bin/packetcode.exe ./cmd/packetcode
 
 First run starts a setup wizard. Pick a provider, paste an API key if that provider needs one, choose a model, and packetcode saves `~/.packetcode/config.toml`.
 
-Ollama is local and keyless. Start Ollama first, then choose `ollama` during setup.
+Ollama is keyless. packetcode defaults to `http://localhost:11434`; start or expose Ollama there, then choose `ollama` during setup. For a remote daemon, set `[providers.ollama].host` or `PACKETCODE_OLLAMA_HOST`.
 
 ## Starting Later
 
@@ -75,9 +75,17 @@ Type `/` to open autocomplete. Useful commands:
 | `/help` | Show available keys and commands. |
 | `/provider` | Open the provider picker. |
 | `/model` | Open the model picker. |
+| `/spawn <prompt>` | Start a read-only background agent. |
+| `/spawn --write <prompt>` | Start a background agent that may request write/command approval. |
+| `/agents` | Open Agent View for live background-agent status and actions. |
+| `/agents <id>` | Open one background-agent transcript. |
+| `/jobs` / `/jobs <id>` | List jobs or open a transcript. |
+| `/cancel <id\|all>` | Cancel one active job or all active jobs. |
 | `/sessions` | List saved sessions. |
 | `/compact` | Summarize older conversation context. |
 | `/clear` | Clear the live pane only; saved session data remains. |
 | `/exit` | Quit. |
 
 Unknown slash commands show an error. Use `//text` when you want to send a prompt that starts with `/`.
+
+Agent View keys: `p` peeks, `Enter` or `o` opens a transcript, `c` cancels, `i` injects a completed result into the next foreground turn, and `Esc` or `q` closes the dashboard.

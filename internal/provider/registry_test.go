@@ -54,10 +54,11 @@ func TestRegistry_ListUsesDisplayOrder(t *testing.T) {
 	r.Register(&fakeProvider{slug: "openrouter"})
 	r.Register(&fakeProvider{slug: "minimax"})
 	r.Register(&fakeProvider{slug: "gemini"})
+	r.Register(&fakeProvider{slug: "anthropic"})
 	r.Register(&fakeProvider{slug: "openai"})
 
 	got := r.Slugs()
-	assert.Equal(t, []string{"openai", "gemini", "minimax", "openrouter", "ollama", "zzz-extra"}, got)
+	assert.Equal(t, []string{"openai", "anthropic", "gemini", "minimax", "openrouter", "ollama", "zzz-extra"}, got)
 }
 
 func TestRegistry_SetActiveAtomic(t *testing.T) {
@@ -72,6 +73,21 @@ func TestRegistry_SetActiveAtomic(t *testing.T) {
 
 	err := r.SetActive("does-not-exist", "any")
 	require.Error(t, err)
+}
+
+func TestRegistry_RegisterReplacesActiveInstance(t *testing.T) {
+	r := NewRegistry()
+	first := &fakeProvider{slug: "openai", name: "old"}
+	second := &fakeProvider{slug: "openai", name: "new"}
+	r.Register(first)
+	require.NoError(t, r.SetActive("openai", "gpt-4.1"))
+
+	r.Register(second)
+
+	p, model := r.Active()
+	require.NotNil(t, p)
+	assert.Equal(t, "new", p.Name())
+	assert.Equal(t, "gpt-4.1", model)
 }
 
 func TestRegistry_ActiveBeforeSet(t *testing.T) {

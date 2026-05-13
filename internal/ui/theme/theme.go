@@ -39,13 +39,14 @@ var (
 )
 
 // providerColors maps a provider slug to its brand colour. Populated
-// with the five built-in providers; the theme loader merges user
+// with the built-in providers; the theme loader merges user
 // overrides (and additional slugs) into this map at startup.
 //
 // OpenRouter was originally #9B59B6 (purple); switched to rose (#EC4899)
 // to keep the palette purple-free.
 var providerColors = map[string]lipgloss.Color{
 	"openai":     lipgloss.Color("#10A37F"),
+	"anthropic":  lipgloss.Color("#D97757"),
 	"gemini":     lipgloss.Color("#4285F4"),
 	"minimax":    lipgloss.Color("#FF8C00"),
 	"openrouter": lipgloss.Color("#EC4899"),

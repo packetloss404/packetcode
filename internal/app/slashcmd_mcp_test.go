@@ -67,8 +67,8 @@ func TestRenderMCPTable_NoServers(t *testing.T) {
 // shows up plus the header.
 func TestRenderMCPTable_MixedStatuses(t *testing.T) {
 	reports := []mcp.StartupReport{
-		{Name: "filesystem", Status: "running", ToolCount: 8, PID: 41283},
-		{Name: "legacy", Status: "disabled"},
+		{Name: "filesystem", Status: "running", ToolCount: 8, PID: 41283, Command: "npx mcp-filesystem"},
+		{Name: "legacy", Status: "disabled", Command: "legacy-mcp"},
 		{Name: "fetch", Status: "failed", Err: "command not found (uvx)"},
 	}
 	got := renderMCPTable(reports, nil)
@@ -94,6 +94,19 @@ func TestRenderMCPTable_MixedStatuses(t *testing.T) {
 		if !found {
 			t.Errorf("expected row for %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestRenderMCPTable_RunningWithoutLiveClientShowsExited(t *testing.T) {
+	reports := []mcp.StartupReport{
+		{Name: "ghost", Status: "running", ToolCount: 1, PID: 1234, Command: "ghost-mcp"},
+	}
+	got := renderMCPTable(reports, nil)
+	if !strings.Contains(got, "exited") {
+		t.Fatalf("expected stale running report to render as exited:\n%s", got)
+	}
+	if strings.Contains(got, "1234") {
+		t.Fatalf("stale pid should not be shown:\n%s", got)
 	}
 }
 

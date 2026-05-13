@@ -45,12 +45,18 @@ Start Ollama and confirm the host:
 ollama serve
 ```
 
-If you use a non-default host, set it in config:
+packetcode defaults to `http://localhost:11434`. If you use a different host, set it in config:
 
 ```toml
 [providers.ollama]
 host = "http://localhost:11434"
 default_model = "qwen2.5-coder:14b"
+```
+
+For a per-machine override without editing config:
+
+```bash
+PACKETCODE_OLLAMA_HOST=ollama.internal packetcode --provider ollama
 ```
 
 ## Hooks Or Statusline Fail

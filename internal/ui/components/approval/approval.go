@@ -59,8 +59,7 @@ func (m *Model) Visible() bool { return m.visible }
 
 func (m *Model) SetWidth(w int) { m.width = w }
 
-// Update handles the y/n/d (full diff toggle isn't implemented yet —
-// folded into the visible body) keys.
+// Update handles approve/reject keys.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	if !m.visible {
 		return m, nil

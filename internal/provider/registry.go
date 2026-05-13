@@ -9,7 +9,7 @@ import (
 
 // displayOrder controls the order providers appear in the selector modal.
 // It matches the order in the vision doc so the UI feels consistent.
-var displayOrder = []string{"openai", "gemini", "minimax", "openrouter", "ollama"}
+var displayOrder = []string{"openai", "anthropic", "gemini", "minimax", "openrouter", "ollama"}
 
 // Registry holds the set of available providers and tracks the active
 // (provider, model) pair. Hot-switching mutates only the active fields;
@@ -36,6 +36,10 @@ func (r *Registry) Register(p Provider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.providers[p.Slug()] = p
+	if r.active != nil && r.active.Slug() == p.Slug() {
+		r.active = p
+	}
+	delete(r.cachedModels, p.Slug())
 }
 
 // Get returns a provider by slug.

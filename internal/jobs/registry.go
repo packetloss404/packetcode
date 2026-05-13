@@ -37,9 +37,9 @@ var destructiveToolNames = map[string]bool{
 //     included only when allowWrite=true. write_file and patch_file are
 //     wired to the per-job BackupManager and wrapped with a path-lock to
 //     serialise concurrent writes from sibling jobs.
-//   - extraTools are appended after the core set — Bucket B uses this to
-//     plug spawn_agent into the registry without creating an import
-//     cycle (jobs ↔ tools).
+//   - extraTools are appended after the core set. The background spawn
+//     integration uses this to add spawn_agent without creating an
+//     import cycle (jobs ↔ tools).
 //
 // parentDepth is informational here; depth-based gating of spawn_agent
 // itself happens in the caller (Manager.runJob), which decides whether
@@ -81,8 +81,9 @@ func (m *Manager) buildJobToolRegistry(
 			// worker has already applied depth and parent-write gates.
 			continue
 		default:
-			// Anything else (for example MCP tools) is forwarded as-is.
-			out.Register(t)
+			if allowWrite {
+				out.Register(t)
+			}
 		}
 	}
 	for _, t := range extraTools {

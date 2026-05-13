@@ -52,7 +52,6 @@ type Message struct {
 	ToolArgs   string
 	ToolResult string
 	IsError    bool
-	Collapsed  bool
 }
 
 // Model is the conversation state: a pending in-flight message (if any)
@@ -221,12 +220,6 @@ func (m Model) View() string {
 // Update routing without needing a special case in the App.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) { return m, nil }
 
-// ToggleCollapseLast used to flip the collapse state of the last tool
-// call. In inline rendering mode tool calls are committed to scrollback
-// at completion and cannot be toggled afterwards — the method is kept
-// as a no-op so the Tab keybinding continues to compile.
-func (m *Model) ToggleCollapseLast() {}
-
 // emit pushes a rendered string onto the FIFO queue. No-op for empty
 // strings (e.g. system message with empty content).
 func (m *Model) emit(rendered string) {
@@ -305,10 +298,6 @@ func renderToolCall(msg Message, width int) string {
 func renderToolResultBody(msg Message, width int) string {
 	if msg.IsError {
 		return theme.StyleError.Render(msg.ToolResult)
-	}
-	if msg.Collapsed {
-		lines := strings.Count(msg.ToolResult, "\n") + 1
-		return theme.StyleDim.Render(fmt.Sprintf("▶ Output collapsed (%d lines)", lines))
 	}
 	if msg.ToolName == "patch_file" {
 		if rendered, ok := tryRenderDiffResult(msg.ToolResult, width); ok {

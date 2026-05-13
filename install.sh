@@ -2,8 +2,8 @@
 # Installer for packetcode — a keyboard-first multi-provider AI coding agent.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/packetcode/packetcode/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/packetcode/packetcode/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
+#   curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
 #
 # Optional environment variables:
 #   INSTALL_DIR  Where to install the binary. Default: /usr/local/bin
@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-REPO="packetcode/packetcode"
+REPO="packetloss404/packetcode"
 BINARY="packetcode"
 
 need_cmd() {

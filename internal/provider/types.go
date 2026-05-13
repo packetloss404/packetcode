@@ -1,5 +1,6 @@
-// Package provider defines the unified abstraction layer that all five
-// LLM backends (OpenAI, Gemini, MiniMax, OpenRouter, Ollama) implement.
+// Package provider defines the unified abstraction layer that the built-in
+// LLM backends (OpenAI, Anthropic, Gemini, MiniMax, OpenRouter, Ollama)
+// implement.
 //
 // The interface is intentionally narrow: identity, key validation, model
 // listing, streaming chat completion, and pricing/context metadata. Anything

@@ -1,14 +1,13 @@
-// Package ollama implements provider.Provider against a local Ollama
-// instance, typically reachable at http://localhost:11434.
+// Package ollama implements provider.Provider against an Ollama instance.
 //
 // Two characteristics make Ollama the odd one out:
 //  1. There's no API key. ValidateKey is a no-op; "validation" really
 //     means "is the daemon reachable on this host?"
 //  2. The streaming format is NDJSON (one JSON object per line), not SSE.
 //
-// Tool calling support is per-model. We expose ToolCallable() so callers
-// (the agent loop) can decide whether to inject tool descriptions into the
-// prompt as a fallback for models without native function-call support.
+// Tool calling support is per-model. SupportsTools lets callers decide
+// whether to send native tool definitions or run without tools for that
+// model.
 package ollama
 
 import (
@@ -41,7 +40,7 @@ var brandColor = lipgloss.Color("#E1E1E8")
 // modelsKnownToSupportTools is the conservative allow-list of locally-
 // hostable model families that ship native tool calling. Anything not on
 // this list still loads, but SupportsTools returns false so the agent loop
-// can fall back to prompt-based tool injection.
+// omits native tool definitions.
 var modelsKnownToSupportTools = []string{
 	"qwen2.5", "qwen2.5-coder", "qwen3",
 	"llama3.1", "llama3.2", "llama3.3",
@@ -60,7 +59,7 @@ func New(host string) *Provider {
 		host = defaultBaseURL
 	}
 	return &Provider{
-		baseURL:    strings.TrimRight(host, "/"),
+		baseURL:    normalizeHost(host),
 		httpClient: &http.Client{},
 	}
 }
@@ -68,6 +67,21 @@ func New(host string) *Provider {
 func (p *Provider) Name() string               { return displayName }
 func (p *Provider) Slug() string               { return slug }
 func (p *Provider) BrandColor() lipgloss.Color { return brandColor }
+
+func normalizeHost(host string) string {
+	host = strings.TrimSpace(strings.TrimRight(host, "/"))
+	if host == "" {
+		return defaultBaseURL
+	}
+	if !strings.Contains(host, "://") {
+		host = "http://" + host
+	}
+	withoutScheme := strings.TrimPrefix(strings.TrimPrefix(host, "http://"), "https://")
+	if !strings.Contains(withoutScheme, ":") {
+		host += ":11434"
+	}
+	return host
+}
 
 // ValidateKey ignores the apiKey argument and instead probes the daemon
 // reachability. Returns nil iff GET /api/tags succeeds.

@@ -83,3 +83,23 @@ func TestSlashRegistry_ProjectOverridesUserButNotBuiltin(t *testing.T) {
 		t.Fatalf("custom command missing from help/autocomplete: help=%v entry=%v", foundHelp, foundEntry)
 	}
 }
+
+func TestSlashRegistry_RecordsInvalidMarkdownCommands(t *testing.T) {
+	work := t.TempDir()
+	projectDir := filepath.Join(work, ".packetcode", "commands")
+	if err := os.MkdirAll(projectDir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "empty.md"), []byte("   \n"), 0o600); err != nil {
+		t.Fatalf("write command: %v", err)
+	}
+
+	reg := LoadSlashRegistry(work)
+	errs := reg.Errors()
+	if len(errs) != 1 {
+		t.Fatalf("Errors len = %d, want 1: %#v", len(errs), errs)
+	}
+	if !strings.Contains(errs[0], "empty.md") || !strings.Contains(errs[0], "empty slash command") {
+		t.Fatalf("unexpected diagnostic: %q", errs[0])
+	}
+}

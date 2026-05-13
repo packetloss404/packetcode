@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/packetcode/packetcode/internal/agent"
 	"github.com/packetcode/packetcode/internal/provider"
@@ -72,6 +73,8 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 			j.InputTokens, j.OutputTokens, j.CostUSD, nil)
 		return
 	}
+	m.attachLiveSession(j.ID, subSession)
+	defer m.detachLiveSession(j.ID)
 	backups := session.NewBackupManager(m.cfg.BackupsDir, j.SessionID)
 
 	subRegistry, regErr := m.buildJobProviderRegistry(j)
@@ -94,7 +97,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 
 	// Conditionally include spawn_agent only when the new job's depth
 	// is below MaxDepth-1 (so its children would still be inside the
-	// cap). Bucket B passes its SpawnAgentTool factory through here.
+	// cap). The SpawnAgentTool factory is threaded through extraTools.
 	var extraTools []tools.Tool
 	if spawnToolFactory != nil && j.Depth < maxDepth-1 {
 		if t := spawnToolFactory(j.ID, j.Depth, j.AllowWrite); t != nil {
@@ -138,10 +141,27 @@ func (m *Manager) consumeEvents(j *Job, ctx context.Context, events <-chan agent
 		switch ev.Type {
 		case agent.EventTextDelta:
 			inflightAssistant.WriteString(ev.Text)
+			m.updateActivity(j, "responding", inflightAssistant.String(), false, false)
+		case agent.EventToolCallProposed:
+			needsApproval := j.AllowWrite
+			activity := "tool proposed"
+			if needsApproval {
+				activity = "needs approval"
+			}
+			m.updateActivity(j, activity, ev.ToolCall.Name, needsApproval, needsApproval)
+		case agent.EventToolCallApproved:
+			m.updateActivity(j, "tool approved", ev.ToolCall.Name, false, false)
+		case agent.EventToolCallRejected:
+			m.updateActivity(j, "tool rejected", ev.Text, false, false)
 		case agent.EventToolCallExecuted:
 			// A tool call ends the current "assistant turn"; reset the
 			// inflight buffer so we capture only the FINAL assistant
 			// text (the one preceding EventDone).
+			msg := ev.ToolResult.Content
+			if msg == "" {
+				msg = ev.ToolCall.Name
+			}
+			m.updateActivity(j, "tool executed", msg, false, false)
 			inflightAssistant.Reset()
 		case agent.EventUsageUpdate:
 			m.applyUsage(j, ev.Usage)
@@ -194,13 +214,23 @@ func (m *Manager) consumeEvents(j *Job, ctx context.Context, events <-chan agent
 // internally.
 func (m *Manager) applyUsage(j *Job, usage provider.Usage) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	if j.State.IsTerminal() {
+		m.mu.Unlock()
+		return
+	}
 	j.InputTokens += usage.InputTokens
 	j.OutputTokens += usage.OutputTokens
 	if m.cfg.PricingFor != nil {
 		in, out := m.cfg.PricingFor(j.Provider, j.Model)
 		j.CostUSD = float64(j.InputTokens)*in/1_000_000 + float64(j.OutputTokens)*out/1_000_000
 	}
+	m.stampSnapshotLocked(j, time.Now().UTC(), "", "", j.NeedsInput, j.NeedsApproval)
+	subs := snapshotCallbacks(m.subscribers)
+	snap := snapshotOf(j)
+	m.mu.Unlock()
+
+	_ = saveSnapshot(m.cfg.JobsDir, j)
+	m.fanOut(snap, subs)
 }
 
 // openSubSession creates the per-job session.Manager rooted at
@@ -242,9 +272,7 @@ func snapshotTranscript(sm *session.Manager) []provider.Message {
 	if cur == nil {
 		return nil
 	}
-	out := make([]provider.Message, len(cur.Messages))
-	copy(out, cur.Messages)
-	return out
+	return cloneTranscriptMessages(cur.Messages)
 }
 
 // summarise extracts the final user-facing summary from the last

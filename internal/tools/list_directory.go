@@ -14,13 +14,16 @@ const listDirectorySchema = `{
   "properties": {
     "path":      { "type": "string", "description": "Directory relative to project root. Defaults to '.'." },
     "recursive": { "type": "boolean", "description": "Recurse into subdirectories. Default false." },
-    "max_depth": { "type": "integer", "description": "Maximum recursion depth (default 3, max 10)." }
+    "max_depth": { "type": "integer", "description": "Maximum recursion depth (default 3, max 10)." },
+    "max_entries": { "type": "integer", "description": "Maximum entries to render (default 500, hard cap 2000)." }
   }
 }`
 
 const (
 	defaultListDepth = 3
 	maxListDepth     = 10
+	defaultListMax   = 500
+	hardListMax      = 2000
 )
 
 type ListDirectoryTool struct {
@@ -35,13 +38,14 @@ func (*ListDirectoryTool) Name() string            { return "list_directory" }
 func (*ListDirectoryTool) RequiresApproval() bool  { return false }
 func (*ListDirectoryTool) Schema() json.RawMessage { return json.RawMessage(listDirectorySchema) }
 func (*ListDirectoryTool) Description() string {
-	return "List the contents of a directory as a tree. Skips conventional ignore paths (node_modules, .git, etc.)."
+	return "List a directory as a capped tree. Skips conventional ignore paths (node_modules, .git, etc.)."
 }
 
 type listParams struct {
-	Path      string `json:"path,omitempty"`
-	Recursive bool   `json:"recursive,omitempty"`
-	MaxDepth  int    `json:"max_depth,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Recursive  bool   `json:"recursive,omitempty"`
+	MaxDepth   int    `json:"max_depth,omitempty"`
+	MaxEntries int    `json:"max_entries,omitempty"`
 }
 
 func (t *ListDirectoryTool) Execute(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
@@ -64,6 +68,13 @@ func (t *ListDirectoryTool) Execute(ctx context.Context, raw json.RawMessage) (T
 	if !p.Recursive {
 		depth = 1
 	}
+	maxEntries := p.MaxEntries
+	if maxEntries <= 0 {
+		maxEntries = defaultListMax
+	}
+	if maxEntries > hardListMax {
+		maxEntries = hardListMax
+	}
 
 	abs, err := resolveExistingInRoot(t.Root, p.Path)
 	if err != nil {
@@ -81,8 +92,12 @@ func (t *ListDirectoryTool) Execute(ctx context.Context, raw json.RawMessage) (T
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s/\n", p.Path)
 	totalEntries := 0
-	if err := walkTree(abs, "", depth, &b, &totalEntries); err != nil {
+	truncated := false
+	if err := walkTree(abs, "", depth, maxEntries, &b, &totalEntries, &truncated); err != nil {
 		return ToolResult{Content: fmt.Sprintf("list_directory: %s", err), IsError: true}, nil
+	}
+	if truncated {
+		fmt.Fprintf(&b, "... output truncated at %d entries; narrow path/depth or raise max_entries\n", maxEntries)
 	}
 	return ToolResult{
 		Content: b.String(),
@@ -90,14 +105,15 @@ func (t *ListDirectoryTool) Execute(ctx context.Context, raw json.RawMessage) (T
 			"path":          p.Path,
 			"entries_shown": totalEntries,
 			"depth":         depth,
+			"truncated":     truncated,
 		},
 	}, nil
 }
 
 // walkTree renders one directory level into b using box-drawing chars and
 // recurses up to depth-1 more levels.
-func walkTree(dir, prefix string, depth int, b *strings.Builder, total *int) error {
-	if depth <= 0 {
+func walkTree(dir, prefix string, depth, maxEntries int, b *strings.Builder, total *int, truncated *bool) error {
+	if depth <= 0 || *truncated {
 		return nil
 	}
 	entries, err := os.ReadDir(dir)
@@ -121,6 +137,10 @@ func walkTree(dir, prefix string, depth int, b *strings.Builder, total *int) err
 	})
 
 	for i, e := range visible {
+		if *total >= maxEntries {
+			*truncated = true
+			return nil
+		}
 		*total++
 		isLast := i == len(visible)-1
 		branch := "├── "
@@ -132,7 +152,7 @@ func walkTree(dir, prefix string, depth int, b *strings.Builder, total *int) err
 		name := e.Name()
 		if e.IsDir() {
 			fmt.Fprintf(b, "%s%s%s/\n", prefix, branch, name)
-			if err := walkTree(joinPath(dir, name), nextPrefix, depth-1, b, total); err != nil {
+			if err := walkTree(joinPath(dir, name), nextPrefix, depth-1, maxEntries, b, total, truncated); err != nil {
 				return err
 			}
 		} else {

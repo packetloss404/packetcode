@@ -103,7 +103,7 @@ first time, which is why the timeout is bumped to 20.
 
 [`mcp-server-fetch`](https://github.com/modelcontextprotocol/servers/tree/main/src/fetch)
 lets the LLM GET URLs and receive the body back as a string —
-equivalent to a sandboxed `curl`.
+similar to an approval-gated `curl` run by the configured MCP server.
 
 ```toml
 [mcp.fetch]
@@ -143,10 +143,10 @@ and command. Example output:
 ```
 MCP servers
 NAME         STATE      TOOLS  PID     COMMAND
-filesystem   running    8      41283
-git          running    5      41291
+filesystem   running    8      41283  npx @modelcontextprotocol/server-filesystem .
+git          running    5      41291  uvx mcp-server-git
 fetch        failed     0      -       command not found (uvx)
-legacy       disabled   0      -       (disabled)
+legacy       disabled   0      -       legacy-mcp
 ```
 
 **`/mcp logs <name>`** — tail the last 50 lines of the server's stderr

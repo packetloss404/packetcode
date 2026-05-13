@@ -56,29 +56,64 @@ func (s State) IsTerminal() bool {
 	return false
 }
 
+// ResultStatus records how a terminal job result has been handled after
+// completion. Pending/seen results remain available for an explicit
+// Agent View decision; ignored/injected results are final.
+type ResultStatus string
+
+const (
+	ResultStatusPending  ResultStatus = "pending"
+	ResultStatusSeen     ResultStatus = "seen"
+	ResultStatusIgnored  ResultStatus = "ignored"
+	ResultStatusInjected ResultStatus = "injected"
+)
+
+func (s ResultStatus) String() string {
+	if s == "" {
+		return string(ResultStatusPending)
+	}
+	return string(s)
+}
+
+func normalizeResultStatus(s ResultStatus) ResultStatus {
+	switch s {
+	case ResultStatusPending, ResultStatusSeen, ResultStatusIgnored, ResultStatusInjected:
+		return s
+	default:
+		return ResultStatusPending
+	}
+}
+
 // Job is the in-memory record for a single background agent run. The
 // Manager owns the canonical Job; UI/test code should consume Snapshots
 // to avoid sharing mutable state.
 type Job struct {
-	ID           string // 8-char short id, also the subsession suffix
-	SessionID    string // full id of the job's underlying session.Session
-	ParentJobID  string // "" when spawned from the main session
-	Prompt       string // initial user message
-	Provider     string // slug; may differ from main session
-	Model        string // model id under that provider
-	State        State
-	CreatedAt    time.Time
-	StartedAt    time.Time
-	FinishedAt   time.Time
-	Summary      string // short result summary surfaced into main convo
-	Error        string // populated on StateFailed
-	Reason       string // free-form; "previous app exit" / "app shutdown" / etc.
-	InputTokens  int
-	OutputTokens int
-	CostUSD      float64
-	Depth        int                // 0 for main-spawned, parent.Depth+1 otherwise
-	Transcript   []provider.Message // snapshot taken when state becomes terminal
-	AllowWrite   bool               // tracks whether destructive tools were enabled
+	ID            string // 8-char short id, also the subsession suffix
+	SessionID     string // full id of the job's underlying session.Session
+	ParentJobID   string // "" when spawned from the main session
+	Prompt        string // initial user message
+	Provider      string // slug; may differ from main session
+	Model         string // model id under that provider
+	State         State
+	CreatedAt     time.Time
+	StartedAt     time.Time
+	FinishedAt    time.Time
+	UpdatedAt     time.Time
+	Summary       string // short result summary surfaced into main convo
+	Error         string // populated on StateFailed
+	Reason        string // free-form; "previous app exit" / "app shutdown" / etc.
+	LastActivity  string // concise activity label for dashboards
+	LastMessage   string // latest human-visible text/result snippet
+	NeedsInput    bool   // true while a job is blocked on user action
+	NeedsApproval bool   // true while a job is blocked on tool approval
+	Seq           int64  // monotonic snapshot sequence for stale-update guards
+	InputTokens   int
+	OutputTokens  int
+	CostUSD       float64
+	Depth         int                // 0 for main-spawned, parent.Depth+1 otherwise
+	Transcript    []provider.Message // snapshot taken when state becomes terminal
+	AllowWrite    bool               // tracks whether destructive tools were enabled
+	ResultStatus  ResultStatus       // pending/seen/ignored/injected after terminal result exists
 }
 
 // Snapshot is a safe-to-copy projection of Job for UI consumption. It
@@ -86,30 +121,42 @@ type Job struct {
 // fresh Snapshot on every state transition.
 type Snapshot struct {
 	ID, ParentJobID, Prompt, Provider, Model, Summary, Error string
+	LastActivity, LastMessage                                string
 	State                                                    State
-	CreatedAt, StartedAt, FinishedAt                         time.Time
+	ResultStatus                                             ResultStatus
+	CreatedAt, StartedAt, FinishedAt, UpdatedAt              time.Time
 	Tokens                                                   struct{ Input, Output int }
 	CostUSD                                                  float64
 	Depth                                                    int
+	NeedsInput, NeedsApproval, AllowWrite                    bool
+	Seq                                                      int64
 }
 
 // snapshotOf builds a Snapshot from a Job. Caller must hold the Manager's
 // read lock (or otherwise know the Job is not being mutated).
 func snapshotOf(j *Job) Snapshot {
 	s := Snapshot{
-		ID:          j.ID,
-		ParentJobID: j.ParentJobID,
-		Prompt:      j.Prompt,
-		Provider:    j.Provider,
-		Model:       j.Model,
-		Summary:     j.Summary,
-		Error:       j.Error,
-		State:       j.State,
-		CreatedAt:   j.CreatedAt,
-		StartedAt:   j.StartedAt,
-		FinishedAt:  j.FinishedAt,
-		CostUSD:     j.CostUSD,
-		Depth:       j.Depth,
+		ID:            j.ID,
+		ParentJobID:   j.ParentJobID,
+		Prompt:        j.Prompt,
+		Provider:      j.Provider,
+		Model:         j.Model,
+		Summary:       j.Summary,
+		Error:         j.Error,
+		State:         j.State,
+		ResultStatus:  normalizeResultStatus(j.ResultStatus),
+		CreatedAt:     j.CreatedAt,
+		StartedAt:     j.StartedAt,
+		FinishedAt:    j.FinishedAt,
+		UpdatedAt:     j.UpdatedAt,
+		CostUSD:       j.CostUSD,
+		Depth:         j.Depth,
+		LastActivity:  j.LastActivity,
+		LastMessage:   j.LastMessage,
+		NeedsInput:    j.NeedsInput,
+		NeedsApproval: j.NeedsApproval,
+		AllowWrite:    j.AllowWrite,
+		Seq:           j.Seq,
 	}
 	s.Tokens.Input = j.InputTokens
 	s.Tokens.Output = j.OutputTokens

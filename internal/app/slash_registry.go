@@ -26,6 +26,7 @@ type SlashCommand struct {
 type SlashCommandRegistry struct {
 	ordered []SlashCommand
 	byName  map[string]int
+	errors  []string
 }
 
 func NewBuiltinSlashRegistry() *SlashCommandRegistry {
@@ -52,6 +53,8 @@ func LoadSlashRegistry(workingDir string) *SlashCommandRegistry {
 	userDir, err := config.UserCommandsDir()
 	if err == nil {
 		r.loadDir(userDir, "user")
+	} else {
+		r.errors = append(r.errors, fmt.Sprintf("user commands: %s", err))
 	}
 	if workingDir != "" {
 		r.loadDir(config.ProjectCommandsDir(workingDir), "project")
@@ -92,6 +95,15 @@ func (r *SlashCommandRegistry) HelpRows() []KeyHelp {
 	return rows
 }
 
+func (r *SlashCommandRegistry) Errors() []string {
+	if r == nil {
+		return nil
+	}
+	out := make([]string, len(r.errors))
+	copy(out, r.errors)
+	return out
+}
+
 func (r *SlashCommandRegistry) add(cmd SlashCommand) {
 	if r.byName == nil {
 		r.byName = make(map[string]int)
@@ -120,13 +132,18 @@ func (r *SlashCommandRegistry) upsertCustom(cmd SlashCommand) {
 
 func (r *SlashCommandRegistry) loadDir(dir, source string) {
 	matches, err := filepath.Glob(filepath.Join(dir, "*.md"))
-	if err != nil || len(matches) == 0 {
+	if err != nil {
+		r.errors = append(r.errors, fmt.Sprintf("%s commands: %s", source, err))
+		return
+	}
+	if len(matches) == 0 {
 		return
 	}
 	sort.Strings(matches)
 	for _, path := range matches {
 		cmd, err := loadMarkdownSlashCommand(path, source)
 		if err != nil {
+			r.errors = append(r.errors, fmt.Sprintf("%s command %s: %s", source, filepath.Base(path), err))
 			continue
 		}
 		r.upsertCustom(cmd)

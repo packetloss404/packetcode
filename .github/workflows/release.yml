@@ -22,6 +22,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - run: go mod verify
+      - run: go test -race -count=1 ./...
       - uses: goreleaser/goreleaser-action@v7.2.1
         with:
           version: ${{ env.GORELEASER_VERSION }}

@@ -1,10 +1,13 @@
 # Real HTTP Cancellation on Ctrl+C — Round 5 Design Spec
 
+> Historical design spec. This feature has landed; the "pre-round"
+> section below describes the behavior before the cancellation work.
+
 ## Summary
 
-Wire a real, lifecycle-scoped `context.Context` through `App.startTurn` so one Ctrl+C during streaming cleanly terminates the in-flight provider HTTP request, kills any running tool, and dismisses any pending approval prompt. Today Ctrl+C only stops the spinner — the HTTP stream keeps running until the provider closes the connection, so the user is still billed for tokens they rejected. After this round Ctrl+C is correct and instant. The visible UX delta: a friendlier `turn cancelled` system line in the conversation in place of the alarming `error: ...` rendered today.
+Wire a real, lifecycle-scoped `context.Context` through `App.startTurn` so one Ctrl+C during streaming cleanly terminates the in-flight provider HTTP request, kills any running tool, and dismisses any pending approval prompt. Before this landed, Ctrl+C only stopped the spinner — the HTTP stream kept running until the provider closed the connection, so the user could still be billed for tokens they rejected. The visible UX delta: a friendlier `turn cancelled` system line in the conversation in place of an alarming `error: ...`.
 
-## Current behaviour (broken)
+## Pre-round behaviour
 
 - `App.startTurn` builds `ctx := context.Background()` — never cancellable.
 - `handleKey` `ctrl+c` only stops the spinner and sets `a.streaming = false`. No ctx cancel.
@@ -111,7 +114,7 @@ Implementer must verify by reading `internal/jobs/manager.go` Spawn call chain.
 
 ## Provider audit
 
-All five providers use `http.NewRequestWithContext`. Body close on ctx cancel causes `scanner.Scan()` to return false; parser exits; `defer close(ch)` fires; agent's `for ev := range stream` exits.
+All HTTP-backed providers use `http.NewRequestWithContext`. Body close on ctx cancel causes `scanner.Scan()` to return false; parser exits; `defer close(ch)` fires; agent's `for ev := range stream` exits.
 
 ### Defensive ctx.Err() guard
 

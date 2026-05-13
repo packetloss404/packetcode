@@ -28,6 +28,7 @@ import (
 	"github.com/packetcode/packetcode/internal/jobs"
 	"github.com/packetcode/packetcode/internal/mcp"
 	"github.com/packetcode/packetcode/internal/provider"
+	"github.com/packetcode/packetcode/internal/provider/anthropic"
 	"github.com/packetcode/packetcode/internal/provider/gemini"
 	"github.com/packetcode/packetcode/internal/provider/minimax"
 	"github.com/packetcode/packetcode/internal/provider/ollama"
@@ -89,6 +90,7 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 
 	factories := app.FactoryMap{
 		"openai":     func(key string) provider.Provider { return openai.New(key) },
+		"anthropic":  func(key string) provider.Provider { return anthropic.New(key) },
 		"gemini":     func(key string) provider.Provider { return gemini.New(key) },
 		"minimax":    func(key string) provider.Provider { return minimax.New(key) },
 		"openrouter": func(key string) provider.Provider { return openrouter.New(key) },
@@ -372,9 +374,13 @@ func welcomeVersion() string {
 	return "v" + version
 }
 
-// ollamaHost returns the configured Ollama base URL (or the default
-// localhost:11434 if unset).
+// ollamaHost returns the configured Ollama base URL. Env wins over config
+// so a machine-specific daemon address can stay out of committed files.
+// If unset, the Ollama provider uses its generic localhost default.
 func ollamaHost(cfg *config.Config) string {
+	if host := os.Getenv("PACKETCODE_OLLAMA_HOST"); host != "" {
+		return host
+	}
 	if pc, ok := cfg.Providers["ollama"]; ok && pc.Host != "" {
 		return pc.Host
 	}

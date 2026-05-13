@@ -6,7 +6,7 @@ Replace the unimplemented Ctrl+P / Ctrl+M keybindings with live modal pickers th
 
 ## User stories
 
-1. **Switch provider without leaving the flow.** Mid-conversation the user hits `Ctrl+P`. The provider modal opens showing five rows (openai, gemini, minimax, openrouter, ollama) with brand-coloured dots, the current default model, and a `key present` / `(no key)` indicator. They arrow down to `gemini` and hit Enter. The modal closes, the top bar flips to `gemini · gemini-2.5-flash`, and `switched provider: gemini (gemini-2.5-flash)` appears in the conversation. Next turn goes to Gemini.
+1. **Switch provider without leaving the flow.** Mid-conversation the user hits `Ctrl+P`. The provider modal opens showing configured and available providers with brand-coloured dots, the current default model, and a `key present` / `(no key)` indicator. They arrow down to `gemini` and hit Enter. The modal closes, the top bar flips to `gemini · gemini-2.5-flash`, and `switched provider: gemini (gemini-2.5-flash)` appears in the conversation. Next turn goes to Gemini.
 
 2. **Pick a model on a slow network.** After switching to OpenRouter the user hits `Ctrl+M`. The modal opens immediately with `loading models…`. Two seconds later the list populates — 200 models — ordered as the provider returned them. The user types `claude 3.7` to narrow to four rows, arrows to `anthropic/claude-3.7-sonnet`, hits Enter. Top bar updates, `switched model: openrouter/anthropic/claude-3.7-sonnet` prints.
 
@@ -106,7 +106,7 @@ Filter matching: case-insensitive substring on normalized haystack (ID + " " + L
 │ ▶   gemini       Google Gemini    gemini…    key present │
 │     minimax      MiniMax          abab6…     no key│
 │     openrouter   OpenRouter       auto       key present │
-│     ollama       Ollama (local)   qwen2.5    local │
+│     ollama       Ollama           qwen2.5    local │
 │                                                    │
 │  ↑/↓ move · ⏎ select · Esc close                   │
 ╰────────────────────────────────────────────────────╯

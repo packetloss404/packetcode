@@ -2,7 +2,7 @@
 
 ## Summary
 
-Background agents let the user (via `/spawn`) or the main agent (via a `spawn_agent` tool call) launch independent agent loops that run concurrently with the foreground conversation. Each job is a fully isolated mini-`Agent` with its own session, cost tally, backup stack, and provider/model selection; a new `internal/jobs` package owns lifecycle, concurrency limits, cancellation, and result fan-in. Results return to the main conversation as injected user-role context messages and are also browsable via `/jobs <id>`.
+Background agents let the user (via `/spawn`) or the main agent (via a `spawn_agent` tool call) launch independent agent loops that run concurrently with the foreground conversation. Each job is a fully isolated mini-`Agent` with its own session, cost tally, backup stack, and provider/model selection; a new `internal/jobs` package owns lifecycle, concurrency limits, cancellation, and result fan-in. Results surface in Agent View and can be explicitly injected into the foreground conversation when the user chooses.
 
 ## User stories
 
@@ -10,7 +10,7 @@ Background agents let the user (via `/spawn`) or the main agent (via a `spawn_ag
 2. **Agent-initiated parallelism.** User asks "audit the test suite for missing edge cases." Main agent calls `spawn_agent` three times — one per package — then waits on the results, summarises, and reports back without burning the user's context window with raw test output.
 3. **Cheap background scout, expensive foreground edit.** User keeps Claude Sonnet on the main conversation but every `/spawn` defaults to Gemini Flash for cost. Configured via `[behavior].background_default_provider`.
 4. **Cancellation.** User realises a spawned job has gone off the rails: `/cancel 7f3a` (or `/cancel all`) terminates it; the result message reads `[job:7f3a — cancelled by user]`.
-5. **Inspection.** `/jobs` shows live job table; `/jobs 7f3a` opens a transcript modal showing the spawned agent's full conversation including tool calls.
+5. **Inspection.** `/agents` opens Agent View for live grouped status and result actions; `/agents 7f3a` or `/jobs 7f3a` opens a transcript modal showing the spawned agent's full conversation including tool calls.
 
 ## Architecture
 
@@ -211,7 +211,7 @@ Schema:
   "type": "object",
   "properties": {
     "prompt":   { "type": "string", "description": "The task for the background agent. Be specific and self-contained — the spawned agent has no shared memory with you." },
-    "provider": { "type": "string", "description": "Optional provider slug override (openai, gemini, minimax, openrouter, ollama). Defaults to the parent's provider." },
+    "provider": { "type": "string", "description": "Optional provider slug override (openai, anthropic, gemini, minimax, openrouter, ollama). Defaults to the parent's provider." },
     "model":    { "type": "string", "description": "Optional model id override. Defaults to the parent's model." },
     "wait":     { "type": "boolean", "description": "If true, this tool call blocks until the spawned job completes and returns its result inline. If false (default), returns the job id immediately and the result surfaces later." },
     "allow_write": { "type": "boolean", "description": "If true, opt the child into destructive tools. This is independent of wait and may be unavailable from read-only parent jobs." }
@@ -238,11 +238,13 @@ Example LLM-issued call:
 
 ### Slash commands (explicit user delegation)
 
-Both `/spawn` and `spawn_agent` are supported. `/spawn` is the first concrete user of the "Slash command parsing wired to input" item still in the README's Next list — Bucket B introduces `internal/app/slashcmd.go` for it.
+Both `/spawn` and `spawn_agent` are supported. `/spawn` is the first concrete user of the slash-command parsing path and is implemented in `internal/app/slashcmd.go`.
 
 | Command | Effect |
 |---|---|
 | `/spawn [--provider <slug>] [--model <id>] [--write] <prompt...>` | Calls `JobManager.Spawn`. Echoes `[job:7f3a queued — gemini/gemini-2.5-flash] <prompt>` into the conversation as a system message. |
+| `/agents` | Opens Agent View, a grouped dashboard with peek, open transcript, cancel, and explicit result injection actions. |
+| `/agents <id>` | Opens the transcript modal for one background agent. |
 | `/jobs` | Renders an inline ASCII table: `id  state  prov/model  age  tok in/out  prompt-snippet`. Newest first. |
 | `/jobs <id>` | Opens the transcript modal (`internal/ui/components/jobs`). Esc closes. Shows the spawned agent's full message history including tool calls. Read-only. |
 | `/cancel <id>` | `JobManager.Cancel(id)`. Replies with `[job:<id> — cancellation requested]` or `[job:<id> not found]`. |
@@ -343,7 +345,7 @@ When `Manager.OnUpdate` fires with a job entering a terminal state, the App appe
 For `StateFailed`: `[job:7f3a — failed · 8s] error: rate limited (429); retry in 30s`.
 For `StateCancelled`: `[job:7f3a — cancelled · 4s]`.
 
-**Result delivery decision:** Inline system message **plus** auto-injection into the main session's next prompt. The next agent run prepends a `provider.Message{Role: RoleUser, Content: "[Background job 7f3a result]\n<summary>"}` to the input. We use `RoleUser` because (a) some providers don't allow multi-system, (b) the existing system prompt is already in slot 0, (c) this content is conversational input the user is implicitly handing the model.
+**Result delivery decision:** Inline system message plus explicit injection from Agent View. Terminal updates mark results as `seen`; pressing `i` in `/agents` marks the result `injected` and appends a `provider.Message{Role: RoleUser, Content: "[Background job 7f3a result]\n<summary>"}` to the foreground session. We use `RoleUser` because (a) some providers don't allow multi-system, (b) the existing system prompt is already in slot 0, (c) this content is conversational input the user is explicitly handing the model.
 
 ## Persistence
 
@@ -393,7 +395,7 @@ Background job tokens **aggregate into the same `cost.Tracker`** because the tra
 | **NEW** `internal/tools/job_spawner.go` | Defines the `JobSpawner` interface with `Spawn` and `WaitForJob` methods. Avoids an import cycle. |
 | **NEW** `internal/app/slashcmd.go` | `func ParseSlashCommand(text string) (cmd string, args []string, ok bool)`. Recognises `/spawn`, `/jobs`, `/cancel`. `func parseSpawnFlags(args []string) (provider, model string, allowWrite bool, prompt string, err error)`. |
 | **NEW** `internal/app/slashcmd_test.go` | Tests 20-22. |
-| `internal/app/app.go` | Add `jobs *jobs.Manager` to `App` and `Jobs *jobs.Manager` to `Deps`. Wire `OnUpdate` callback (Manager will need a way to push to `tea.Program.Send` — App registers a callback at startup). In `Update`, handle new `jobUpdateMsg`/`jobResultMsg`. In `startTurn`, drain `jobs.DrainResults` and prepend results as `RoleUser` messages via `Sessions.AddMessage` so the LLM sees them. In the input.SubmitMsg path, intercept `/spawn`, `/jobs`, `/cancel` slash commands before agent.Run. |
+| `internal/app/app.go` | Add `jobs *jobs.Manager` to `App` and `Jobs *jobs.Manager` to `Deps`. Wire `OnUpdate` callback through `tea.Program.Send`. In `Update`, handle job snapshots and Agent View messages. Terminal snapshots mark results as `seen`; `/agents` actions can peek, open, cancel, or explicitly inject a selected result. In the input.SubmitMsg path, intercept `/spawn`, `/agents`, `/jobs`, `/cancel` slash commands before agent.Run. |
 | `cmd/packetcode/main.go` | After constructing `tracker`, build `jobs.Manager`, register `tools.NewSpawnAgentTool(mgr, "", 0)` into the **main** `toolReg`. Pass `Jobs: mgr` into `app.Deps`. Defer `mgr.Shutdown(5*time.Second)`. |
 
 ### Bucket C — TUI + docs
@@ -405,8 +407,8 @@ Background job tokens **aggregate into the same `cost.Tracker`** because the tra
 | **NEW** `internal/ui/components/jobs/jobs.go` | Modal-style component. `Model` with `viewport.Model`, `visible bool`, `snap jobs.Snapshot`, `messages []provider.Message`. `Show(snap, msgs)`, `Hide()`, `Visible()`, `View()`, `Update(msg)`. |
 | **NEW** `internal/ui/components/jobs/jobs_test.go` | Tests 25-26. |
 | `internal/app/app.go` | Wire the jobs modal: when `/jobs <id>` is parsed, look up snapshot + transcript, call `jobsPanel.Show(...)`. Add `jobsPanel jobs.Model`. The `View()` overlay slot stacks: approval > jobsPanel > spinner. |
-| `internal/app/keymap.go` | Add new entries: `/spawn`, `/jobs`, `/cancel`, Esc-closes-jobs. |
-| `README.md` | Add a "Background agents" subsection under Features. Document `/spawn`, `/jobs`, `/cancel`. Note the `[behavior]` block keys. Move "Background / parallel agents" out of "Roadmap → Later". |
+| `internal/app/keymap.go` | Add entries for `/spawn`, `/agents`, `/jobs`, `/cancel`, and modal close keys. |
+| `README.md` | Document `/spawn`, `/jobs`, `/cancel`, and the `[behavior]` block keys in the current user-facing sections. |
 | `CHANGELOG.md` | Under `[Unreleased] → Added`: bullet for **Background agents**. Move "Background / parallel agents" out of `Deferred to a future release`. |
 
 ## Tests

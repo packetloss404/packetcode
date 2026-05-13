@@ -27,6 +27,12 @@ func TestProvider_NewDefaultsHost(t *testing.T) {
 	assert.Equal(t, "http://localhost:11434", p.baseURL)
 }
 
+func TestProvider_NewNormalizesHost(t *testing.T) {
+	assert.Equal(t, "http://ollama.internal:11434", New("ollama.internal").baseURL)
+	assert.Equal(t, "http://ollama.internal:11434", New("http://ollama.internal").baseURL)
+	assert.Equal(t, "http://ollama.internal:11435", New("http://ollama.internal:11435/").baseURL)
+}
+
 func TestProvider_PricingIsZero(t *testing.T) {
 	p := New("")
 	in, out := p.Pricing("anything")

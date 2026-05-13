@@ -39,6 +39,19 @@ func TestSaveSnapshot_AtomicWrite(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &p))
 	assert.Equal(t, "abcd1234", p.ID)
 	assert.Equal(t, "completed", p.State)
+	assert.Equal(t, "pending", p.ResultStatus)
+}
+
+func TestPersistedResultStatusDefaultsToPending(t *testing.T) {
+	j := fromPersisted(persistedJob{
+		ID:        "legacy01",
+		SessionID: "main-job-legacy01",
+		Provider:  "p",
+		Model:     "m",
+		State:     "completed",
+		CreatedAt: time.Now().UTC(),
+	})
+	assert.Equal(t, ResultStatusPending, j.ResultStatus)
 }
 
 // TestLoadOrphaned_RewritesRunningAndQueued asserts that any persisted

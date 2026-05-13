@@ -153,6 +153,7 @@ func TestManager_Start_MixedStatuses(t *testing.T) {
 	require.Len(t, reports, 3)
 	assert.Equal(t, "ok", reports[0].Name)
 	assert.Equal(t, "running", reports[0].Status)
+	assert.Contains(t, reports[0].Command, filepath.Base(stubBinaryPath))
 	assert.Equal(t, "off", reports[1].Name)
 	assert.Equal(t, "disabled", reports[1].Status)
 	assert.Equal(t, "broken", reports[2].Name)
@@ -168,6 +169,35 @@ func TestManager_Start_MixedStatuses(t *testing.T) {
 	require.Len(t, cached, 3)
 	cached[0].Name = "mutated"
 	assert.Equal(t, "ok", mgr.Reports()[0].Name)
+}
+
+func TestManager_StartAgainClosesPreviousClients(t *testing.T) {
+	requireStub(t)
+	logDir := t.TempDir()
+	mgr := NewManager(Config{
+		Servers: []ServerConfig{{
+			Name:       "ok",
+			Command:    stubBinaryPath,
+			Enabled:    true,
+			TimeoutSec: 5,
+		}},
+		LogDir:     logDir,
+		ClientInfo: ClientInfo{Name: "packetcode-test", Version: "0.0.0"},
+	})
+	defer mgr.Shutdown(2 * time.Second)
+
+	reports := mgr.Start(context.Background())
+	require.Equal(t, "running", reports[0].Status, reports[0].Err)
+	first, ok := mgr.Client("ok")
+	require.True(t, ok)
+	require.True(t, first.IsAlive())
+
+	reports = mgr.Start(context.Background())
+	require.Equal(t, "running", reports[0].Status, reports[0].Err)
+	assert.False(t, first.IsAlive(), "previous client should be closed when Start runs again")
+	second, ok := mgr.Client("ok")
+	require.True(t, ok)
+	assert.NotSame(t, first, second)
 }
 
 // TestManager_Start_ParallelSpawn uses a short delay on each stub so we

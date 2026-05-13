@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,8 +90,8 @@ type Config struct {
 	// subscriber can't block the worker.
 	OnUpdate func(Snapshot)
 
-	// SpawnTool is the optional factory Bucket B uses to plug a
-	// spawn_agent tool into each per-job tool registry without
+	// SpawnTool is the optional factory used to plug a spawn_agent
+	// tool into each per-job tool registry without
 	// creating an import cycle (jobs ↔ tools). Returning nil omits
 	// the tool. The factory is called only for jobs whose depth is
 	// strictly less than MaxDepth-1, since deeper spawns would breach
@@ -141,7 +142,10 @@ type Result struct {
 	Provider     string
 	Model        string
 	Summary      string
+	Error        string
+	Reason       string
 	State        State
+	Status       ResultStatus
 	DurationMS   int64
 	InputTokens  int
 	OutputTokens int
@@ -158,9 +162,11 @@ type Manager struct {
 	cancel       map[string]context.CancelFunc
 	results      []Result
 	subscribers  []func(Snapshot)
+	liveSessions map[string]*session.Manager
 	pathLocks    pathLockMap
 	closed       bool
 	totalSpawned int
+	seq          int64
 
 	// sem bounds concurrent runJob workers to MaxConcurrent.
 	sem chan struct{}
@@ -177,10 +183,6 @@ type Manager struct {
 	// state. WaitForJob blocks on this. Keyed by job id; a goroutine
 	// closes the channel on terminal transition.
 	terminalCh map[string]chan struct{}
-
-	// resultIDs tracks which results have already been drained so we
-	// can keep a stable ordering even after multiple Drain calls.
-	// (results slice itself is the queue; we just track length.)
 }
 
 // NewManager constructs a Manager with sane fallbacks for unset Config
@@ -200,14 +202,15 @@ func NewManager(cfg Config) (*Manager, int, error) {
 	}
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	m := &Manager{
-		cfg:        cfg,
-		jobs:       map[string]*Job{},
-		cancel:     map[string]context.CancelFunc{},
-		pathLocks:  pathLockMap{},
-		sem:        make(chan struct{}, cfg.MaxConcurrent),
-		baseCtx:    baseCtx,
-		cancelBase: cancelBase,
-		terminalCh: map[string]chan struct{}{},
+		cfg:          cfg,
+		jobs:         map[string]*Job{},
+		cancel:       map[string]context.CancelFunc{},
+		liveSessions: map[string]*session.Manager{},
+		pathLocks:    pathLockMap{},
+		sem:          make(chan struct{}, cfg.MaxConcurrent),
+		baseCtx:      baseCtx,
+		cancelBase:   cancelBase,
+		terminalCh:   map[string]chan struct{}{},
 	}
 	if cfg.OnUpdate != nil {
 		m.subscribers = append(m.subscribers, cfg.OnUpdate)
@@ -219,6 +222,9 @@ func NewManager(cfg Config) (*Manager, int, error) {
 	}
 	for _, j := range recovered {
 		m.jobs[j.ID] = j
+		if j.Seq > m.seq {
+			m.seq = j.Seq
+		}
 	}
 	return m, len(recovered), nil
 }
@@ -236,11 +242,11 @@ func (m *Manager) Subscribe(fn func(Snapshot)) {
 }
 
 // SetSpawnToolFactory installs (or replaces) the SpawnTool factory
-// after Manager construction. This is what Bucket B uses to close the
-// chicken-and-egg between "the factory needs *Manager" and "the config
-// is passed by value into NewManager". Safe to call before any jobs
-// have been spawned; calling it concurrently with running workers is
-// safe but may affect subsequent job boots only.
+// after Manager construction. This closes the chicken-and-egg between
+// "the factory needs *Manager" and "the config is passed by value into
+// NewManager". Safe to call before any jobs have been spawned; calling
+// it concurrently with running workers is safe but may affect
+// subsequent job boots only.
 func (m *Manager) SetSpawnToolFactory(fn func(parentJobID string, parentDepth int, parentAllowWrite bool) tools.Tool) {
 	m.mu.Lock()
 	m.cfg.SpawnTool = fn
@@ -248,8 +254,8 @@ func (m *Manager) SetSpawnToolFactory(fn func(parentJobID string, parentDepth in
 }
 
 // SetApprover installs (or replaces) the per-job parent Approver after
-// Manager construction. Bucket B uses this when the App constructs its
-// uiApprover internally — main.go wires that approver back into the
+// Manager construction. The App uses this when it constructs its
+// uiApprover internally; main.go wires that approver back into the
 // Manager after app.New returns. As with SetSpawnToolFactory, the new
 // value takes effect on subsequent job boots.
 func (m *Manager) SetApprover(a agent.Approver) {
@@ -291,25 +297,83 @@ func (m *Manager) List() []Snapshot {
 	}
 	m.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool {
+		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		}
+		if out[i].Seq != out[j].Seq {
+			return out[i].Seq > out[j].Seq
+		}
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
 	return out
 }
 
 // Transcript returns the message history captured for a job. For jobs
-// in a terminal state the slice is the snapshot taken at completion.
-// For running jobs it returns the live-so-far history copied at call
-// time.
+// with an open sub-session it reads directly from that live session. If
+// the worker has already exited, it reloads the persisted job session
+// before falling back to the terminal in-memory snapshot.
 func (m *Manager) Transcript(id string) ([]provider.Message, bool) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	j, ok := m.jobs[id]
 	if !ok {
+		m.mu.RUnlock()
 		return nil, false
 	}
-	out := make([]provider.Message, len(j.Transcript))
-	copy(out, j.Transcript)
-	return out, true
+	sessionID := j.SessionID
+	liveSession := m.liveSessions[id]
+	fallback := cloneTranscriptMessages(j.Transcript)
+	sessionsDir := m.cfg.SessionsDir
+	m.mu.RUnlock()
+
+	if liveSession != nil {
+		return snapshotTranscript(liveSession), true
+	}
+	if transcript, ok := loadSessionTranscript(sessionsDir, sessionID); ok {
+		return transcript, true
+	}
+	return fallback, true
+}
+
+func (m *Manager) attachLiveSession(id string, sm *session.Manager) {
+	if sm == nil {
+		return
+	}
+	m.mu.Lock()
+	if j := m.jobs[id]; j != nil && !j.State.IsTerminal() {
+		m.liveSessions[id] = sm
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) detachLiveSession(id string) {
+	m.mu.Lock()
+	delete(m.liveSessions, id)
+	m.mu.Unlock()
+}
+
+func loadSessionTranscript(sessionsDir, sessionID string) ([]provider.Message, bool) {
+	if sessionsDir == "" || sessionID == "" {
+		return nil, false
+	}
+	sm := session.NewManager(sessionsDir)
+	if _, err := sm.Load(sessionID); err != nil {
+		return nil, false
+	}
+	return snapshotTranscript(sm), true
+}
+
+func cloneTranscriptMessages(messages []provider.Message) []provider.Message {
+	if messages == nil {
+		return nil
+	}
+	out := make([]provider.Message, len(messages))
+	copy(out, messages)
+	for i := range out {
+		if messages[i].ToolCalls != nil {
+			out[i].ToolCalls = append([]provider.ToolCall(nil), messages[i].ToolCalls...)
+		}
+	}
+	return out
 }
 
 // Cancel signals a single job. Returns false if the id is unknown or
@@ -321,11 +385,15 @@ func (m *Manager) Cancel(id string) bool {
 		m.mu.Unlock()
 		return false
 	}
+	m.stampSnapshotLocked(j, time.Now().UTC(), "cancelling", "cancellation requested", false, false)
+	snap := snapshotOf(j)
+	subs := snapshotCallbacks(m.subscribers)
 	cancel, ok := m.cancel[id]
 	m.mu.Unlock()
 	if !ok || cancel == nil {
 		return false
 	}
+	m.fanOut(snap, subs)
 	cancel()
 	return true
 }
@@ -392,22 +460,128 @@ func (m *Manager) activeWorkerCount() int {
 	return n
 }
 
-// DrainResults removes up to n entries from the internal results queue
-// and returns them oldest-first. The App calls this at the start of
-// each main-session turn to inject background results as RoleUser
-// messages. Passing n <= 0 drains everything.
+// PendingResults returns up to n undecided terminal results oldest-first
+// without consuming them. Passing n <= 0 returns every pending/seen
+// result. Ignored and injected results are final and are not returned.
+func (m *Manager) PendingResults(n int) []Result {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return copyResults(m.results, n)
+}
+
+// MarkResultSeen records that a terminal result has been surfaced to
+// the user but has not been injected into Agent View. Seen results stay
+// available for a later explicit ignore/inject decision.
+func (m *Manager) MarkResultSeen(id string) (Result, bool) {
+	return m.markResultStatus(id, ResultStatusSeen)
+}
+
+// MarkResultIgnored finalises a terminal result without injecting it
+// into Agent View.
+func (m *Manager) MarkResultIgnored(id string) (Result, bool) {
+	return m.markResultStatus(id, ResultStatusIgnored)
+}
+
+// MarkResultInjected finalises a terminal result as injected into Agent
+// View and returns the Result payload the caller should add to the
+// foreground session.
+func (m *Manager) MarkResultInjected(id string) (Result, bool) {
+	return m.markResultStatus(id, ResultStatusInjected)
+}
+
+// Result returns the current terminal result payload without changing
+// its lifecycle status. Ignored and injected results are considered
+// final and are not returned for another user decision.
+func (m *Manager) Result(id string) (Result, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	j, ok := m.jobs[id]
+	if !ok || !j.State.IsTerminal() {
+		return Result{}, false
+	}
+	current := normalizeResultStatus(j.ResultStatus)
+	if current == ResultStatusIgnored || current == ResultStatusInjected {
+		return Result{}, false
+	}
+	return resultFromJob(j), true
+}
+
+func (m *Manager) markResultStatus(id string, status ResultStatus) (Result, bool) {
+	status = normalizeResultStatus(status)
+	m.mu.Lock()
+	j, ok := m.jobs[id]
+	if !ok || !j.State.IsTerminal() {
+		m.mu.Unlock()
+		return Result{}, false
+	}
+	current := normalizeResultStatus(j.ResultStatus)
+	if current == status {
+		res := resultFromJob(j)
+		m.mu.Unlock()
+		return res, true
+	}
+	if current == ResultStatusIgnored || current == ResultStatusInjected {
+		res := resultFromJob(j)
+		m.mu.Unlock()
+		return res, false
+	}
+	j.ResultStatus = status
+	m.stampSnapshotLocked(j, time.Now().UTC(), "result "+status.String(), "", false, false)
+	res := resultFromJob(j)
+	if status == ResultStatusIgnored || status == ResultStatusInjected {
+		m.removeQueuedResultLocked(id)
+	} else {
+		m.upsertQueuedResultLocked(res)
+	}
+	subs := snapshotCallbacks(m.subscribers)
+	snap := snapshotOf(j)
+	m.mu.Unlock()
+
+	_ = saveSnapshot(m.cfg.JobsDir, j)
+	m.fanOut(snap, subs)
+	return res, true
+}
+
+// DrainResults removes up to n undecided entries from the internal
+// results queue and returns them oldest-first. This is the legacy drain
+// path retained for migration compatibility; new Agent View flows should
+// prefer PendingResults plus MarkResultSeen/MarkResultIgnored/
+// MarkResultInjected so injection is an explicit decision. Drained
+// results are marked injected.
 func (m *Manager) DrainResults(n int) []Result {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if len(m.results) == 0 {
+		m.mu.Unlock()
 		return nil
 	}
 	if n <= 0 || n > len(m.results) {
 		n = len(m.results)
 	}
-	out := make([]Result, n)
-	copy(out, m.results[:n])
+	out := make([]Result, 0, n)
+	toSave := make([]*Job, 0, n)
+	var snaps []Snapshot
+	subs := snapshotCallbacks(m.subscribers)
+	for _, r := range m.results[:n] {
+		if j := m.jobs[r.JobID]; j != nil && j.State.IsTerminal() {
+			j.ResultStatus = ResultStatusInjected
+			m.stampSnapshotLocked(j, time.Now().UTC(), "result injected", "", false, false)
+			out = append(out, resultFromJob(j))
+			toSave = append(toSave, j)
+			snaps = append(snaps, snapshotOf(j))
+		} else {
+			r.Status = ResultStatusInjected
+			out = append(out, r)
+		}
+	}
 	m.results = m.results[n:]
+	m.mu.Unlock()
+
+	for _, j := range toSave {
+		_ = saveSnapshot(m.cfg.JobsDir, j)
+	}
+	for _, snap := range snaps {
+		m.fanOut(snap, subs)
+	}
 	return out
 }
 
@@ -424,8 +598,9 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 		return Result{}, false
 	}
 	if j.State.IsTerminal() {
-		out := m.consumeResultLocked(j)
+		out := m.consumeResultLocked(j, ResultStatusInjected)
 		m.mu.Unlock()
+		_ = saveSnapshot(m.cfg.JobsDir, j)
 		return out, true
 	}
 	ch, ok := m.terminalCh[id]
@@ -456,8 +631,9 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 						m.mu.Unlock()
 						return Result{}, false
 					}
-					out := m.consumeResultLocked(j3)
+					out := m.consumeResultLocked(j3, ResultStatusInjected)
 					m.mu.Unlock()
+					_ = saveSnapshot(m.cfg.JobsDir, j3)
 					return out, true
 				}
 				m.mu.RUnlock()
@@ -474,8 +650,9 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 			m.mu.Unlock()
 			return Result{}, false
 		}
-		out := m.consumeResultLocked(j2)
+		out := m.consumeResultLocked(j2, ResultStatusInjected)
 		m.mu.Unlock()
+		_ = saveSnapshot(m.cfg.JobsDir, j2)
 		return out, true
 	case <-time.After(timeout):
 		return Result{}, false
@@ -485,15 +662,49 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 // consumeResultLocked returns j's terminal Result and removes the first
 // queued result for that job, if markTerminal has already enqueued it.
 // Caller must hold m.mu for writing.
-func (m *Manager) consumeResultLocked(j *Job) Result {
+func (m *Manager) consumeResultLocked(j *Job, status ResultStatus) Result {
+	j.ResultStatus = normalizeResultStatus(status)
+	m.stampSnapshotLocked(j, time.Now().UTC(), "result "+j.ResultStatus.String(), "", false, false)
 	for i, r := range m.results {
 		if r.JobID == j.ID {
 			copy(m.results[i:], m.results[i+1:])
 			m.results = m.results[:len(m.results)-1]
-			return r
+			return resultFromJob(j)
 		}
 	}
 	return resultFromJob(j)
+}
+
+func copyResults(src []Result, n int) []Result {
+	if len(src) == 0 {
+		return nil
+	}
+	if n <= 0 || n > len(src) {
+		n = len(src)
+	}
+	out := make([]Result, n)
+	copy(out, src[:n])
+	return out
+}
+
+func (m *Manager) removeQueuedResultLocked(id string) {
+	for i, r := range m.results {
+		if r.JobID == id {
+			copy(m.results[i:], m.results[i+1:])
+			m.results = m.results[:len(m.results)-1]
+			return
+		}
+	}
+}
+
+func (m *Manager) upsertQueuedResultLocked(res Result) {
+	for i, r := range m.results {
+		if r.JobID == res.JobID {
+			m.results[i] = res
+			return
+		}
+	}
+	m.results = append(m.results, res)
 }
 
 // resultFromJob projects a Job into the Result tuple. Caller should
@@ -508,7 +719,10 @@ func resultFromJob(j *Job) Result {
 		Provider:     j.Provider,
 		Model:        j.Model,
 		Summary:      j.Summary,
+		Error:        j.Error,
+		Reason:       j.Reason,
 		State:        j.State,
+		Status:       normalizeResultStatus(j.ResultStatus),
 		DurationMS:   dur,
 		InputTokens:  j.InputTokens,
 		OutputTokens: j.OutputTokens,
@@ -568,9 +782,11 @@ func (m *Manager) Spawn(req SpawnRequest) (Snapshot, *SpawnError) {
 		Model:       modelID,
 		State:       StateQueued,
 		CreatedAt:   now,
+		UpdatedAt:   now,
 		Depth:       depth,
 		AllowWrite:  req.AllowWrite,
 	}
+	m.stampSnapshotLocked(job, now, "queued", req.Prompt, false, false)
 	// Allocate the per-job ctx and cancel func eagerly so /cancel works
 	// while the job is still in StateQueued (i.e. before its worker has
 	// acquired the semaphore).
@@ -712,6 +928,18 @@ func validateSpawnModel(ctx context.Context, reg *provider.Registry, prov provid
 	}
 }
 
+func trimActivityMessage(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= 160 {
+		return s
+	}
+	rs := []rune(s)
+	if len(rs) <= 160 {
+		return s
+	}
+	return string(rs[:157]) + "..."
+}
+
 // fanOut dispatches snap to every subscriber from a separate goroutine
 // per subscriber so a slow callback can't block other subscribers or
 // the worker. Callers must invoke fanOut with the manager lock NOT held.
@@ -727,6 +955,34 @@ func (m *Manager) fanOut(snap Snapshot, subs []func(Snapshot)) {
 	}
 }
 
+// stampSnapshotLocked advances the job's externally visible snapshot
+// metadata. Caller must hold m.mu for writing.
+func (m *Manager) stampSnapshotLocked(j *Job, at time.Time, activity, message string, needsInput, needsApproval bool) {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	if !j.UpdatedAt.IsZero() && !at.After(j.UpdatedAt) {
+		at = j.UpdatedAt.Add(time.Nanosecond)
+	}
+	if j.CreatedAt.IsZero() {
+		j.CreatedAt = at
+	}
+	j.UpdatedAt = at
+	if activity != "" {
+		j.LastActivity = activity
+	}
+	if message != "" {
+		j.LastMessage = trimActivityMessage(message)
+	}
+	j.NeedsInput = needsInput
+	j.NeedsApproval = needsApproval
+	if m.seq < j.Seq {
+		m.seq = j.Seq
+	}
+	m.seq++
+	j.Seq = m.seq
+}
+
 // markTerminal flips the job's state to a terminal value, persists,
 // signals the terminalCh, and fans out the final snapshot. It must be
 // called while NOT holding m.mu.
@@ -737,14 +993,23 @@ func (m *Manager) markTerminal(j *Job, newState State, summary, errMsg, reason s
 		return
 	}
 	j.State = newState
+	activity := newState.String()
+	if newState == StateCompleted {
+		activity = "ready for review"
+	}
 	if summary != "" {
 		j.Summary = summary
+		j.LastMessage = summary
 	}
 	if errMsg != "" {
 		j.Error = errMsg
+		j.LastMessage = errMsg
 	}
 	if reason != "" {
 		j.Reason = reason
+		if j.LastMessage == "" {
+			j.LastMessage = reason
+		}
 	}
 	if finalUsageInput > j.InputTokens {
 		j.InputTokens = finalUsageInput
@@ -758,7 +1023,9 @@ func (m *Manager) markTerminal(j *Job, newState State, summary, errMsg, reason s
 	if len(transcript) > 0 {
 		j.Transcript = transcript
 	}
-	j.FinishedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	j.FinishedAt = now
+	m.stampSnapshotLocked(j, now, activity, j.LastMessage, false, false)
 	delete(m.cancel, j.ID)
 	res := resultFromJob(j)
 	m.results = append(m.results, res)
@@ -788,12 +1055,32 @@ func (m *Manager) markRunning(j *Job) {
 		return
 	}
 	j.State = StateRunning
-	j.StartedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	j.StartedAt = now
+	m.stampSnapshotLocked(j, now, "working", "started", false, false)
 	subs := snapshotCallbacks(m.subscribers)
 	snap := snapshotOf(j)
 	m.mu.Unlock()
 	_ = saveSnapshot(m.cfg.JobsDir, j)
 	m.fanOut(snap, subs)
+}
+
+func (m *Manager) updateActivity(j *Job, activity, message string, needsInput, needsApproval bool) {
+	m.mu.Lock()
+	if j.State.IsTerminal() {
+		m.mu.Unlock()
+		return
+	}
+	m.stampSnapshotLocked(j, time.Now().UTC(), activity, message, needsInput, needsApproval)
+	subs := snapshotCallbacks(m.subscribers)
+	snap := snapshotOf(j)
+	m.mu.Unlock()
+	_ = saveSnapshot(m.cfg.JobsDir, j)
+	m.fanOut(snap, subs)
+}
+
+func (m *Manager) touchJobLocked(j *Job, activity, message string) {
+	m.stampSnapshotLocked(j, time.Now().UTC(), activity, message, j.NeedsInput, j.NeedsApproval)
 }
 
 // acquirePathLock returns (creating if needed) the mutex guarding the

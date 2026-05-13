@@ -3,8 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,6 +36,39 @@ func TestReadFile_LineRange(t *testing.T) {
 	assert.Contains(t, res.Content, "    2 | 2")
 	assert.Contains(t, res.Content, "    4 | 4")
 	assert.NotContains(t, res.Content, "    5 | 5")
+}
+
+func TestReadFile_DefaultOutputIsCapped(t *testing.T) {
+	root := t.TempDir()
+	var b strings.Builder
+	for i := 1; i <= maxReadFileLines+5; i++ {
+		b.WriteString("line\n")
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "big.txt"), []byte(b.String()), 0o644))
+
+	tool := NewReadFileTool(root)
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"path":"big.txt"}`))
+	require.NoError(t, err)
+	assert.False(t, res.IsError)
+	assert.Contains(t, res.Content, "output truncated")
+	assert.Equal(t, true, res.Metadata["truncated"])
+	assert.Equal(t, maxReadFileLines, res.Metadata["end_line"])
+}
+
+func TestReadFile_LineRangeCanReadPastDefaultCap(t *testing.T) {
+	root := t.TempDir()
+	var b strings.Builder
+	for i := 1; i <= maxReadFileLines+10; i++ {
+		b.WriteString(fmt.Sprintf("%03d\n", i))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "big.txt"), []byte(b.String()), 0o644))
+
+	tool := NewReadFileTool(root)
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"path":"big.txt","start_line":405,"end_line":406}`))
+	require.NoError(t, err)
+	assert.Contains(t, res.Content, "  405 | 405")
+	assert.Contains(t, res.Content, "  406 | 406")
+	assert.NotContains(t, res.Content, "  404 | 404")
 }
 
 func TestReadFile_Missing(t *testing.T) {

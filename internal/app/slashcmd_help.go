@@ -15,7 +15,17 @@ func (a *App) handleHelpCommand(_ []string) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) renderHelp() string {
-	return renderHelpWithSlashCommands(a.slashHelpRows())
+	out := renderHelpWithSlashCommands(a.slashHelpRows())
+	if errs := a.slashRegistry().Errors(); len(errs) > 0 {
+		var b strings.Builder
+		b.WriteString(out)
+		b.WriteString("\n\nSlash command load warnings\n")
+		for _, err := range errs {
+			writeHelpRow(&b, "warning", err)
+		}
+		out = strings.TrimRight(b.String(), "\n")
+	}
+	return out
 }
 
 // renderHelp iterates the five keymap groups in a stable order and

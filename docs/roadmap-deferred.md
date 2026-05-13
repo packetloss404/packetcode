@@ -1,4 +1,4 @@
-# Roadmap — deferred items, organised into rounds
+# Completed Deferred Roadmap
 
 This is the execution plan for the items that were listed under
 **Deferred to a future release** in `CHANGELOG.md`. Each round was a
@@ -94,11 +94,10 @@ commands.
 
 ---
 
-## Out of scope until after Round 7
+## Remaining Future Ideas
 
 - **Resumable background jobs across restart.** The session JSONs are
-  already persisted, so this is "feed them back into a fresh Agent";
-  revisit after Rounds 1–6 land.
+  already persisted, so this is "feed them back into a fresh Agent".
 - **Per-job worktree isolation** (concurrent edit-to-different-branches
   story). Genuinely hard; revisit with MCP in mind since MCP workflows
   will push on it.
@@ -107,14 +106,13 @@ commands.
   completion.
 - **Cross-job dependencies / DAG scheduling.** Future.
 - **Per-tool trust setting** (always-allow `spawn_agent` etc.). Small
-  extension to the approval policy; could slot into Round 3 or a tiny
-  standalone patch.
+  extension to the approval policy.
 - **Sub-agent → user questions.** Would require a notification channel
   orthogonal to the current approval modal. Future.
 
 ---
 
-## How to run a round
+## Historical Round Workflow
 
 The pattern the background-agents feature validated:
 

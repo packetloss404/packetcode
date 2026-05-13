@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,10 +15,15 @@ const readFileSchema = `{
   "properties": {
     "path":       { "type": "string", "description": "File path relative to the project root" },
     "start_line": { "type": "integer", "description": "First line to include (1-indexed, inclusive). Optional." },
-    "end_line":   { "type": "integer", "description": "Last line to include (1-indexed, inclusive). Optional." }
+    "end_line":   { "type": "integer", "description": "Last line to include (1-indexed, inclusive). Optional. Output is capped at 400 lines." }
   },
   "required": ["path"]
 }`
+
+const (
+	maxReadFileLines      = 400
+	maxReadFileLineLength = 1024 * 1024
+)
 
 type ReadFileTool struct {
 	Root string
@@ -29,7 +35,7 @@ func (*ReadFileTool) Name() string            { return "read_file" }
 func (*ReadFileTool) RequiresApproval() bool  { return false }
 func (*ReadFileTool) Schema() json.RawMessage { return json.RawMessage(readFileSchema) }
 func (*ReadFileTool) Description() string {
-	return "Read the contents of a file from the project. Optional start_line/end_line restrict the slice returned. Output is prefixed with line numbers."
+	return "Read a file from the project. Optional start_line/end_line restrict the slice returned. Output is line-numbered and capped at 400 lines."
 }
 
 type readFileParams struct {
@@ -48,57 +54,74 @@ func (t *ReadFileTool) Execute(ctx context.Context, raw json.RawMessage) (ToolRe
 		return ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
-	data, err := os.ReadFile(abs)
+	f, err := os.Open(abs)
 	if err != nil {
 		return ToolResult{Content: fmt.Sprintf("read_file: %s", err), IsError: true}, nil
 	}
-	if !utf8.Valid(data) {
-		return ToolResult{
-			Content: fmt.Sprintf("read_file: %s appears to be binary (%d bytes); refusing to render", p.Path, len(data)),
-			IsError: true,
-		}, nil
-	}
+	defer f.Close()
 
-	lines := strings.Split(string(data), "\n")
-	// Trim a trailing empty line caused by a final '\n' so line counts
-	// match what tools like `wc -l` report.
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	start := 1
-	end := len(lines)
+	start, requestedEnd := 1, 0
 	if p.StartLine > 0 {
 		start = p.StartLine
 	}
-	if p.EndLine > 0 && p.EndLine < end {
-		end = p.EndLine
+	if p.EndLine > 0 {
+		requestedEnd = p.EndLine
 	}
-	if start > end {
+	if requestedEnd > 0 && start > requestedEnd {
 		return ToolResult{
-			Content: fmt.Sprintf("read_file: start_line (%d) is past end_line (%d)", start, end),
+			Content: fmt.Sprintf("read_file: start_line (%d) is past end_line (%d)", start, requestedEnd),
 			IsError: true,
 		}, nil
 	}
-	if start > len(lines) {
+	if requestedEnd == 0 || requestedEnd-start+1 > maxReadFileLines {
+		requestedEnd = start + maxReadFileLines - 1
+	}
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), maxReadFileLineLength)
+	var lines []string
+	total := 0
+	for scanner.Scan() {
+		total++
+		line := scanner.Text()
+		if !utf8.ValidString(line) {
+			return ToolResult{
+				Content: fmt.Sprintf("read_file: %s appears to be binary or invalid UTF-8; refusing to render", p.Path),
+				IsError: true,
+			}, nil
+		}
+		if total >= start && total <= requestedEnd {
+			lines = append(lines, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return ToolResult{Content: fmt.Sprintf("read_file: %s", err), IsError: true}, nil
+	}
+	if start > total {
 		return ToolResult{
-			Content: fmt.Sprintf("read_file: start_line (%d) is past end of file (%d lines)", start, len(lines)),
+			Content: fmt.Sprintf("read_file: start_line (%d) is past end of file (%d lines)", start, total),
 			IsError: true,
 		}, nil
 	}
 
+	end := start + len(lines) - 1
+	truncated := requestedEnd < total
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s (lines %d-%d of %d)\n", p.Path, start, end, len(lines))
-	for i := start; i <= end; i++ {
-		fmt.Fprintf(&b, "%5d | %s\n", i, lines[i-1])
+	fmt.Fprintf(&b, "%s (lines %d-%d of %d)\n", p.Path, start, end, total)
+	for i, line := range lines {
+		fmt.Fprintf(&b, "%5d | %s\n", start+i, line)
+	}
+	if truncated {
+		fmt.Fprintf(&b, "... output truncated at %d lines; use start_line/end_line for another slice\n", maxReadFileLines)
 	}
 	return ToolResult{
 		Content: b.String(),
 		Metadata: map[string]any{
 			"path":        p.Path,
-			"total_lines": len(lines),
+			"total_lines": total,
 			"start_line":  start,
 			"end_line":    end,
+			"truncated":   truncated,
 		},
 	}, nil
 }

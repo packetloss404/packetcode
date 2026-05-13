@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,7 +61,11 @@ func RunSetup(in io.Reader, out io.Writer, cfg *config.Config, factories Factory
 		}
 
 		fmt.Fprintf(out, "  Validating key... ")
-		prov := factories[slug](key)
+		factory := factories[slug]
+		if factory == nil {
+			return nil, fmt.Errorf("provider %q is not available in this build", slug)
+		}
+		prov := factory(key)
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		validateErr := prov.ValidateKey(ctx, key)
 		cancel()
@@ -116,10 +119,16 @@ func RunSetup(in io.Reader, out io.Writer, cfg *config.Config, factories Factory
 
 func promptProvider(r *bufio.Reader, out io.Writer, factories FactoryMap) (string, error) {
 	slugs := make([]string, 0, len(factories))
-	for s := range factories {
+	for s, factory := range factories {
+		if factory == nil {
+			continue
+		}
 		slugs = append(slugs, s)
 	}
 	sort.Strings(slugs)
+	if len(slugs) == 0 {
+		return "", errors.New("no providers available")
+	}
 
 	fmt.Fprintln(out, "  Available providers:")
 	for i, s := range slugs {
@@ -146,7 +155,7 @@ func promptProvider(r *bufio.Reader, out io.Writer, factories FactoryMap) (strin
 
 func promptKey(r *bufio.Reader, out io.Writer, slug string) (string, error) {
 	if slug == "ollama" {
-		fmt.Fprintln(out, "  Ollama runs locally — no API key needed.")
+		fmt.Fprintln(out, "  Ollama is keyless — no API key needed.")
 		return "", nil
 	}
 	fmt.Fprintf(out, "  %s API key: ", slug)
@@ -188,14 +197,3 @@ func promptModel(r *bufio.Reader, out io.Writer, models []provider.Model) (strin
 		return models[n-1].ID, nil
 	}
 }
-
-// DefaultFactories is what main() passes to RunSetup. Each provider
-// package's New() takes the key (or host, for Ollama) and returns a
-// concrete provider.
-type FactoryDeps struct {
-	OllamaHost string
-}
-
-// SuppressUnused keeps the bufio import linkable when stdin is replaced
-// with a Reader that doesn't satisfy *bufio.Reader. Compiler check only.
-var _ = os.Stdin

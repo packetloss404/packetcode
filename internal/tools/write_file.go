@@ -45,9 +45,8 @@ type writeFileParams struct {
 }
 
 // Execute writes atomically: it streams content to a temp file in the
-// destination directory, fsync-equivalent on close, then renames into
-// place. This guards against half-written files if the process is killed
-// mid-write.
+// destination directory, closes it, then renames it into place. This
+// guards against half-written files if the process is killed mid-write.
 func (t *WriteFileTool) Execute(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
 	var p writeFileParams
 	if err := json.Unmarshal(raw, &p); err != nil {

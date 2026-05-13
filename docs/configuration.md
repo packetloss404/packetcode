@@ -13,9 +13,17 @@ model = "gpt-5.5"
 api_key = "sk-..."
 default_model = "gpt-5.5"
 
+[providers.anthropic]
+api_key = "sk-ant-..."
+default_model = "claude-opus-4-7"
+
 [providers.gemini]
 api_key = "AI..."
 default_model = "gemini-2.5-pro"
+
+[providers.minimax]
+api_key = "sk-..."
+default_model = "MiniMax-M2.7-highspeed"
 
 [providers.ollama]
 host = "http://localhost:11434"
@@ -46,9 +54,16 @@ timeout_sec = 10
 
 `[default]` selects the provider/model used at startup.
 
-`[providers.<slug>]` stores API keys, saved default models, and the Ollama host.
+`[providers.<slug>]` stores API keys, saved default models, and the Ollama host. `PACKETCODE_OLLAMA_HOST` overrides `[providers.ollama].host` at runtime.
 
 `[behavior]` controls trust mode, input height, auto-compaction threshold, and background-agent limits.
+
+Background-agent settings affect both `/spawn` and the `spawn_agent` tool:
+
+- `background_max_concurrent` limits how many jobs can run at once; extra jobs stay queued.
+- `background_max_depth` limits nested `spawn_agent` calls.
+- `background_max_total` caps jobs created during one packetcode run.
+- `background_default_provider` and `background_default_model` override the foreground provider/model for jobs when set; empty values inherit the active provider/model.
 
 `[statusline]` configures an optional shell command that replaces the built-in bottom bar. See [Hooks and statusline](hooks-and-statusline.md).
 

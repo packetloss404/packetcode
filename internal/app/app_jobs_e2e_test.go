@@ -70,9 +70,8 @@ func (s *scriptedE2EProvider) ChatCompletion(ctx context.Context, _ provider.Cha
 	return ch, nil
 }
 
-// TestE2E_SpawnAgentToolViaSlashCommand is the Bucket C smoke test
-// (spec test 27). It boots a minimal App with a real jobs.Manager
-// backed by a fake provider, dispatches a `/spawn hi` via the slash
+// TestE2E_SpawnAgentToolViaSlashCommand boots a minimal App with a real
+// jobs.Manager backed by a fake provider, dispatches a `/spawn hi` via the slash
 // command handler, and asserts:
 //
 //  1. The queued-echo system message appears in the conversation pane.
@@ -87,8 +86,8 @@ func (s *scriptedE2EProvider) ChatCompletion(ctx context.Context, _ provider.Cha
 // tea.Cmd) without testing anything unique to this feature.
 func TestE2E_SpawnAgentToolViaSlashCommand(t *testing.T) {
 	tmp := t.TempDir()
-	_ = os.Setenv("HOME", tmp)
-	_ = os.Setenv("USERPROFILE", tmp)
+	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
 
 	sessionsDir := filepath.Join(tmp, "sessions")
 	backupsDir := filepath.Join(tmp, "backups")
@@ -220,14 +219,45 @@ func TestE2E_SpawnAgentToolViaSlashCommand(t *testing.T) {
 		t.Fatalf("expected terminal-state system message in conversation")
 	}
 
-	// And draining results yields one entry for the slash-command
-	// path's injection-on-next-turn contract.
-	results := mgr.DrainResults(0)
-	if len(results) != 1 {
-		t.Fatalf("DrainResults = %d, want 1", len(results))
+	jobID := mgr.List()[0].ID
+	waitForEq(t, 5*time.Second, "job result marked seen", func() int {
+		pending := mgr.PendingResults(0)
+		if len(pending) == 1 && pending[0].Status == jobs.ResultStatusSeen {
+			return 1
+		}
+		return 0
+	}, 1)
+	pending := mgr.PendingResults(0)
+	if len(pending) != 1 || pending[0].Status != jobs.ResultStatusSeen {
+		t.Fatalf("expected one seen result awaiting Agent View decision, got %#v", pending)
 	}
-	if results[0].State != jobs.StateCompleted {
-		t.Fatalf("result state = %s, want completed", results[0].State)
+
+	cur := sessions.Current()
+	if cur != nil && len(cur.Messages) != 0 {
+		t.Fatalf("background result should not auto-inject into the main session; got %#v", cur.Messages)
+	}
+
+	// Explicit Agent View injection marks the result injected and adds
+	// a user-role message for the next foreground model turn.
+	if !app.injectJobResultForAgent(jobID) {
+		t.Fatalf("expected explicit result injection to succeed")
+	}
+	cur = sessions.Current()
+	if cur == nil || len(cur.Messages) == 0 {
+		t.Fatalf("expected injected background-job message")
+	}
+	last := cur.Messages[len(cur.Messages)-1]
+	if last.Role != provider.RoleUser {
+		t.Fatalf("role = %s, want user", last.Role)
+	}
+	if !strings.Contains(last.Content, "[Background job") || !strings.Contains(last.Content, "hi back") {
+		t.Fatalf("unexpected injected result: %q", last.Content)
+	}
+	if results := mgr.PendingResults(0); len(results) != 0 {
+		t.Fatalf("result queue should have been finalised, got %d", len(results))
+	}
+	if snap, ok := mgr.Get(jobID); !ok || snap.ResultStatus != jobs.ResultStatusInjected {
+		t.Fatalf("result status = %#v (ok=%v), want injected", snap.ResultStatus, ok)
 	}
 }
 

@@ -42,7 +42,7 @@ internal/mcp/
 ├── manager.go          # Manager: owns N Clients, lifecycle, reports
 ├── manager_test.go
 ├── process.go          # spawn + stderr-tee wrappers
-├── testing.go          # StubServer helper for tests
+├── testing_test.go     # StubServer helper for tests
 ├── tool.go             # McpTool → tools.Tool adapter
 └── tool_test.go
 ```
@@ -351,7 +351,7 @@ Errors: `"mcp logs: no server named <name>"`, `"mcp logs: no log file at <path>"
 | `internal/mcp/manager_test.go` | **NEW.** Tests 13-15. |
 | `internal/mcp/tool.go` | **NEW.** `McpTool` + adapter methods. |
 | `internal/mcp/tool_test.go` | **NEW.** Tests 16-21. |
-| `internal/mcp/testing.go` | **NEW.** Exported `StubServer` helper. |
+| `internal/mcp/testing_test.go` | **NEW.** `StubServer` helper for same-package tests. |
 | `internal/config/config.go` | Add `MCP map[string]MCPServerConfig`, `MCPServerConfig` type, `IsEnabled` method. Nil-guard in `LoadFrom`. |
 | `internal/config/defaults.go` | Initialise `MCP: map[string]MCPServerConfig{}`. |
 | `internal/config/paths.go` | Add `MCPLogPath(name)`. |

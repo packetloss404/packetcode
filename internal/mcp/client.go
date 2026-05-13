@@ -238,6 +238,9 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
+	if !json.Valid(args) {
+		return ToolCallResult{}, fmt.Errorf("invalid MCP tool arguments JSON")
+	}
 	params := map[string]any{
 		"name":      name,
 		"arguments": json.RawMessage(args),

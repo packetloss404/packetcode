@@ -73,7 +73,7 @@ func (a *App) handleSessionsCommand(args []string) (tea.Model, tea.Cmd) {
 		}
 		a.refreshTopBar()
 		a.showResumedSession(s)
-		return a, a.renderStatusLine()
+		return a, a.renderStatusLine(false)
 
 	case "delete":
 		if !yes {

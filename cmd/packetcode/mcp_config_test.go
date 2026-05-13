@@ -137,6 +137,16 @@ func TestShouldRunSetup_OllamaNeedsNoKey(t *testing.T) {
 	}
 }
 
+func TestOllamaHostEnvOverridesConfig(t *testing.T) {
+	cfg := config.Default()
+	cfg.Providers["ollama"] = config.ProviderConfig{Host: "http://localhost:11434"}
+	t.Setenv("PACKETCODE_OLLAMA_HOST", "ollama.internal")
+
+	if got := ollamaHost(cfg); got != "ollama.internal" {
+		t.Fatalf("ollamaHost() = %q, want env override", got)
+	}
+}
+
 // names returns the slice of server names from the flattened config —
 // helper for error messages.
 func names(cfgs []mcp.ServerConfig) []string {

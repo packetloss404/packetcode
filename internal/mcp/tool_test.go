@@ -143,6 +143,32 @@ func TestMcpTool_Execute_NullParams(t *testing.T) {
 	assert.Equal(t, "{}", captured.Load())
 }
 
+func TestMcpTool_Execute_InvalidJSONParams(t *testing.T) {
+	stub := makeBasicStub(t, "srv", []ServerTool{{Name: "t"}}, nil)
+	defer stub.Stop()
+	cli, err := NewClientWithStub("srv", stub, stubInfo, 5)
+	require.NoError(t, err)
+	defer cli.Close(time.Second)
+	mt := NewMcpTool(cli, cli.Tools()[0])
+
+	res, err := mt.Execute(context.Background(), json.RawMessage(`{`))
+	require.NoError(t, err)
+	assert.True(t, res.IsError)
+	assert.Contains(t, res.Content, "invalid JSON arguments")
+}
+
+func TestClient_CallTool_InvalidJSONParams(t *testing.T) {
+	stub := makeBasicStub(t, "srv", []ServerTool{{Name: "t"}}, nil)
+	defer stub.Stop()
+	cli, err := NewClientWithStub("srv", stub, stubInfo, 5)
+	require.NoError(t, err)
+	defer cli.Close(time.Second)
+
+	_, err = cli.CallTool(context.Background(), "t", json.RawMessage(`{`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid MCP tool arguments JSON")
+}
+
 // TestMcpTool_Execute_CtxCancellation asserts that ctx cancellation
 // surfaces as a Go error so the agent loop can abort the turn.
 func TestMcpTool_Execute_CtxCancellation(t *testing.T) {

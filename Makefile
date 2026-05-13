@@ -31,7 +31,7 @@ smoke: build
 run: build
 	./$(BINARY)
 
-ci: verify test build smoke
+ci: verify lint test vulncheck build smoke goreleaser-check
 
 clean:
 	rm -rf bin/ dist/

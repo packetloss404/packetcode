@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	defaultBaseURL = "https://api.minimax.chat/v1"
+	defaultBaseURL = "https://api.minimax.io/v1"
+	DefaultModel   = "MiniMax-M2.7-highspeed"
 	slug           = "minimax"
 	displayName    = "MiniMax"
 )
@@ -64,7 +65,7 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.Model, error) {
 			OutputPer1M:   outRate,
 		})
 	}
-	return out, nil
+	return prioritizeDefaultModel(out), nil
 }
 
 func (p *Provider) fallback() []provider.Model {
@@ -80,7 +81,7 @@ func (p *Provider) fallback() []provider.Model {
 			OutputPer1M:   outRate,
 		})
 	}
-	return out
+	return prioritizeDefaultModel(out)
 }
 
 func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.StreamEvent, error) {
@@ -106,4 +107,21 @@ func (p *Provider) SupportsTools(modelID string) bool {
 		return entry.SupportsTools
 	}
 	return true
+}
+
+func prioritizeDefaultModel(models []provider.Model) []provider.Model {
+	for i, m := range models {
+		if m.ID != DefaultModel {
+			continue
+		}
+		if i == 0 {
+			return models
+		}
+		out := make([]provider.Model, 0, len(models))
+		out = append(out, m)
+		out = append(out, models[:i]...)
+		out = append(out, models[i+1:]...)
+		return out
+	}
+	return models
 }

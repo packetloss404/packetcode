@@ -1,7 +1,7 @@
 // Package openaicompat implements the request, response, and SSE streaming
 // logic shared by every OpenAI-compatible chat-completions endpoint.
 //
-// Three of packetcode's five providers (OpenAI itself, MiniMax, OpenRouter)
+// Three of packetcode's built-in providers (OpenAI itself, MiniMax, OpenRouter)
 // speak this protocol; each one wraps a Client with provider-specific base
 // URL, headers, model list, and pricing. The wrapper implements the public
 // provider.Provider interface; this package never imports lipgloss or

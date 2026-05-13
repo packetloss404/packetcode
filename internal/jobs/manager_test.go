@@ -44,10 +44,10 @@ func TestManager_SpawnAndComplete(t *testing.T) {
 	})
 
 	// Subscribers fire async — give them a beat to drain.
-	waitFor(t, time.Second, "all transitions to fan out", func() bool {
+	waitFor(t, time.Second, "completed transition to fan out", func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(transitions) >= 3
+		return containsState(transitions, StateCompleted)
 	})
 
 	mu.Lock()
@@ -55,6 +55,15 @@ func TestManager_SpawnAndComplete(t *testing.T) {
 	assert.Contains(t, transitions, StateQueued)
 	assert.Contains(t, transitions, StateRunning)
 	assert.Contains(t, transitions, StateCompleted)
+}
+
+func containsState(states []State, want State) bool {
+	for _, state := range states {
+		if state == want {
+			return true
+		}
+	}
+	return false
 }
 
 // Test 2 — at most MaxConcurrent jobs are in StateRunning at once.
@@ -371,7 +380,117 @@ func TestManager_DrainResults(t *testing.T) {
 
 	results := mgr.DrainResults(10)
 	assert.Len(t, results, N)
+	for _, result := range results {
+		assert.Equal(t, ResultStatusInjected, result.Status)
+	}
 	assert.Empty(t, mgr.DrainResults(10))
+}
+
+func TestManager_ResultLifecycleControls(t *testing.T) {
+	prov := &scriptedProvider{turns: [][]provider.StreamEvent{
+		scriptedHello()[0],
+		scriptedHello()[0],
+		scriptedHello()[0],
+	}}
+	mgr, _ := newTestManager(t, prov, func(c *Config) { c.MaxConcurrent = 1 })
+
+	ids := make([]string, 0, 3)
+	for i := 0; i < 3; i++ {
+		snap, perr := mgr.Spawn(SpawnRequest{Prompt: "x"})
+		require.Nil(t, perr)
+		ids = append(ids, snap.ID)
+	}
+	waitFor(t, 2*time.Second, "all jobs completed", func() bool {
+		for _, id := range ids {
+			snap, _ := mgr.Get(id)
+			if snap.State != StateCompleted {
+				return false
+			}
+		}
+		return true
+	})
+
+	pending := mgr.PendingResults(0)
+	require.Len(t, pending, 3)
+	for _, result := range pending {
+		assert.Equal(t, ResultStatusPending, result.Status)
+	}
+
+	seen, ok := mgr.MarkResultSeen(ids[0])
+	require.True(t, ok)
+	assert.Equal(t, ResultStatusSeen, seen.Status)
+	snap, ok := mgr.Get(ids[0])
+	require.True(t, ok)
+	assert.Equal(t, ResultStatusSeen, snap.ResultStatus)
+	firstSeenSeq := snap.Seq
+	seen, ok = mgr.MarkResultSeen(ids[0])
+	require.True(t, ok)
+	assert.Equal(t, ResultStatusSeen, seen.Status)
+	snap, ok = mgr.Get(ids[0])
+	require.True(t, ok)
+	assert.Equal(t, firstSeenSeq, snap.Seq, "re-marking seen must not fan out a fresh snapshot")
+	assertResultStatus(t, mgr.PendingResults(0), ids[0], ResultStatusSeen)
+
+	ignored, ok := mgr.MarkResultIgnored(ids[0])
+	require.True(t, ok)
+	assert.Equal(t, ResultStatusIgnored, ignored.Status)
+	assertNoResult(t, mgr.PendingResults(0), ids[0])
+
+	injected, ok := mgr.MarkResultInjected(ids[1])
+	require.True(t, ok)
+	assert.Equal(t, ResultStatusInjected, injected.Status)
+	assertNoResult(t, mgr.PendingResults(0), ids[1])
+
+	legacy := mgr.DrainResults(0)
+	require.Len(t, legacy, 1)
+	assert.Equal(t, ids[2], legacy[0].JobID)
+	assert.Equal(t, ResultStatusInjected, legacy[0].Status)
+	assert.Empty(t, mgr.PendingResults(0))
+}
+
+func TestManager_TranscriptReadsLiveSubSessionWhileRunning(t *testing.T) {
+	prov := &scriptedProvider{holdOpen: true}
+	mgr, _ := newTestManager(t, prov)
+
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "inspect auth flow"})
+	require.Nil(t, perr)
+
+	var transcript []provider.Message
+	waitFor(t, 2*time.Second, "running job transcript to include prompt", func() bool {
+		var ok bool
+		transcript, ok = mgr.Transcript(snap.ID)
+		return ok && len(transcript) > 0 && transcript[0].Role == provider.RoleUser
+	})
+
+	require.NotEmpty(t, transcript)
+	assert.Equal(t, provider.RoleUser, transcript[0].Role)
+	assert.Contains(t, transcript[0].Content, "inspect auth flow")
+
+	require.True(t, mgr.Cancel(snap.ID))
+}
+
+func TestManager_TranscriptFallsBackToPersistedJobSession(t *testing.T) {
+	prov := &scriptedProvider{turns: scriptedHello()}
+	mgr, _ := newTestManager(t, prov)
+
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "say hi"})
+	require.Nil(t, perr)
+	waitFor(t, 2*time.Second, "job to complete", func() bool {
+		got, _ := mgr.Get(snap.ID)
+		return got.State == StateCompleted
+	})
+
+	mgr.mu.Lock()
+	mgr.jobs[snap.ID].Transcript = nil
+	mgr.mu.Unlock()
+
+	transcript, ok := mgr.Transcript(snap.ID)
+	require.True(t, ok)
+	require.Len(t, transcript, 2)
+	assert.Equal(t, provider.RoleUser, transcript[0].Role)
+	assert.Equal(t, "say hi", transcript[0].Content)
+	assert.Equal(t, provider.RoleAssistant, transcript[1].Role)
+	assert.Equal(t, "hello", transcript[1].Content)
 }
 
 func TestManager_ReadOnlyJobCanSpawnReadOnlyChild(t *testing.T) {
@@ -416,6 +535,26 @@ func TestManager_ReadOnlyJobCanSpawnReadOnlyChild(t *testing.T) {
 	results := mgr.DrainResults(0)
 	require.Len(t, results, 1, "wait=true child result should be consumed by the parent job")
 	assert.Equal(t, snap.ID, results[0].JobID)
+}
+
+func assertResultStatus(t *testing.T, results []Result, id string, status ResultStatus) {
+	t.Helper()
+	for _, result := range results {
+		if result.JobID == id {
+			assert.Equal(t, status, result.Status)
+			return
+		}
+	}
+	t.Fatalf("result %s not found in %#v", id, results)
+}
+
+func assertNoResult(t *testing.T, results []Result, id string) {
+	t.Helper()
+	for _, result := range results {
+		if result.JobID == id {
+			t.Fatalf("result %s unexpectedly present in %#v", id, results)
+		}
+	}
 }
 
 // Test 10 — backup isolation: a job's write_file should land in the
@@ -550,6 +689,132 @@ func TestManager_CostAggregation(t *testing.T) {
 
 	// $1/M in × 1M + $5/M out × 1M = $6 across both jobs.
 	assert.InDelta(t, 6.0, tr.TotalCost(), 1e-6)
+}
+
+func TestManager_SnapshotMetadataMonotonicAcrossLifecycle(t *testing.T) {
+	prov := &scriptedProvider{holdOpen: true}
+	mgr, _ := newTestManager(t, prov)
+
+	queued, perr := mgr.Spawn(SpawnRequest{Prompt: "watch me"})
+	require.Nil(t, perr)
+	require.Positive(t, queued.Seq)
+	assert.Equal(t, "queued", queued.LastActivity)
+	assert.Equal(t, "watch me", queued.LastMessage)
+	assert.False(t, queued.UpdatedAt.Before(queued.CreatedAt))
+	assert.False(t, queued.NeedsInput)
+	assert.False(t, queued.NeedsApproval)
+
+	var running Snapshot
+	waitFor(t, time.Second, "job snapshot to advance while running", func() bool {
+		got, ok := mgr.Get(queued.ID)
+		if !ok || got.State != StateRunning || got.Seq <= queued.Seq {
+			return false
+		}
+		running = got
+		return got.UpdatedAt.After(queued.UpdatedAt)
+	})
+
+	require.True(t, mgr.Cancel(queued.ID))
+	var cancelled Snapshot
+	waitFor(t, 2*time.Second, "job snapshot to advance on cancellation", func() bool {
+		got, ok := mgr.Get(queued.ID)
+		if !ok || got.State != StateCancelled || got.Seq <= running.Seq {
+			return false
+		}
+		cancelled = got
+		return got.UpdatedAt.After(running.UpdatedAt)
+	})
+	assert.Equal(t, "cancelled", cancelled.LastActivity)
+	assert.False(t, cancelled.NeedsInput)
+	assert.False(t, cancelled.NeedsApproval)
+}
+
+func TestManager_SnapshotMarksPendingApproval(t *testing.T) {
+	prov := &scriptedProvider{turns: [][]provider.StreamEvent{
+		{
+			{Type: provider.EventToolCallStart, ToolCall: &provider.ToolCallDelta{Index: 0, ID: "c1", Name: "danger"}},
+			{Type: provider.EventToolCallDelta, ToolCall: &provider.ToolCallDelta{Index: 0, ArgumentsDelta: `{}`}},
+			{Type: provider.EventToolCallEnd, ToolCall: &provider.ToolCallDelta{Index: 0}},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		},
+		{
+			{Type: provider.EventTextDelta, TextDelta: "done"},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		},
+	}}
+	parent := &blockingApprover{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	toolReg := tools.NewRegistry()
+	toolReg.Register(&noopTool{name: "danger", approval: true})
+	mgr, _ := newTestManager(t, prov, func(c *Config) {
+		c.Tools = toolReg
+		c.Approver = parent
+	})
+
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "use danger", AllowWrite: true})
+	require.Nil(t, perr)
+
+	waitFor(t, 2*time.Second, "approval request to block", func() bool {
+		select {
+		case <-parent.started:
+			return true
+		default:
+			return false
+		}
+	})
+	var pending Snapshot
+	waitFor(t, time.Second, "snapshot to show pending approval", func() bool {
+		got, ok := mgr.Get(snap.ID)
+		if !ok {
+			return false
+		}
+		pending = got
+		return got.NeedsInput && got.NeedsApproval && got.LastActivity == "needs approval"
+	})
+	assert.Greater(t, pending.Seq, snap.Seq)
+
+	close(parent.release)
+	waitFor(t, 2*time.Second, "job completes after approval", func() bool {
+		got, ok := mgr.Get(snap.ID)
+		return ok && got.State == StateCompleted && !got.NeedsInput && !got.NeedsApproval
+	})
+}
+
+func TestManager_ListOrdersByUpdatedAtThenSeq(t *testing.T) {
+	now := time.Now().UTC()
+	mgr := &Manager{
+		jobs: map[string]*Job{
+			"newer-created": {
+				ID:        "newer-created",
+				State:     StateQueued,
+				CreatedAt: now.Add(-time.Minute),
+				UpdatedAt: now.Add(-30 * time.Second),
+				Seq:       2,
+			},
+			"recent-activity": {
+				ID:        "recent-activity",
+				State:     StateRunning,
+				CreatedAt: now.Add(-2 * time.Minute),
+				UpdatedAt: now.Add(-10 * time.Second),
+				Seq:       1,
+			},
+			"same-time-higher-seq": {
+				ID:        "same-time-higher-seq",
+				State:     StateRunning,
+				CreatedAt: now.Add(-3 * time.Minute),
+				UpdatedAt: now.Add(-10 * time.Second),
+				Seq:       3,
+			},
+		},
+	}
+
+	got := mgr.List()
+	require.Len(t, got, 3)
+	assert.Equal(t, "same-time-higher-seq", got[0].ID)
+	assert.Equal(t, "recent-activity", got[1].ID)
+	assert.Equal(t, "newer-created", got[2].ID)
 }
 
 // Test 15 — Snapshot is a value-copy projection: mutating the

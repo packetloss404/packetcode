@@ -15,11 +15,12 @@ type pricingEntry struct {
 // missing entry never blocks a model from being used — it just shows
 // pessimistic cost estimates until the table catches up.
 //
-// Prices last verified against OpenAI's public price list as of Q1 2026.
-// GPT-5.5 uses packetcode's conservative fallback rates until public
-// pricing is confirmed.
+// Prices last verified against OpenAI's public price list in May 2026.
 var pricingTable = map[string]pricingEntry{
-	"gpt-5.5":      {Input: 3.00, Output: 15.00, ContextWindow: 400_000, SupportsTools: true},
+	"gpt-5.5":      {Input: 5.00, Output: 30.00, ContextWindow: 1_050_000, SupportsTools: true},
+	"gpt-5.2":      {Input: 1.75, Output: 14.00, ContextWindow: 400_000, SupportsTools: true},
+	"gpt-5.1":      {Input: 1.25, Output: 10.00, ContextWindow: 400_000, SupportsTools: true},
+	"gpt-5":        {Input: 1.25, Output: 10.00, ContextWindow: 400_000, SupportsTools: true},
 	"gpt-4.1":      {Input: 2.00, Output: 8.00, ContextWindow: 1_000_000, SupportsTools: true},
 	"gpt-4.1-mini": {Input: 0.40, Output: 1.60, ContextWindow: 1_000_000, SupportsTools: true},
 	"gpt-4.1-nano": {Input: 0.10, Output: 0.40, ContextWindow: 1_000_000, SupportsTools: true},

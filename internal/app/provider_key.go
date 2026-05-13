@@ -38,13 +38,13 @@ func (a *App) providerHasKey(slug string) bool {
 
 // openProviderKeyPrompt hides the picker and shows the prompt modal
 // asking the user to paste an API key for slug. Handles the Ollama
-// short-circuit (no key required, message the user and re-open the
+// short-circuit (keyless provider, message the user and re-open the
 // picker) and the missing-factory case (cannot rebuild → cannot set
 // a new key, so we explain instead of opening a dead-end prompt).
 func (a *App) openProviderKeyPrompt(slug string) tea.Cmd {
 	a.picker.Hide()
 	if slug == "ollama" {
-		a.conversation.AppendSystem("provider: ollama runs locally — no API key required")
+		a.conversation.AppendSystem("provider: ollama is keyless — no API key required")
 		return a.openProviderPicker()
 	}
 	if a.deps.Factories == nil {

@@ -25,8 +25,8 @@ func TestProvider_Identity(t *testing.T) {
 func TestProvider_PricingKnownAndUnknown(t *testing.T) {
 	p := New("")
 	in, out := p.Pricing(DefaultModel)
-	assert.Equal(t, 3.00, in)
-	assert.Equal(t, 15.00, out)
+	assert.Equal(t, 5.00, in)
+	assert.Equal(t, 30.00, out)
 
 	in, out = p.Pricing("totally-made-up")
 	assert.Equal(t, 3.00, in, "unknown models should hit conservative fallback")
@@ -35,7 +35,7 @@ func TestProvider_PricingKnownAndUnknown(t *testing.T) {
 
 func TestProvider_ContextWindowAndSupportsTools(t *testing.T) {
 	p := New("")
-	assert.Equal(t, 400_000, p.ContextWindow(DefaultModel))
+	assert.Equal(t, 1_050_000, p.ContextWindow(DefaultModel))
 	assert.True(t, p.SupportsTools(DefaultModel))
 
 	// Unknown but matching a supported prefix → assumes tools.
@@ -98,21 +98,18 @@ func TestProvider_ListModels_FiltersUnsupported(t *testing.T) {
 	for i, m := range models {
 		ids[i] = m.ID
 	}
-	// Upstream chat models plus any pricingTable seed the catalog omits.
 	assert.Subset(t, ids, []string{"gpt-5.5", "gpt-4.1", "gpt-4.1-mini", "o3"})
-	for id := range pricingTable {
-		assert.Contains(t, ids, id, "pricingTable entry %q must appear", id)
-	}
+	assert.NotContains(t, ids, "gpt-5.2", "pricing-only entries should not seed the catalog")
 	assert.NotContains(t, ids, "text-embedding-3-small")
 	assert.NotContains(t, ids, "tts-1")
 	assert.Equal(t, DefaultModel, models[0].ID)
-	assert.Equal(t, 400_000, models[0].ContextWindow)
+	assert.Equal(t, 1_050_000, models[0].ContextWindow)
 }
 
 // TestProvider_ListModels_ExcludesProFamily confirms the "-pro" filter
 // that hides Responses-API-only models (o1-pro, o3-pro, gpt-5.5-pro).
 // Plain (non-pro) variants and their dated snapshots still pass. The
-// pricingTable seed still applies, so baseline entries appear too.
+// pricing table enriches returned models but does not seed extra entries.
 func TestProvider_ListModels_ExcludesProFamily(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{

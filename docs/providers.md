@@ -1,14 +1,15 @@
 # Providers And Models
 
-packetcode supports five provider slugs:
+packetcode supports six provider slugs:
 
 | Slug | Needs key | Notes |
 | --- | --- | --- |
 | `openai` | Yes | Uses the OpenAI API. |
+| `anthropic` | Yes | Uses the Anthropic Claude Messages API. |
 | `gemini` | Yes | Uses the Google Gemini API. |
 | `minimax` | Yes | Uses MiniMax's OpenAI-compatible API surface. |
 | `openrouter` | Yes | Lists models and pricing from OpenRouter. |
-| `ollama` | No | Uses a local Ollama server. |
+| `ollama` | No | Uses a reachable Ollama server. |
 
 ## Configure Keys
 
@@ -27,6 +28,7 @@ You can also set keys with environment variables:
 
 ```text
 PACKETCODE_OPENAI_API_KEY
+PACKETCODE_ANTHROPIC_API_KEY
 PACKETCODE_GEMINI_API_KEY
 PACKETCODE_MINIMAX_API_KEY
 PACKETCODE_OPENROUTER_API_KEY
@@ -57,13 +59,21 @@ model = "gpt-5.5"
 api_key = "sk-..."
 default_model = "gpt-5.5"
 
+[providers.anthropic]
+api_key = "sk-ant-..."
+default_model = "claude-opus-4-7"
+
 [providers.gemini]
 api_key = "AI..."
 default_model = "gemini-2.5-pro"
+
+[providers.minimax]
+api_key = "sk-..."
+default_model = "MiniMax-M2.7-highspeed"
 
 [providers.ollama]
 host = "http://localhost:11434"
 default_model = "qwen2.5-coder:14b"
 ```
 
-`host` is only used for Ollama. If omitted, packetcode uses the Ollama provider default.
+`host` is only used for Ollama. If omitted, packetcode defaults to `http://localhost:11434`. A bare host like `ollama.internal` is normalized to `http://ollama.internal:11434`. You can also set `PACKETCODE_OLLAMA_HOST` to override the saved host for one machine.

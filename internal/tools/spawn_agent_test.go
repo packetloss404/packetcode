@@ -65,9 +65,8 @@ func (f *fakeSpawner) WaitForJob(id string, timeout time.Duration) (JobWaitResul
 	return f.waitResult, f.waitOK
 }
 
-// ---------------------------------------------------------------------------
-// Test 16: wait=false returns immediately with job id + metadata.
-// ---------------------------------------------------------------------------
+// TestSpawnAgentTool_NoWait verifies wait=false returns the job id and
+// metadata without blocking for completion.
 
 func TestSpawnAgentTool_NoWait(t *testing.T) {
 	f := &fakeSpawner{
@@ -116,10 +115,8 @@ func TestSpawnAgentTool_NoWait(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test 17: wait=true blocks until the spawner's WaitForJob returns and
-// echoes the summary back as the tool content.
-// ---------------------------------------------------------------------------
+// TestSpawnAgentTool_Wait_Completed verifies wait=true blocks until the
+// spawner's WaitForJob returns and echoes the summary back as tool content.
 
 func TestSpawnAgentTool_Wait_Completed(t *testing.T) {
 	f := &fakeSpawner{
@@ -165,10 +162,8 @@ func TestSpawnAgentTool_Wait_Completed(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test 18: parent ctx cancelled mid-wait returns an IsError result with
-// "cancelled" text.
-// ---------------------------------------------------------------------------
+// TestSpawnAgentTool_Wait_Cancelled verifies parent ctx cancellation
+// returns an IsError result with "cancelled" text.
 
 func TestSpawnAgentTool_Wait_Cancelled(t *testing.T) {
 	f := &fakeSpawner{
@@ -214,10 +209,8 @@ func TestSpawnAgentTool_Wait_Cancelled(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Test 19: schema is valid JSON and carries the required fields the spec
-// calls for.
-// ---------------------------------------------------------------------------
+// TestSpawnAgentTool_Schema verifies the schema is valid JSON and
+// carries the required fields.
 
 func TestSpawnAgentTool_Schema(t *testing.T) {
 	f := &fakeSpawner{}

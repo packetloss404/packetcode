@@ -91,7 +91,7 @@ App-side helper `buildAutocompleteEntries()` reads `keymap.SlashCommands`:
 - `Desc` = `.Desc` verbatim.
 - `Verb` = first whitespace-delimited token of `Key`, with leading `/` stripped.
 
-**Dedup by verb** (keep first): `SlashCommands` lists `/jobs` and `/jobs <id>` as two rows; collapse to one (`Usage = "/jobs"`). Result: 12 entries.
+**Dedup by verb** (keep first): `SlashCommands` lists pairs such as `/agents` and `/agents <id>`, or `/jobs` and `/jobs <id>`; collapse each pair to the bare verb (`Usage = "/agents"` / `"/jobs"`). The exact entry count follows `internal/app/keymap.go`.
 
 ## App integration
 
@@ -235,7 +235,7 @@ Approval > Picker > JobsPanel > Autocomplete. Autocomplete is NOT in the overlay
 | `internal/ui/components/input/input_test.go` | **NEW.** `TestInput_SetValueReplacesBufferAndMovesCursorToEnd`. |
 | `internal/app/app_autocomplete_test.go` | **NEW.** ~20 integration tests. |
 | `internal/app/slashcmd_test.go` | Add `TestParseSlashCommand_TrailingSpaceAfterVerb`. |
-| `README.md` | Autocomplete subsection under Keyboard; strike from Next list. |
+| `README.md` | Autocomplete subsection under Keyboard. |
 | `CHANGELOG.md` | Added bullet; remove from Deferred. |
 | `docs/roadmap-deferred.md` | Mark Round 3 landed. |
 

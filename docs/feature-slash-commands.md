@@ -23,7 +23,7 @@ Extend packetcode's slash-command surface from the three verbs already wired (`/
   PROVIDER   NAME           DEFAULT MODEL               ACTIVE
   * openai   OpenAI         gpt-5.5                     yes
     gemini   Google Gemini  gemini-2.5-flash            no
-    ollama   Ollama (local) (none)                      no
+    ollama   Ollama         (none)                      no
   ```
   Fixed column widths: slug=10, name=14, model=28, active=5. `(none)` when `DefaultModel` is empty.
 - **Error cases.**
@@ -41,7 +41,7 @@ Extend packetcode's slash-command surface from the three verbs already wired (`/
 - **Output format (no arg).**
   ```
   MODEL                        CONTEXT    TOOLS  IN/1M    OUT/1M
-  * gpt-5.5                    400000     yes    $3.00    $15.00
+  * gpt-5.5                    1050000    yes    $5.00    $30.00
     gpt-4.1                    1048576    yes    $2.00    $8.00
     gpt-4.1-mini               1048576    yes    $0.40    $1.60
   ```

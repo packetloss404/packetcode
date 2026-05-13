@@ -102,17 +102,23 @@ func renderMCPTable(reports []mcp.StartupReport, clients []*mcp.Client) string {
 	b.WriteString("\n")
 
 	for _, r := range reports {
+		status := r.Status
 		pid := "-"
-		if r.Status == "running" && r.PID > 0 {
-			pid = fmt.Sprintf("%d", r.PID)
+		if status == "running" {
+			if c, ok := byName[r.Name]; !ok || c == nil || !c.IsAlive() {
+				status = "exited"
+			} else if r.PID > 0 {
+				pid = fmt.Sprintf("%d", r.PID)
+			}
 		}
 		tools := fmt.Sprintf("%d", r.ToolCount)
 
+		r.Status = status
 		command := commandForReport(r)
 
 		fmt.Fprintf(&b, "%s %s %s %s %s\n",
 			padRight(trunc(r.Name, 12), 12),
-			padRight(trunc(r.Status, 10), 10),
+			padRight(trunc(status, 10), 10),
 			padRight(tools, 6),
 			padRight(pid, 7),
 			command,
@@ -122,26 +128,24 @@ func renderMCPTable(reports []mcp.StartupReport, clients []*mcp.Client) string {
 }
 
 // commandForReport returns the COMMAND column text for a StartupReport.
-// Running servers don't carry their command/args in the report — but
-// the Err field is empty, so fall back to a terse state description.
-// Failed servers surface their error message; disabled servers show
-// "(disabled)".
+// Failed and exited servers prefer their error message. Other states
+// show the configured command when available.
 func commandForReport(r mcp.StartupReport) string {
 	const maxWidth = 48
 	switch r.Status {
-	case "failed":
+	case "failed", "exited":
 		msg := r.Err
 		if msg == "" {
-			msg = "failed"
+			msg = r.Status
 		}
 		return trunc(msg, maxWidth)
 	case "disabled":
-		return "(disabled)"
+		if r.Command == "" {
+			return "(disabled)"
+		}
+		return trunc(r.Command, maxWidth)
 	default:
-		// Running: report is silent on command — caller wiring knows it
-		// but we don't leak it into the report. Show a concise "alive"
-		// placeholder so the column is not empty.
-		return ""
+		return trunc(r.Command, maxWidth)
 	}
 }
 

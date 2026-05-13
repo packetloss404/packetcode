@@ -66,8 +66,8 @@ func TestRegistry_AllowWriteIncludesDestructive(t *testing.T) {
 	assert.True(t, isLockedTool, "patch_file must be wrapped in pathLockTool")
 }
 
-// TestRegistry_ExtraToolsAppended verifies the extraTools slot — the
-// hook Bucket B uses to plug spawn_agent in without an import cycle.
+// TestRegistry_ExtraToolsAppended verifies the extraTools slot used to
+// plug spawn_agent in without an import cycle.
 func TestRegistry_ExtraToolsAppended(t *testing.T) {
 	root := t.TempDir()
 	mgr := &Manager{cfg: Config{Tools: makeMainRegistry(t, root), Root: root}, pathLocks: pathLockMap{}}
@@ -79,6 +79,34 @@ func TestRegistry_ExtraToolsAppended(t *testing.T) {
 	got, ok := reg.Get("spawn_agent")
 	require.True(t, ok)
 	assert.Equal(t, extra, got, "extraTools should be wired through verbatim")
+}
+
+func TestRegistry_ReadOnlyDoesNotForwardUnknownTools(t *testing.T) {
+	root := t.TempDir()
+	parent := makeMainRegistry(t, root)
+	parent.Register(&noopTool{name: "custom_safe", approval: false})
+	mgr := &Manager{cfg: Config{Tools: parent, Root: root}, pathLocks: pathLockMap{}}
+	bm := session.NewBackupManager(t.TempDir(), "s")
+
+	reg := mgr.buildJobToolRegistry(0, false, "abc12345", bm, nil)
+
+	_, ok := reg.Get("custom_safe")
+	assert.False(t, ok, "read-only jobs must not inherit unknown main-session tools")
+}
+
+func TestRegistry_AllowWriteForwardsUnknownTools(t *testing.T) {
+	root := t.TempDir()
+	parent := makeMainRegistry(t, root)
+	extra := &noopTool{name: "custom_safe", approval: false}
+	parent.Register(extra)
+	mgr := &Manager{cfg: Config{Tools: parent, Root: root}, pathLocks: pathLockMap{}}
+	bm := session.NewBackupManager(t.TempDir(), "s")
+
+	reg := mgr.buildJobToolRegistry(0, true, "abc12345", bm, nil)
+
+	got, ok := reg.Get("custom_safe")
+	require.True(t, ok)
+	assert.Equal(t, extra, got)
 }
 
 func TestRegistry_DoesNotInheritMainSpawnAgent(t *testing.T) {

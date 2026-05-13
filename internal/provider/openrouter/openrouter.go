@@ -32,7 +32,7 @@ const (
 
 	// referer / title satisfy OpenRouter's attribution requirement. These
 	// are visible on their leaderboard at openrouter.ai/rankings.
-	referer = "https://github.com/packetcode/packetcode"
+	referer = "https://github.com/packetloss404/packetcode"
 	title   = "packetcode"
 )
 

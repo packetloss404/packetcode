@@ -134,6 +134,22 @@ func (f *fakeApprover) snapshotCalls() []agent.ApprovalRequest {
 	return out
 }
 
+type blockingApprover struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingApprover) Approve(ctx context.Context, req agent.ApprovalRequest) agent.ApprovalDecision {
+	b.once.Do(func() { close(b.started) })
+	select {
+	case <-b.release:
+		return agent.ApprovalDecision{Approved: true, EditedParams: req.Params}
+	case <-ctx.Done():
+		return agent.ApprovalDecision{Approved: false, Reason: ctx.Err().Error()}
+	}
+}
+
 // noopTool is a minimal Tool used to verify the registry-builder
 // includes/excludes things correctly.
 type noopTool struct {

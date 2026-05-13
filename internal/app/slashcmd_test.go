@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// Test 20: /spawn parse variants — happy path, flags, and malformed.
-// ---------------------------------------------------------------------------
+// TestParseSlashCommand_Spawn exercises happy-path, flag, and malformed
+// /spawn variants.
 
 func TestParseSlashCommand_Spawn(t *testing.T) {
 	t.Run("simple", func(t *testing.T) {
@@ -97,9 +96,7 @@ func TestParseSlashCommand_Spawn(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Test 21: /jobs parse variants.
-// ---------------------------------------------------------------------------
+// TestParseSlashCommand_Jobs exercises /jobs list/detail parsing.
 
 func TestParseSlashCommand_Jobs(t *testing.T) {
 	t.Run("bare", func(t *testing.T) {
@@ -125,9 +122,22 @@ func TestParseSlashCommand_Jobs(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Test 22: /cancel parse variants.
-// ---------------------------------------------------------------------------
+func TestParseSlashCommand_Agents(t *testing.T) {
+	t.Run("bare", func(t *testing.T) {
+		cmd, args, ok := ParseSlashCommand("/agents")
+		if !ok || cmd != "agents" || len(args) != 0 {
+			t.Fatalf("parse = %q %v %v", cmd, args, ok)
+		}
+	})
+	t.Run("with id", func(t *testing.T) {
+		cmd, args, ok := ParseSlashCommand("/agents 7f3a")
+		if !ok || cmd != "agents" || !reflect.DeepEqual(args, []string{"7f3a"}) {
+			t.Fatalf("parse = %q %v %v", cmd, args, ok)
+		}
+	})
+}
+
+// TestParseSlashCommand_Cancel exercises single-job and cancel-all parsing.
 
 func TestParseSlashCommand_Cancel(t *testing.T) {
 	t.Run("by id", func(t *testing.T) {

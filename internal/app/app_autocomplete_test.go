@@ -282,6 +282,19 @@ func TestApp_Autocomplete_ClosesWhenPickerOpens(t *testing.T) {
 	}
 }
 
+func TestApp_Autocomplete_ClosesWhenAgentViewOpens(t *testing.T) {
+	r := newTestApp(t)
+	typeRunes(t, r.app, "/sp")
+	if !r.app.autocomplete.Visible() {
+		t.Fatalf("precondition: popup should be visible")
+	}
+	r.app.agentView.Show(nil)
+	r.app.refreshAutocomplete()
+	if r.app.autocomplete.Visible() {
+		t.Fatalf("popup should be closed while agent view is visible")
+	}
+}
+
 // TestApp_Autocomplete_ReopensAfterPickerCloses — once the picker is
 // dismissed and the user types "/" again, the popup reappears.
 func TestApp_Autocomplete_ReopensAfterPickerCloses(t *testing.T) {
@@ -314,10 +327,8 @@ func TestApp_Autocomplete_TabDoesNotInsertTabCharacter(t *testing.T) {
 }
 
 // TestApp_Autocomplete_TabFallsThroughToInputWhenHidden — Tab with a
-// hidden popup reaches the conversation-pane Tab handler (which
-// toggles tool-output collapse). We only assert that the input buffer
-// stays empty (Tab is not a legal input character) and the popup
-// stays hidden.
+// hidden popup is ignored by autocomplete and is not inserted into the
+// input buffer.
 func TestApp_Autocomplete_TabFallsThroughToInputWhenHidden(t *testing.T) {
 	r := newTestApp(t)
 	if r.app.autocomplete.Visible() {
@@ -392,7 +403,7 @@ func TestApp_Autocomplete_EntriesDedupedFromKeymap(t *testing.T) {
 	}
 	// And every known verb is present.
 	for _, want := range []string{
-		"spawn", "jobs", "cancel", "provider", "model", "sessions",
+		"spawn", "agents", "jobs", "cancel", "provider", "model", "sessions",
 		"undo", "compact", "cost", "trust", "help", "clear", "mcp",
 		"statusline",
 	} {

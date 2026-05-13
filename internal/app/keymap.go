@@ -53,6 +53,8 @@ var (
 	// in internal/app/slashcmd.go.
 	SlashCommands = []KeyHelp{
 		{"/spawn <prompt>", "Spawn a background agent"},
+		{"/agents", "List background agents"},
+		{"/agents <id>", "View a background agent transcript"},
 		{"/jobs", "List background jobs"},
 		{"/jobs <id>", "View a job's transcript"},
 		{"/cancel <id|all>", "Cancel a job"},

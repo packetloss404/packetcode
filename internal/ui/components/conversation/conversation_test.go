@@ -80,26 +80,6 @@ func TestToolResultBody_PatchFileErrorFallsThrough(t *testing.T) {
 	assert.NotContains(t, out, "@@")
 }
 
-// TestToolResultBody_CollapsedPrecedesDiff verifies the collapsed
-// placeholder wins before the diff render — a user who explicitly
-// hid the output shouldn't see it re-rendered as a diff.
-func TestToolResultBody_CollapsedPrecedesDiff(t *testing.T) {
-	msg := Message{
-		Kind:     KindToolCall,
-		ToolName: "patch_file",
-		ToolResult: "Applied 1 patch(es) to a.txt.\n\n" +
-			"--- a.txt (current)\n" +
-			"+++ a.txt (proposed)\n" +
-			"@@ -1,1 +1,1 @@\n" +
-			"-x\n" +
-			"+y\n",
-		Collapsed: true,
-	}
-	out := stripANSI(renderToolResultBody(msg, 80))
-	assert.Contains(t, out, "Output collapsed")
-	assert.NotContains(t, out, "@@")
-}
-
 // TestToolResultBody_NonPatchFileUnchanged verifies the body is
 // dumped verbatim for tools that aren't patch_file, even if the text
 // contains a `@@` substring (common in shell output).

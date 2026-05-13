@@ -142,13 +142,6 @@ func (t *SearchCodebaseTool) searchWithRipgrep(ctx context.Context, rg, pattern,
 	return formatSearchLines(lines, t.Root, pattern, limit), nil
 }
 
-// formatSearchOutput converts ripgrep's path:line:text output into a
-// project-relative form and applies a hard line cap.
-func formatSearchOutput(out []byte, root, pattern string, limit int) ToolResult {
-	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
-	return formatSearchLines(lines, root, pattern, limit)
-}
-
 func formatSearchLines(lines []string, root, pattern string, limit int) ToolResult {
 	rootAbs, _ := filepath.Abs(root)
 	if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {

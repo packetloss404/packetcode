@@ -12,7 +12,7 @@ packetcode has not cut a stable 1.0 release yet. Entries under `Unreleased` desc
 - Agent tool loop with `read_file`, `search_codebase`, `list_directory`, `write_file`, `patch_file`, and `execute_command`; mutating tools require approval unless trust mode is enabled.
 - Sessions, cost tracking, `/undo` file backups, context compaction, and git-aware status information.
 - Keyboard-first Bubble Tea TUI with inline terminal scrollback, approval prompts, provider/model pickers, slash-command autocomplete, and markdown-backed custom prompt commands.
-- Background agents via `/spawn`, `/jobs`, `/cancel`, and the `spawn_agent` tool. Background jobs are read-only by default and request normal approvals when launched with `--write`.
+- Background agents via `/spawn`, `/agents`, `/jobs`, `/cancel`, and the `spawn_agent` tool. Background jobs are read-only by default and request normal approvals when launched with `--write`; Agent View provides live status, transcripts, cancellation, and explicit result injection.
 - MCP stdio server support through `[mcp.<name>]` config blocks. MCP tools are registered as `<server>__<tool>` aliases and always go through approval.
 - Optional custom statusline command under `[statusline]`.
 - Optional lifecycle hooks under `[[hooks.user_prompt_submit]]`, `[[hooks.pre_tool_use]]`, and `[[hooks.post_tool_use]]`.

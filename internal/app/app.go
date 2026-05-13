@@ -34,6 +34,7 @@ import (
 	"github.com/packetcode/packetcode/internal/session"
 	"github.com/packetcode/packetcode/internal/statusline"
 	"github.com/packetcode/packetcode/internal/tools"
+	"github.com/packetcode/packetcode/internal/ui/components/agentview"
 	"github.com/packetcode/packetcode/internal/ui/components/approval"
 	"github.com/packetcode/packetcode/internal/ui/components/autocomplete"
 	"github.com/packetcode/packetcode/internal/ui/components/conversation"
@@ -61,9 +62,10 @@ type pollApproverMsg struct{}
 type tickTopbarMsg struct{}
 
 type statusLineMsg struct {
-	seq  int
-	line string
-	err  error
+	seq    int
+	line   string
+	err    error
+	manual bool
 }
 
 // jobUpdateMsg is dispatched from the jobs.Manager Subscribe callback
@@ -104,6 +106,7 @@ type App struct {
 	input         input.Model
 	approval      approval.Model
 	jobsPanel     jobs_ui.Model
+	agentView     agentview.Model
 	picker        picker.Model
 	prompt        prompt.Model
 	spinner       spinner.Model
@@ -149,9 +152,12 @@ type App struct {
 	// means "turn is live"; cancelTurn==nil plus streaming==true means
 	// "cancel requested, waiting for goroutine drain" — in that window a
 	// second Ctrl+C is a no-op (not a quit). Single-writer from Update.
-	cancelTurn context.CancelFunc
-	startedAt  time.Time
-	statusSeq  int
+	cancelTurn        context.CancelFunc
+	startedAt         time.Time
+	statusSeq         int
+	lastStatusLineErr error
+	jobSeqSeen        map[string]int64
+	jobTerminalSeen   map[string]bool
 }
 
 // isCancellation reports whether err is (or wraps) a context cancellation
@@ -209,25 +215,28 @@ func New(deps Deps) (*App, error) {
 
 	slashCommands := LoadSlashRegistry(deps.WorkingDir)
 	app := &App{
-		deps:          deps,
-		topbar:        topbar.New(),
-		conversation:  conv,
-		input:         input.New(),
-		approval:      approval.New(),
-		jobsPanel:     jobs_ui.New(),
-		picker:        picker.New("", ""),
-		prompt:        prompt.New(""),
-		spinner:       spinner.New(),
-		autocomplete:  autocomplete.New(buildAutocompleteEntries(slashCommands.HelpRows())),
-		slashCommands: slashCommands,
-		agent:         a,
-		approver:      approver,
-		jobs:          deps.Jobs,
-		backups:       deps.Backups,
-		mcp:           deps.MCP,
-		contextMgr:    ctxMgr,
-		statusLine:    statusRunner,
-		startedAt:     time.Now(),
+		deps:            deps,
+		topbar:          topbar.New(),
+		conversation:    conv,
+		input:           input.New(),
+		approval:        approval.New(),
+		jobsPanel:       jobs_ui.New(),
+		agentView:       agentview.New(),
+		picker:          picker.New("", ""),
+		prompt:          prompt.New(""),
+		spinner:         spinner.New(),
+		autocomplete:    autocomplete.New(buildAutocompleteEntries(slashCommands.HelpRows())),
+		slashCommands:   slashCommands,
+		agent:           a,
+		approver:        approver,
+		jobs:            deps.Jobs,
+		backups:         deps.Backups,
+		mcp:             deps.MCP,
+		contextMgr:      ctxMgr,
+		statusLine:      statusRunner,
+		startedAt:       time.Now(),
+		jobSeqSeen:      map[string]int64{},
+		jobTerminalSeen: map[string]bool{},
 	}
 
 	if deps.Jobs != nil {
@@ -263,7 +272,7 @@ func (a *App) Init() tea.Cmd {
 	return tea.Batch(
 		pollApprover(),
 		tickTopbar(),
-		a.renderStatusLine(),
+		a.renderStatusLine(false),
 	)
 }
 
@@ -327,6 +336,9 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.startTurn(msg.Text)
 
 	case jobUpdateMsg:
+		if a.agentView.Visible() && a.jobs != nil {
+			a.agentView.SetJobs(a.jobs.List())
+		}
 		return a.handleJobUpdate(msg.Snap)
 
 	case agentEventMsg:
@@ -391,6 +403,22 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.prompt.Hide()
 		return a, nil
 
+	case agentview.CloseMsg:
+		return a, nil
+
+	case agentview.OpenMsg:
+		a.agentView.Hide()
+		return a.openJobTranscript(msg.JobID, "agent")
+
+	case agentview.PeekMsg:
+		return a.handleAgentPeek(msg.JobID)
+
+	case agentview.CancelMsg:
+		return a.handleAgentCancel(msg.JobID)
+
+	case agentview.InjectMsg:
+		return a.handleAgentInject(msg.JobID)
+
 	case providerKeyValidatedMsg:
 		return a.handleProviderKeyValidated(msg)
 
@@ -406,21 +434,29 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickTopbarMsg:
 		a.refreshTopBar()
-		return a, tea.Batch(tickTopbar(), a.renderStatusLine())
+		return a, tea.Batch(tickTopbar(), a.renderStatusLine(false))
 
 	case statusLineMsg:
 		if msg.seq == a.statusSeq {
 			if msg.err == nil {
+				a.lastStatusLineErr = nil
 				a.topbar.SetCustomLine(msg.line)
+				if msg.manual {
+					a.conversation.AppendSystem("statusline: refreshed")
+				}
 			} else {
+				a.lastStatusLineErr = msg.err
 				a.topbar.SetCustomLine("")
+				if msg.manual {
+					a.conversation.AppendSystem("statusline: error: " + msg.err.Error())
+				}
 			}
 		}
 		return a, nil
 	}
 
 	// Delegate to the focused subcomponent. Focus precedence:
-	//   approval > picker > jobsPanel > conversation/input.
+	//   approval > picker > jobsPanel > agentView > conversation/input.
 	// The approval prompt blocks the agent loop; the picker covers
 	// everything beneath it while it owns the keyboard; the jobs
 	// transcript modal scrolls on j/k when open; otherwise the
@@ -437,6 +473,10 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	} else if a.jobsPanel.Visible() {
 		var cmd tea.Cmd
 		a.jobsPanel, cmd = a.jobsPanel.Update(msg)
+		cmds = append(cmds, cmd)
+	} else if a.agentView.Visible() {
+		var cmd tea.Cmd
+		a.agentView, cmd = a.agentView.Update(msg)
 		cmds = append(cmds, cmd)
 	} else {
 		var cmd tea.Cmd
@@ -563,6 +603,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.jobsPanel, cmd = a.jobsPanel.Update(msg)
 		return a, cmd
 	}
+	if a.agentView.Visible() {
+		var cmd tea.Cmd
+		a.agentView, cmd = a.agentView.Update(msg)
+		return a, cmd
+	}
 	var cmd tea.Cmd
 	a.input, cmd = a.input.Update(msg)
 	// After input has consumed the key, refresh the popup so it opens
@@ -577,7 +622,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // block the input anyway), when the buffer no longer starts with "/",
 // or when whitespace landed after the verb.
 func (a *App) refreshAutocomplete() {
-	if a.approval.Visible() || a.picker.Visible() || a.jobsPanel.Visible() {
+	if a.approval.Visible() || a.picker.Visible() || a.jobsPanel.Visible() || a.agentView.Visible() {
 		a.autocomplete.Close()
 		return
 	}
@@ -631,6 +676,8 @@ func (a *App) View() string {
 		overlay = a.picker.View()
 	} else if a.jobsPanel.Visible() {
 		overlay = a.jobsPanel.View()
+	} else if a.agentView.Visible() {
+		overlay = a.agentView.View()
 	} else if a.spinner.Active() {
 		overlay = a.spinner.View()
 	}
@@ -663,6 +710,7 @@ func (a *App) resize(w, h int) {
 		modalH = 8
 	}
 	a.jobsPanel.Resize(w, modalH)
+	a.agentView.Resize(w, modalH)
 	a.picker.Resize(w, h)
 	a.prompt.Resize(w, h)
 	a.autocomplete.SetWidth(w)
@@ -702,7 +750,7 @@ func (a *App) refreshTopBar() {
 	}
 }
 
-func (a *App) renderStatusLine() tea.Cmd {
+func (a *App) renderStatusLine(manual bool) tea.Cmd {
 	if a.statusLine == nil || !a.statusLine.Enabled() {
 		return nil
 	}
@@ -710,10 +758,8 @@ func (a *App) renderStatusLine() tea.Cmd {
 	seq := a.statusSeq
 	snap := a.statusLineSnapshot()
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		line, err := a.statusLine.Render(ctx, snap)
-		return statusLineMsg{seq: seq, line: line, err: err}
+		line, err := a.statusLine.Render(context.Background(), snap)
+		return statusLineMsg{seq: seq, line: line, err: err, manual: manual}
 	}
 }
 
@@ -769,11 +815,6 @@ func (a *App) startTurn(text string) (tea.Model, tea.Cmd) {
 	a.input.Reset()
 	a.conversation.AppendUser(text)
 	a.streaming = true
-
-	// Inject any ready background job results into the session as
-	// RoleUser context messages so the LLM sees them as part of this
-	// turn's input. Per spec: "[Background job <id> result]\n<summary>".
-	a.injectPendingJobResults()
 
 	prov, modelID := a.deps.Registry.Active()
 	providerSlug := ""
@@ -891,12 +932,10 @@ func (a *App) reentrantHandle(b agentEventBatch) (tea.Model, tea.Cmd) {
 	return model, tea.Batch(cmd, next)
 }
 
-// injectPendingJobResults drains any ready background-job results from
-// the manager and appends each as a RoleUser message to the main
-// session. The agent's next ChatRequest picks them up via
-// buildMessages. We deliberately use RoleUser (not RoleSystem) so
-// providers that disallow multi-system messages still accept the
-// payload — the existing system prompt already holds slot 0.
+// injectPendingJobResults is the legacy drain path retained for
+// migration safety. New UI flows should call injectJobResultForAgent
+// with an explicit job id so background summaries do not silently enter
+// the next model turn.
 func (a *App) injectPendingJobResults() {
 	if a.jobs == nil {
 		return
@@ -906,25 +945,67 @@ func (a *App) injectPendingJobResults() {
 		return
 	}
 	for _, r := range results {
-		summary := strings.TrimSpace(r.Summary)
-		if summary == "" {
-			summary = "(no summary)"
-		}
-		body := fmt.Sprintf("[Background job %s result]\n%s", r.JobID, summary)
-		_ = a.deps.Sessions.AddMessage(provider.Message{
-			Role:    provider.RoleUser,
-			Content: body,
-		})
+		_ = a.addJobResultToSession(r)
 	}
+}
+
+// injectJobResultForAgent explicitly marks one terminal job result as
+// injected and appends it as a user-role context message. The agent's
+// next ChatRequest picks it up via buildMessages. We deliberately use
+// RoleUser (not RoleSystem) so providers that disallow multi-system
+// messages still accept the payload.
+func (a *App) injectJobResultForAgent(id string) bool {
+	if a.jobs == nil {
+		return false
+	}
+	result, ok := a.jobs.Result(id)
+	if !ok {
+		return false
+	}
+	if err := a.addJobResultToSession(result); err != nil {
+		return false
+	}
+	if _, ok := a.jobs.MarkResultInjected(id); !ok {
+		return false
+	}
+	return true
+}
+
+func (a *App) addJobResultToSession(r jobs.Result) error {
+	if a.deps.Sessions == nil {
+		return fmt.Errorf("sessions not available")
+	}
+	return a.deps.Sessions.AddMessage(provider.Message{
+		Role:    provider.RoleUser,
+		Content: agentResultBody(r),
+	})
 }
 
 // handleJobUpdate is the UI-side handler for a jobs.Snapshot transition.
 // Refreshes the top bar counter and, on terminal states, appends a
 // system message summarising the outcome.
 func (a *App) handleJobUpdate(snap jobs.Snapshot) (tea.Model, tea.Cmd) {
+	if snap.Seq > 0 {
+		if a.jobSeqSeen == nil {
+			a.jobSeqSeen = map[string]int64{}
+		}
+		if prev, ok := a.jobSeqSeen[snap.ID]; ok && snap.Seq <= prev {
+			return a, nil
+		}
+		a.jobSeqSeen[snap.ID] = snap.Seq
+	}
 	a.refreshTopBar()
 	if snap.State.IsTerminal() {
-		a.conversation.AppendSystem(formatTerminalJobLine(snap))
+		if a.jobTerminalSeen == nil {
+			a.jobTerminalSeen = map[string]bool{}
+		}
+		if !a.jobTerminalSeen[snap.ID] {
+			a.conversation.AppendSystem(formatTerminalJobLine(snap))
+			a.jobTerminalSeen[snap.ID] = true
+		}
+		if a.jobs != nil {
+			a.jobs.MarkResultSeen(snap.ID)
+		}
 	}
 	return a, nil
 }
@@ -971,6 +1052,46 @@ func formatTerminalJobLine(snap jobs.Snapshot) string {
 	return head + "\n" + body
 }
 
+func formatAgentPeek(snap jobs.Snapshot) string {
+	prov := snap.Provider
+	if snap.Model != "" {
+		if prov != "" {
+			prov += "/" + snap.Model
+		} else {
+			prov = snap.Model
+		}
+	}
+	body := strings.TrimSpace(snap.Summary)
+	if snap.State == jobs.StateFailed && snap.Error != "" {
+		if body != "" {
+			body += "\n"
+		}
+		body += "error: " + snap.Error
+	}
+	if body == "" {
+		body = strings.TrimSpace(snap.Prompt)
+	}
+	head := fmt.Sprintf("[agent:%s — %s · %s]", snap.ID, snap.State.String(), prov)
+	if body == "" {
+		return head
+	}
+	return head + "\n" + body
+}
+
+func agentResultBody(r jobs.Result) string {
+	summary := strings.TrimSpace(r.Summary)
+	if summary == "" {
+		summary = strings.TrimSpace(r.Error)
+	}
+	if summary == "" {
+		summary = strings.TrimSpace(r.Reason)
+	}
+	if summary == "" {
+		summary = "(no summary)"
+	}
+	return fmt.Sprintf("[Background job %s result]\n%s", r.JobID, summary)
+}
+
 // roundedDuration renders a duration as a short "12s" / "1m03s" string
 // for the one-line terminal-job notification. We round to the nearest
 // second so output doesn't drift between runs.
@@ -1000,6 +1121,8 @@ func (a *App) handleSlashCommand(cmd string, args []string, original string) (te
 	switch cmd {
 	case "spawn":
 		return a.handleSpawnCommand(args)
+	case "agents":
+		return a.handleAgentsCommand(args)
 	case "jobs":
 		return a.handleJobsCommand(args)
 	case "cancel":
@@ -1107,17 +1230,86 @@ func (a *App) handleJobsCommand(args []string) (tea.Model, tea.Cmd) {
 		a.conversation.AppendSystem(renderJobsTable(a.jobs.List()))
 		return a, nil
 	}
-	id := args[0]
+	return a.openJobTranscript(args[0], "job")
+}
+
+func (a *App) handleAgentsCommand(args []string) (tea.Model, tea.Cmd) {
+	if a.jobs == nil {
+		a.conversation.AppendSystem("agents: background agents are disabled (no jobs.Manager wired)")
+		return a, nil
+	}
+	if len(args) == 0 {
+		a.agentView.Show(a.jobs.List())
+		return a, nil
+	}
+	return a.openJobTranscript(args[0], "agent")
+}
+
+func (a *App) handleAgentPeek(id string) (tea.Model, tea.Cmd) {
+	if a.jobs == nil {
+		a.conversation.AppendSystem("agents: background agents are disabled (no jobs.Manager wired)")
+		return a, nil
+	}
 	snap, ok := a.jobs.Get(id)
 	if !ok {
-		a.conversation.AppendSystem(fmt.Sprintf("[job:%s not found]", id))
+		a.conversation.AppendSystem(fmt.Sprintf("[agent:%s not found]", id))
+		return a, nil
+	}
+	a.conversation.AppendSystem(formatAgentPeek(snap))
+	return a, nil
+}
+
+func (a *App) handleAgentCancel(id string) (tea.Model, tea.Cmd) {
+	if a.jobs == nil {
+		a.conversation.AppendSystem("agents: background agents are disabled (no jobs.Manager wired)")
+		return a, nil
+	}
+	if a.jobs.Cancel(id) {
+		a.conversation.AppendSystem(fmt.Sprintf("[agent:%s — cancellation requested]", id))
+	} else {
+		a.conversation.AppendSystem(fmt.Sprintf("[agent:%s not found or already terminal]", id))
+	}
+	a.refreshTopBar()
+	a.agentView.SetJobs(a.jobs.List())
+	return a, nil
+}
+
+func (a *App) handleAgentInject(id string) (tea.Model, tea.Cmd) {
+	if a.jobs == nil {
+		a.conversation.AppendSystem("agents: background agents are disabled (no jobs.Manager wired)")
+		return a, nil
+	}
+	snap, ok := a.jobs.Get(id)
+	if !ok {
+		a.conversation.AppendSystem(fmt.Sprintf("[agent:%s not found]", id))
+		return a, nil
+	}
+	if !snap.State.IsTerminal() {
+		a.conversation.AppendSystem(fmt.Sprintf("[agent:%s is %s; wait for completion before injecting]", id, snap.State.String()))
+		return a, nil
+	}
+	if a.deps.Sessions == nil {
+		a.conversation.AppendSystem("agents: sessions not available")
+		return a, nil
+	}
+	if !a.injectJobResultForAgent(id) {
+		a.conversation.AppendSystem(fmt.Sprintf("[agent:%s result not available]", id))
+		return a, nil
+	}
+	a.conversation.AppendSystem(fmt.Sprintf("[agent:%s injected into next turn]", id))
+	return a, nil
+}
+
+func (a *App) openJobTranscript(id, label string) (tea.Model, tea.Cmd) {
+	snap, ok := a.jobs.Get(id)
+	if !ok {
+		a.conversation.AppendSystem(fmt.Sprintf("[%s:%s not found]", label, id))
 		return a, nil
 	}
 	transcript, _ := a.jobs.Transcript(id)
-	// Bucket C: /jobs <id> opens the transcript modal. Previously the
-	// detail was rendered as an inline system message via
-	// renderJobDetail — kept in the package for tests that assert
-	// against its format, but no longer wired into the user flow.
+	// /jobs <id> and /agents <id> open the transcript modal. The
+	// underlying component is still jobs-oriented because background
+	// agents are represented by jobs.Manager snapshots.
 	a.jobsPanel.Show(snap, transcript)
 	return a, nil
 }
@@ -1233,7 +1425,7 @@ func (a *App) pickerProviders() []provider.Provider {
 	// displayOrder mirrors provider.displayOrder so unconfigured rows
 	// sort naturally after registered ones but keep their place in the
 	// canonical UI sequence.
-	for _, slug := range []string{"openai", "gemini", "minimax", "openrouter", "ollama"} {
+	for _, slug := range []string{"openai", "anthropic", "gemini", "minimax", "openrouter", "ollama"} {
 		if _, ok := seen[slug]; ok {
 			continue
 		}

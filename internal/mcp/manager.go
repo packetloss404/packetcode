@@ -60,17 +60,19 @@ func (m *Manager) Start(ctx context.Context) []StartupReport {
 
 			if !sc.Enabled {
 				reports[i] = StartupReport{
-					Name:   sc.Name,
-					Status: "disabled",
+					Name:    sc.Name,
+					Status:  "disabled",
+					Command: renderServerCommand(sc),
 				}
 				return
 			}
 			cli, err := NewClient(ctx, sc, m.cfg.LogDir, m.cfg.ClientInfo)
 			if err != nil {
 				reports[i] = StartupReport{
-					Name:   sc.Name,
-					Status: "failed",
-					Err:    err.Error(),
+					Name:    sc.Name,
+					Status:  "failed",
+					Command: renderServerCommand(sc),
+					Err:     err.Error(),
 				}
 				return
 			}
@@ -80,12 +82,19 @@ func (m *Manager) Start(ctx context.Context) []StartupReport {
 				Status:    "running",
 				ToolCount: len(cli.Tools()),
 				PID:       cli.PID(),
+				Command:   renderServerCommand(sc),
 			}
 		}()
 	}
 	wg.Wait()
 
 	m.mu.Lock()
+	oldClients := make([]*Client, 0, len(m.clients))
+	for _, c := range m.clients {
+		if c != nil {
+			oldClients = append(oldClients, c)
+		}
+	}
 	m.reports = reports
 	m.clients = map[string]*Client{}
 	for _, c := range clients {
@@ -94,6 +103,9 @@ func (m *Manager) Start(ctx context.Context) []StartupReport {
 		}
 	}
 	m.mu.Unlock()
+	for _, c := range oldClients {
+		_ = c.Close(2 * time.Second)
+	}
 	return reports
 }
 
@@ -125,14 +137,35 @@ func (m *Manager) Client(name string) (*Client, bool) {
 	return c, ok
 }
 
-// Reports returns the cached StartupReport slice from Start. Returns
-// a defensive copy.
+// Reports returns the cached StartupReport slice from Start, adjusted
+// for clients that have exited since startup. Returns a defensive copy.
 func (m *Manager) Reports() []StartupReport {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := make([]StartupReport, len(m.reports))
-	copy(out, m.reports)
+	for i, r := range m.reports {
+		if r.Status == "running" {
+			c := m.clients[r.Name]
+			if c == nil || !c.IsAlive() {
+				r.Status = "exited"
+				r.PID = -1
+				if c != nil && c.DeathReason() != nil {
+					r.Err = c.DeathReason().Error()
+				}
+			}
+		}
+		out[i] = r
+	}
 	return out
+}
+
+func renderServerCommand(sc ServerConfig) string {
+	parts := make([]string, 0, 1+len(sc.Args))
+	if sc.Command != "" {
+		parts = append(parts, sc.Command)
+	}
+	parts = append(parts, sc.Args...)
+	return strings.Join(parts, " ")
 }
 
 // Shutdown closes every alive client in parallel. Returns a composite
