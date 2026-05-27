@@ -92,7 +92,7 @@ func TestMCPConfigFlatten_IsEnabledPreserved(t *testing.T) {
 func TestMCPConfigFlatten_EnvCopied(t *testing.T) {
 	cfg := &config.Config{
 		MCP: map[string]config.MCPServerConfig{
-			"server": {Command: "cmd", Env: map[string]string{"TOKEN": "configured"}},
+			"server": {Command: "cmd", Env: map[string]string{"TOKEN": "configured"}, EnvFrom: []string{"GITHUB_TOKEN"}},
 		},
 	}
 	got := mcpServerConfigsFrom(cfg)
@@ -102,6 +102,10 @@ func TestMCPConfigFlatten_EnvCopied(t *testing.T) {
 	got[0].Env["TOKEN"] = "mutated"
 	if cfg.MCP["server"].Env["TOKEN"] != "configured" {
 		t.Fatalf("flattened Env aliases source config: %v", cfg.MCP["server"].Env)
+	}
+	got[0].EnvFrom[0] = "MUTATED"
+	if cfg.MCP["server"].EnvFrom[0] != "GITHUB_TOKEN" {
+		t.Fatalf("flattened EnvFrom aliases source config: %v", cfg.MCP["server"].EnvFrom)
 	}
 }
 

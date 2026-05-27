@@ -118,6 +118,42 @@ func TestProviderItems_KeyStatusSaysPresentNotValidated(t *testing.T) {
 	}
 }
 
+func TestProviderItems_CustomKeylessProvider(t *testing.T) {
+	cfg := config.Default()
+	keyRequired := false
+	cfg.Providers["localai"] = config.ProviderConfig{
+		Type:           "openai_compatible",
+		DefaultModel:   "coder",
+		APIKeyRequired: &keyRequired,
+	}
+
+	items := providerItems([]provider.Provider{
+		&fakeProvider{slug: "localai", name: "LocalAI"},
+	}, cfg, "")
+	if len(items) != 1 {
+		t.Fatalf("providerItems len = %d, want 1", len(items))
+	}
+	if !strings.Contains(items[0].Detail, "coder") || !strings.Contains(items[0].Detail, "keyless") {
+		t.Fatalf("custom keyless provider detail = %q", items[0].Detail)
+	}
+}
+
+func TestApp_CtrlP_IncludesUnregisteredCustomFactory(t *testing.T) {
+	r := newTestApp(t)
+	r.cfg.Providers["localai"] = config.ProviderConfig{Type: "openai_compatible", DefaultModel: "coder"}
+	r.app.deps.Factories = FactoryMap{
+		"localai": func(string) provider.Provider {
+			return &fakeProvider{slug: "localai", name: "LocalAI"}
+		},
+	}
+
+	routeKey(t, r.app, "ctrl+p")
+	out := r.app.picker.View()
+	if !strings.Contains(out, "localai") {
+		t.Fatalf("picker View missing custom provider row:\n%s", out)
+	}
+}
+
 // TestApp_CtrlP_SelectAppliesSwitch verifies hitting Enter on a non-
 // active row applies the switch through applyProviderSwitch.
 func TestApp_CtrlP_SelectAppliesSwitch(t *testing.T) {

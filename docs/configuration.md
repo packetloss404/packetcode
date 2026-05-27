@@ -29,6 +29,18 @@ default_model = "MiniMax-M2.7-highspeed"
 host = "http://localhost:11434"
 default_model = "qwen2.5-coder:14b"
 
+[providers.localai]
+type = "openai_compatible"
+display_name = "LocalAI"
+base_url = "http://localhost:8080/v1"
+default_model = "coder-large"
+api_key_required = false
+
+[[providers.localai.models]]
+id = "coder-large"
+context_window = 32768
+supports_tools = true
+
 [behavior]
 trust_mode = false
 auto_compact_threshold = 80
@@ -78,7 +90,7 @@ timeout_sec = 10
 
 `[default]` selects the provider/model used at startup.
 
-`[providers.<slug>]` stores API keys, saved default models, and the Ollama host. `PACKETCODE_OLLAMA_HOST` overrides `[providers.ollama].host` at runtime.
+`[providers.<slug>]` stores API keys, saved default models, the Ollama host, and custom OpenAI-compatible endpoint settings. `PACKETCODE_OLLAMA_HOST` overrides `[providers.ollama].host` at runtime. Custom providers use `type = "openai_compatible"`, `base_url`, optional `api_key_env`, optional `api_key_required = false` for keyless local endpoints, optional `headers`, and optional `[[providers.<slug>.models]]` fallback metadata.
 
 `[behavior]` controls trust mode, input height, auto-compaction threshold, and background-agent limits.
 

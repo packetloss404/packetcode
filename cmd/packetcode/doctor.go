@@ -302,7 +302,7 @@ func addProviderChecks(r *doctorReport, cfg *config.Config) {
 	addDefaultProviderChecks(r, cfg)
 
 	reported := map[string]bool{}
-	for _, slug := range knownProviderSlugs() {
+	for _, slug := range builtInProviderSlugs() {
 		source, ok := providerCredentialSource(cfg, slug)
 		if !ok && slug != cfg.Default.Provider {
 			continue
@@ -318,14 +318,81 @@ func addProviderChecks(r *doctorReport, cfg *config.Config) {
 		}
 		r.add("providers."+slug, "providers", status, message, source, fix, "docs/providers.md")
 	}
-	for slug := range cfg.Providers {
-		if !knownProvider(slug) && !reported[slug] {
-			r.add("providers."+slug, "providers", doctorWarn, "unknown provider in config", slug, "Remove or rename [providers."+slug+"]", "docs/providers.md")
+	for slug, pc := range cfg.Providers {
+		if isBuiltInProvider(slug) {
+			if invalid := builtInProviderCustomFields(pc); len(invalid) > 0 {
+				r.add("providers."+slug+".custom_fields", "providers", doctorFail, "built-in provider has custom-provider fields", strings.Join(invalid, ", "), "Remove custom-provider fields from [providers."+slug+"] or choose a new custom slug", "docs/providers.md")
+			}
+			continue
 		}
+		if reported[slug] {
+			continue
+		}
+		if !pc.IsOpenAICompatible() {
+			r.add("providers."+slug, "providers", doctorWarn, "unknown provider in config", slug, "Set type = \"openai_compatible\" or remove [providers."+slug+"]", "docs/providers.md")
+			continue
+		}
+		reported[slug] = true
+		if err := validateProviderBaseURL(pc.BaseURL); err != nil {
+			r.add("providers."+slug, "providers", doctorFail, "custom provider base_url invalid", err.Error(), "Set [providers."+slug+"].base_url to an http(s) OpenAI-compatible /v1 endpoint", "docs/providers.md")
+			continue
+		}
+		if warning := customProviderTransportWarning(pc.BaseURL); warning != "" {
+			r.add("providers."+slug+".transport", "providers", doctorWarn, "custom provider uses insecure transport", warning, "Use https for hosted gateways; keep http endpoints local/private", "docs/security.md")
+		}
+		source, _ := providerCredentialSource(cfg, slug)
+		status := doctorOK
+		message := slug + " custom provider configured"
+		fix := ""
+		if source == "missing" {
+			status = doctorWarn
+			message = slug + " credential missing"
+			fix = "Open /provider add " + slug + " or set " + cfg.ProviderAPIKeyEnvName(slug)
+		}
+		r.add("providers."+slug, "providers", status, message, source+"; base "+redactURLUserInfo(pc.BaseURL), fix, "docs/providers.md")
 	}
 	if len(reported) == 0 && strings.TrimSpace(cfg.Default.Provider) == "" {
 		r.add("providers.none", "providers", doctorWarn, "no providers configured", "first-run setup will prompt for one", "Run packetcode to start setup", "docs/getting-started.md")
 	}
+}
+
+func customProviderTransportWarning(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "http" {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return ""
+	}
+	return redactURLUserInfo(raw)
+}
+
+func builtInProviderCustomFields(pc config.ProviderConfig) []string {
+	var fields []string
+	if strings.TrimSpace(pc.Type) != "" {
+		fields = append(fields, "type")
+	}
+	if strings.TrimSpace(pc.BaseURL) != "" {
+		fields = append(fields, "base_url")
+	}
+	if strings.TrimSpace(pc.DisplayName) != "" {
+		fields = append(fields, "display_name")
+	}
+	if strings.TrimSpace(pc.BrandColor) != "" {
+		fields = append(fields, "brand_color")
+	}
+	if len(pc.Headers) > 0 {
+		fields = append(fields, "headers")
+	}
+	if len(pc.Models) > 0 {
+		fields = append(fields, "models")
+	}
+	if pc.APIKeyRequired != nil {
+		fields = append(fields, "api_key_required")
+	}
+	sort.Strings(fields)
+	return fields
 }
 
 func addDefaultProviderChecks(r *doctorReport, cfg *config.Config) {
@@ -334,12 +401,19 @@ func addDefaultProviderChecks(r *doctorReport, cfg *config.Config) {
 		r.add("config.default_provider", "config", doctorWarn, "default provider missing", "first-run setup will prompt for one", "Run packetcode to start setup", "docs/configuration.md")
 		return
 	}
-	if !knownProvider(active) {
-		r.add("config.default_provider", "config", doctorFail, "default provider is unknown", active, "Set [default].provider to one of "+strings.Join(knownProviderSlugs(), ", "), "docs/configuration.md")
+	pc, configured := cfg.Providers[active]
+	if !isBuiltInProvider(active) && (!configured || !pc.IsOpenAICompatible()) {
+		r.add("config.default_provider", "config", doctorFail, "default provider is unknown", active, "Set [default].provider to a configured provider slug", "docs/configuration.md")
 		return
 	}
-	if active != "ollama" && cfg.GetProviderKey(active) == "" {
-		r.add("config.default_provider", "config", doctorFail, "default provider has no API key", active, "Open /provider add "+active+" or set PACKETCODE_"+strings.ToUpper(active)+"_API_KEY", "docs/providers.md")
+	if configured && pc.IsOpenAICompatible() {
+		if err := validateProviderBaseURL(pc.BaseURL); err != nil {
+			r.add("config.default_provider", "config", doctorFail, "default provider base_url invalid", err.Error(), "Set [providers."+active+"].base_url to an http(s) OpenAI-compatible /v1 endpoint", "docs/providers.md")
+			return
+		}
+	}
+	if providerRequiresAPIKey(cfg, active) && cfg.GetProviderKey(active) == "" {
+		r.add("config.default_provider", "config", doctorFail, "default provider has no API key", active, "Open /provider add "+active+" or set "+cfg.ProviderAPIKeyEnvName(active), "docs/providers.md")
 		return
 	}
 	model := strings.TrimSpace(cfg.Default.Model)
@@ -366,31 +440,39 @@ func providerCredentialSource(cfg *config.Config, slug string) (string, bool) {
 		}
 		return "", false
 	}
-	envKey := "PACKETCODE_" + strings.ToUpper(slug) + "_API_KEY"
+	pc, configured := cfg.Providers[slug]
+	if configured && !pc.RequiresAPIKey(slug) {
+		return "keyless", true
+	}
+	envKey := cfg.ProviderAPIKeyEnvName(slug)
 	if os.Getenv(envKey) != "" {
 		return "env:" + envKey, true
 	}
-	pc, ok := cfg.Providers[slug]
-	if ok && pc.APIKey != "" {
+	if configured && pc.APIKey != "" {
 		return "config:~/.packetcode/config.toml", true
 	}
-	if ok || cfg.Default.Provider == slug {
+	if configured || cfg.Default.Provider == slug {
 		return "missing", true
 	}
 	return "", false
 }
 
-func knownProvider(slug string) bool {
-	for _, known := range knownProviderSlugs() {
-		if slug == known {
-			return true
-		}
+func validateProviderBaseURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fmt.Errorf("base_url is required")
 	}
-	return false
-}
-
-func knownProviderSlugs() []string {
-	return []string{"openai", "anthropic", "gemini", "minimax", "openrouter", "ollama"}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid base_url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("base_url must use http or https")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("base_url must include a host")
+	}
+	return nil
 }
 
 func addGitChecks(r *doctorReport, cwd string) {
@@ -524,12 +606,15 @@ func addMCPChecks(r *doctorReport, cfg *config.Config, cwd string) {
 			r.add(id, "mcp", doctorSkip, name+" disabled", fmt.Sprintf("timeout %ds", timeout), "", "docs/mcp.md")
 			continue
 		}
+		if missing := missingEnvFrom(entry.EnvFrom); len(missing) > 0 {
+			r.add(id+".env_from", "mcp", doctorWarn, name+" env_from variable missing", strings.Join(missing, ", "), "Export the variable or remove it from [mcp."+name+"].env_from", "docs/mcp.md")
+		}
 		command := strings.TrimSpace(entry.Command)
 		if command == "" {
 			r.add(id+".command", "mcp", doctorFail, name+" command missing", "enabled server has no command", "Set command or enabled = false under [mcp."+name+"]", "docs/mcp.md")
 			continue
 		}
-		auth := mcpAuthSummary(entry.Env)
+		auth := mcpAuthSummary(entry.Env, entry.EnvFrom)
 		resolved, err := resolveCommand(command, cwd)
 		if err != nil {
 			r.add(id+".command", "mcp", doctorFail, name+" command not runnable", err.Error()+"; "+auth, "Install "+command+" or disable [mcp."+name+"]", "docs/mcp.md")
@@ -638,16 +723,43 @@ func resolveCommand(command, cwd string) (string, error) {
 	return path, nil
 }
 
-func mcpAuthSummary(env map[string]string) string {
-	if len(env) == 0 {
+func mcpAuthSummary(env map[string]string, envFrom []string) string {
+	if len(env) == 0 && len(envFrom) == 0 {
 		return "auth:none"
 	}
-	keys := make([]string, 0, len(env))
+	keys := make([]string, 0, len(env)+len(envFrom))
 	for k := range env {
 		keys = append(keys, k)
 	}
+	for _, k := range envFrom {
+		k = strings.TrimSpace(k)
+		if k != "" {
+			label := "from:" + k
+			if _, ok := os.LookupEnv(k); !ok {
+				label += ":missing"
+			}
+			keys = append(keys, label)
+		}
+	}
 	sort.Strings(keys)
 	return "auth:env:" + strings.Join(keys, ",")
+}
+
+func missingEnvFrom(envFrom []string) []string {
+	var missing []string
+	seen := map[string]bool{}
+	for _, name := range envFrom {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		if _, ok := os.LookupEnv(name); !ok {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 func addAutomationChecks(r *doctorReport, cfg *config.Config) {

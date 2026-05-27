@@ -60,7 +60,14 @@ Packetcode does not automatically merge or delete completed worktrees. Inspect t
 
 ## MCP
 
-MCP server processes start as local child processes when packetcode launches. Approval prompts gate MCP tool calls, not server startup. Configure MCP servers only from sources you trust, keep secrets in per-server `env` entries, and use `/mcp logs <name>` for a bounded redacted log tail.
+MCP server processes start as local child processes when packetcode launches. Approval prompts gate MCP tool calls, not server startup. Configure MCP servers only from sources you trust, keep secrets in per-server `env` entries or named `env_from` variables, and use `/mcp logs <name>` for a bounded redacted log tail.
+
+## Custom Providers
+
+Custom OpenAI-compatible providers receive the same conversation history,
+system prompt, tool schemas, and tool outputs as built-in hosted providers.
+Use HTTPS for hosted gateways. Plain `http://` custom endpoints should be
+limited to local or private networks you control.
 
 ## Checks
 

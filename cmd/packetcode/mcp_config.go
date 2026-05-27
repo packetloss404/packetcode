@@ -37,6 +37,7 @@ func mcpServerConfigsFrom(cfg *config.Config) []mcp.ServerConfig {
 			Command:    entry.Command,
 			Args:       append([]string(nil), entry.Args...),
 			Env:        copyEnv(entry.Env),
+			EnvFrom:    append([]string(nil), entry.EnvFrom...),
 			Enabled:    entry.IsEnabled(),
 			TimeoutSec: timeout,
 		})

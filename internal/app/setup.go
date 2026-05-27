@@ -55,7 +55,7 @@ func RunSetup(in io.Reader, out io.Writer, cfg *config.Config, factories Factory
 			return nil, err
 		}
 
-		key, err := promptKey(reader, out, slug)
+		key, err := promptKey(reader, out, cfg, slug)
 		if err != nil {
 			return nil, err
 		}
@@ -153,9 +153,9 @@ func promptProvider(r *bufio.Reader, out io.Writer, factories FactoryMap) (strin
 	}
 }
 
-func promptKey(r *bufio.Reader, out io.Writer, slug string) (string, error) {
-	if slug == "ollama" {
-		fmt.Fprintln(out, "  Ollama is keyless — no API key needed.")
+func promptKey(r *bufio.Reader, out io.Writer, cfg *config.Config, slug string) (string, error) {
+	if !setupProviderRequiresKey(cfg, slug) {
+		fmt.Fprintf(out, "  %s is keyless — no API key needed.\n", slug)
 		return "", nil
 	}
 	fmt.Fprintf(out, "  %s API key: ", slug)
@@ -168,6 +168,16 @@ func promptKey(r *bufio.Reader, out io.Writer, slug string) (string, error) {
 		return "", errors.New("empty API key")
 	}
 	return key, nil
+}
+
+func setupProviderRequiresKey(cfg *config.Config, slug string) bool {
+	if cfg == nil {
+		return slug != "ollama"
+	}
+	if pc, ok := cfg.Providers[slug]; ok {
+		return pc.RequiresAPIKey(slug)
+	}
+	return slug != "ollama"
 }
 
 func promptModel(r *bufio.Reader, out io.Writer, models []provider.Model) (string, error) {

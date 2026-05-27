@@ -24,10 +24,13 @@ func providerItems(regs []provider.Provider, cfg *config.Config, activeSlug stri
 		}
 		if cfg != nil {
 			if pc, ok := cfg.Providers[slug]; ok {
+				if !pc.RequiresAPIKey(slug) && slug != "ollama" {
+					keyStatus = "keyless"
+				}
 				if pc.DefaultModel != "" {
 					defModel = pc.DefaultModel
 				}
-				if slug != "ollama" && (pc.APIKey != "" || cfg.GetProviderKey(slug) != "") {
+				if pc.RequiresAPIKey(slug) && (pc.APIKey != "" || cfg.GetProviderKey(slug) != "") {
 					keyStatus = "key present"
 				}
 			}

@@ -1662,10 +1662,7 @@ func (a *App) pickerProviders() []provider.Provider {
 	if a.deps.Factories == nil {
 		return out
 	}
-	// displayOrder mirrors provider.displayOrder so unconfigured rows
-	// sort naturally after registered ones but keep their place in the
-	// canonical UI sequence.
-	for _, slug := range []string{"openai", "anthropic", "gemini", "minimax", "openrouter", "ollama"} {
+	for _, slug := range a.factoryDisplaySlugs(seen) {
 		if _, ok := seen[slug]; ok {
 			continue
 		}
@@ -1674,6 +1671,32 @@ func (a *App) pickerProviders() []provider.Provider {
 		}
 	}
 	return out
+}
+
+func (a *App) factoryDisplaySlugs(seen map[string]struct{}) []string {
+	if a.deps.Factories == nil {
+		return nil
+	}
+	var out []string
+	for _, slug := range []string{"openai", "anthropic", "gemini", "minimax", "openrouter", "ollama"} {
+		if _, exists := a.deps.Factories[slug]; exists {
+			out = append(out, slug)
+		}
+	}
+	var customSlugs []string
+	for slug := range a.deps.Factories {
+		if _, alreadyListed := seen[slug]; alreadyListed {
+			continue
+		}
+		switch slug {
+		case "openai", "anthropic", "gemini", "minimax", "openrouter", "ollama":
+			continue
+		default:
+			customSlugs = append(customSlugs, slug)
+		}
+	}
+	sort.Strings(customSlugs)
+	return append(out, customSlugs...)
 }
 
 // openModelPicker constructs the model picker. When Registry has a

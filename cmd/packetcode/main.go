@@ -32,12 +32,6 @@ import (
 	"github.com/packetcode/packetcode/internal/mcp"
 	"github.com/packetcode/packetcode/internal/permissions"
 	"github.com/packetcode/packetcode/internal/provider"
-	"github.com/packetcode/packetcode/internal/provider/anthropic"
-	"github.com/packetcode/packetcode/internal/provider/gemini"
-	"github.com/packetcode/packetcode/internal/provider/minimax"
-	"github.com/packetcode/packetcode/internal/provider/ollama"
-	"github.com/packetcode/packetcode/internal/provider/openai"
-	"github.com/packetcode/packetcode/internal/provider/openrouter"
 	"github.com/packetcode/packetcode/internal/session"
 	"github.com/packetcode/packetcode/internal/tools"
 	"github.com/packetcode/packetcode/internal/ui/theme"
@@ -116,14 +110,7 @@ func run(providerOverride, modelOverride, resumeID string, trust bool, permissio
 		}
 	}
 
-	factories := app.FactoryMap{
-		"openai":     func(key string) provider.Provider { return openai.New(key) },
-		"anthropic":  func(key string) provider.Provider { return anthropic.New(key) },
-		"gemini":     func(key string) provider.Provider { return gemini.New(key) },
-		"minimax":    func(key string) provider.Provider { return minimax.New(key) },
-		"openrouter": func(key string) provider.Provider { return openrouter.New(key) },
-		"ollama":     func(_ string) provider.Provider { return ollama.New(ollamaHost(cfg)) },
-	}
+	factories := providerFactoriesFromConfig(cfg)
 
 	activeSlug := cfg.Default.Provider
 	activeModel := cfg.Default.Model
@@ -181,7 +168,7 @@ func run(providerOverride, modelOverride, resumeID string, trust bool, permissio
 	reg := provider.NewRegistry()
 	for slug, factory := range factories {
 		key := cfg.GetProviderKey(slug)
-		if slug != "ollama" && key == "" {
+		if providerRequiresAPIKey(cfg, slug) && key == "" {
 			continue
 		}
 		reg.Register(factory(key))
@@ -413,7 +400,7 @@ func shouldRunSetup(cfg *config.Config, providerOverride string) bool {
 	if cfg.Default.Provider == "ollama" {
 		return false
 	}
-	return cfg.GetProviderKey(cfg.Default.Provider) == ""
+	return providerRequiresAPIKey(cfg, cfg.Default.Provider) && cfg.GetProviderKey(cfg.Default.Provider) == ""
 }
 
 // welcomeVersion returns the label shown on the welcome splash. We

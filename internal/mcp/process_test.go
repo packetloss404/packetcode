@@ -15,7 +15,7 @@ func TestServerEnv_FiltersProcessEnvAndPreservesConfiguredEnv(t *testing.T) {
 	}, map[string]string{
 		"CUSTOM_TOKEN": "server-owned",
 		"PATH":         "/custom/bin",
-	})
+	}, nil)
 
 	env := envMap(got)
 	if env["PATH"] != "/custom/bin" {
@@ -32,6 +32,24 @@ func TestServerEnv_FiltersProcessEnvAndPreservesConfiguredEnv(t *testing.T) {
 	}
 	if _, ok := env["SHELL"]; ok {
 		t.Fatalf("unlisted shell state leaked into MCP server env: %v", got)
+	}
+}
+
+func TestServerEnv_EnvFromCopiesOnlyNamedProcessSecrets(t *testing.T) {
+	got := serverEnv([]string{
+		"PATH=/usr/bin",
+		"GITHUB_TOKEN=gh-secret",
+		"PACKETCODE_OPENAI_API_KEY=sk-secret",
+	}, map[string]string{
+		"GITHUB_TOKEN": "configured-wins",
+	}, []string{"GITHUB_TOKEN", "PACKETCODE_OPENAI_API_KEY"})
+
+	env := envMap(got)
+	if env["GITHUB_TOKEN"] != "configured-wins" {
+		t.Fatalf("configured env should override env_from value, got %q", env["GITHUB_TOKEN"])
+	}
+	if env["PACKETCODE_OPENAI_API_KEY"] != "sk-secret" {
+		t.Fatalf("explicit env_from secret missing: %v", got)
 	}
 }
 

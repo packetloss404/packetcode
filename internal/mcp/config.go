@@ -12,6 +12,7 @@ type ServerConfig struct {
 	Command    string
 	Args       []string
 	Env        map[string]string
+	EnvFrom    []string
 	Enabled    bool
 	TimeoutSec int
 }

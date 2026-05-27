@@ -60,6 +60,7 @@ packetcode --version
 - [Configuration](docs/configuration.md)
 - [Hooks and statusline](docs/hooks-and-statusline.md)
 - [MCP servers](docs/mcp.md)
+- [Plugins and extension surfaces](docs/plugins.md)
 - [Security and permissions](docs/security.md)
 - [Agent View](docs/feature-agent-view.md)
 - [Packet Computers and Packet Control](PACKETCOMPUTERS.md)
@@ -84,7 +85,7 @@ The top bar shows foreground operation state such as `thinking` or `compacting`,
 
 ## Providers
 
-Configured providers can be switched without restarting:
+Configured built-in and custom OpenAI-compatible providers can be switched without restarting:
 
 - `Ctrl+P` or `/provider` (also `/providers`) opens the provider picker.
 - `Ctrl+M` or `/model` (also `/models`) opens the model picker for the active provider.
@@ -92,7 +93,7 @@ Configured providers can be switched without restarting:
 - `/model <id>` switches directly.
 - Accepting `/provider` or `/model` from the `/` autocomplete popup (Tab, or Enter on the bare verb) opens the picker straight away, so you select from a list instead of guessing a slug or id.
 
-To add or update a provider key, open the provider picker with `Ctrl+P` or `/provider`, focus the provider row, then press `Ctrl+A`. `/provider add` opens the same picker, and `/provider add <slug>` opens the same key prompt for a provider.
+To add or update a provider key, open the provider picker with `Ctrl+P` or `/provider`, focus the provider row, then press `Ctrl+A`. `/provider add` opens the same picker, and `/provider add <slug>` opens the same key prompt for a provider. Custom OpenAI-compatible providers are configured under `[providers.<slug>]` with `type = "openai_compatible"` and `base_url`; see [Providers and models](docs/providers.md).
 
 API keys can also be set in the environment:
 
@@ -129,7 +130,8 @@ provider-safe `<server>__<tool>` aliases. packetcode starts each
 configured command as your user, so treat MCP servers as trusted local
 code; approval prompts gate tool calls, not the child process itself.
 MCP children inherit only a small launch environment allowlist by
-default, plus any per-server `env` values you configure. The
+default, plus any per-server `env` values or named `env_from`
+variables you configure. The
 `/mcp` command lists configured servers, `/mcp status <name>` shows
 health/config details, `/mcp tools <name>` lists provider-safe callable
 tool aliases, and `/mcp logs <name>` shows a bounded, redacted tail of

@@ -23,7 +23,7 @@ import (
 // full provider/API-key environment by default.
 func spawnServerProcess(cfg ServerConfig, logDir string) (*exec.Cmd, io.WriteCloser, io.ReadCloser, *os.File, error) {
 	cmd := exec.Command(cfg.Command, cfg.Args...)
-	cmd.Env = serverEnv(os.Environ(), cfg.Env)
+	cmd.Env = serverEnv(os.Environ(), cfg.Env, cfg.EnvFrom)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -110,8 +110,8 @@ var inheritedMCPEnvKeys = map[string]struct{}{
 	"no_proxy":            {},
 }
 
-func serverEnv(processEnv []string, configured map[string]string) []string {
-	return mergeEnv(filterInheritedEnv(processEnv), configured)
+func serverEnv(processEnv []string, configured map[string]string, envFrom []string) []string {
+	return mergeEnv(mergeEnv(filterInheritedEnv(processEnv), selectedEnv(processEnv, envFrom)), configured)
 }
 
 func filterInheritedEnv(env []string) []string {
@@ -160,6 +160,37 @@ func mergeEnv(base []string, overlay map[string]string) []string {
 		} else {
 			out = append(out, entry)
 		}
+	}
+	return out
+}
+
+func selectedEnv(processEnv []string, names []string) map[string]string {
+	if len(names) == 0 {
+		return nil
+	}
+	want := map[string]string{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		want[envKeyID(name)] = name
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for _, kv := range processEnv {
+		key, value, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		if configuredName, keep := want[envKeyID(key)]; keep {
+			out[configuredName] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

@@ -27,7 +27,7 @@ type providerKeyValidatedMsg struct {
 // providerHasKey reports whether the named provider already has a
 // usable key via env var or on-disk config. Ollama never needs one.
 func (a *App) providerHasKey(slug string) bool {
-	if slug == "ollama" {
+	if !a.providerRequiresKey(slug) {
 		return true
 	}
 	if a.deps.Config == nil {
@@ -43,8 +43,8 @@ func (a *App) providerHasKey(slug string) bool {
 // a new key, so we explain instead of opening a dead-end prompt).
 func (a *App) openProviderKeyPrompt(slug string) tea.Cmd {
 	a.picker.Hide()
-	if slug == "ollama" {
-		a.conversation.AppendSystem("provider: ollama is keyless — no API key required")
+	if !a.providerRequiresKey(slug) {
+		a.conversation.AppendSystem(fmt.Sprintf("provider: %s is keyless — no API key required", slug))
 		return a.openProviderPicker()
 	}
 	if a.deps.Factories == nil {
@@ -61,6 +61,16 @@ func (a *App) openProviderKeyPrompt(slug string) tea.Cmd {
 	desc := fmt.Sprintf("Paste your %s API key. It will be validated and saved to ~/.packetcode/config.toml.", slug)
 	a.prompt.Open(slug, title, desc, true)
 	return nil
+}
+
+func (a *App) providerRequiresKey(slug string) bool {
+	if a.deps.Config == nil {
+		return slug != "ollama"
+	}
+	if pc, ok := a.deps.Config.Providers[slug]; ok {
+		return pc.RequiresAPIKey(slug)
+	}
+	return slug != "ollama"
 }
 
 // handlePromptSubmit dispatches prompt.SubmitMsg. Currently only the

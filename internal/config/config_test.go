@@ -160,6 +160,36 @@ func TestGetProviderKey_MissingProviderReturnsEmpty(t *testing.T) {
 	assert.Equal(t, "", cfg.GetProviderKey("gemini"))
 }
 
+func TestGetProviderKey_CustomSlugEnvNormalization(t *testing.T) {
+	cfg := Default()
+	cfg.Providers["my-provider"] = ProviderConfig{APIKey: "from-config"}
+
+	t.Setenv("PACKETCODE_MY_PROVIDER_API_KEY", "from-env")
+
+	assert.Equal(t, "from-env", cfg.GetProviderKey("my-provider"))
+	assert.Equal(t, "PACKETCODE_MY_PROVIDER_API_KEY", cfg.ProviderAPIKeyEnvName("my-provider"))
+}
+
+func TestGetProviderKey_CustomAPIKeyEnv(t *testing.T) {
+	cfg := Default()
+	cfg.Providers["localai"] = ProviderConfig{APIKey: "from-config", APIKeyEnv: "LOCALAI_TOKEN"}
+
+	t.Setenv("LOCALAI_TOKEN", "from-custom-env")
+
+	assert.Equal(t, "from-custom-env", cfg.GetProviderKey("localai"))
+	assert.Equal(t, "LOCALAI_TOKEN", cfg.ProviderAPIKeyEnvName("localai"))
+}
+
+func TestProviderConfig_RequiresAPIKeyKeepsHostedBuiltInsKeyed(t *testing.T) {
+	keyless := false
+	cfg := ProviderConfig{Type: "openai_compatible", APIKeyRequired: &keyless}
+
+	assert.True(t, cfg.RequiresAPIKey("openai"))
+	assert.True(t, cfg.RequiresAPIKey("anthropic"))
+	assert.False(t, cfg.RequiresAPIKey("ollama"))
+	assert.False(t, cfg.RequiresAPIKey("localai"))
+}
+
 func TestSetProviderKey_PersistsAndUpdates(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
@@ -200,6 +230,7 @@ func TestConfig_MCPBlockRoundTrip(t *testing.T) {
 [mcp.git]
 command = "uvx"
 args = ["mcp-server-git", "--repository", "."]
+env_from = ["GITHUB_TOKEN"]
 timeout_sec = 20
 
 [mcp.disabled-example]
@@ -216,6 +247,7 @@ enabled = false
 	gitEntry := cfg.MCP["git"]
 	assert.Equal(t, "uvx", gitEntry.Command)
 	assert.Equal(t, []string{"mcp-server-git", "--repository", "."}, gitEntry.Args)
+	assert.Equal(t, []string{"GITHUB_TOKEN"}, gitEntry.EnvFrom)
 	assert.Equal(t, 20, gitEntry.TimeoutSec)
 	assert.True(t, gitEntry.IsEnabled(), "missing enabled key should default to true")
 	assert.Nil(t, gitEntry.Enabled)
@@ -235,6 +267,50 @@ enabled = false
 	assert.Equal(t, gitEntry.Command, cfg2.MCP["git"].Command)
 	require.NotNil(t, cfg2.MCP["disabled-example"].Enabled)
 	assert.False(t, *cfg2.MCP["disabled-example"].Enabled)
+}
+
+func TestConfig_CustomProviderRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	keyless := false
+	tools := true
+
+	cfg := Default()
+	cfg.Default.Provider = "localai"
+	cfg.Default.Model = "coder-large"
+	cfg.Providers["localai"] = ProviderConfig{
+		Type:           "openai_compatible",
+		BaseURL:        "http://localhost:8080/v1",
+		DisplayName:    "LocalAI",
+		BrandColor:     "#94A3B8",
+		APIKeyEnv:      "LOCALAI_API_KEY",
+		APIKeyRequired: &keyless,
+		DefaultModel:   "coder-large",
+		Headers:        map[string]string{"X-Workspace": "packetcode"},
+		Models: []ProviderModelConfig{{
+			ID:            "coder-large",
+			DisplayName:   "Coder Large",
+			ContextWindow: 32768,
+			SupportsTools: &tools,
+			InputPer1M:    0.25,
+			OutputPer1M:   0.75,
+		}},
+	}
+
+	require.NoError(t, cfg.SaveTo(path))
+	loaded, err := LoadFrom(path)
+	require.NoError(t, err)
+
+	pc := loaded.Providers["localai"]
+	require.True(t, pc.IsOpenAICompatible())
+	assert.False(t, pc.RequiresAPIKey("localai"))
+	assert.Equal(t, "http://localhost:8080/v1", pc.BaseURL)
+	assert.Equal(t, "LOCALAI_API_KEY", pc.APIKeyEnv)
+	assert.Equal(t, map[string]string{"X-Workspace": "packetcode"}, pc.Headers)
+	require.Len(t, pc.Models, 1)
+	assert.Equal(t, "coder-large", pc.Models[0].ID)
+	require.NotNil(t, pc.Models[0].SupportsTools)
+	assert.True(t, *pc.Models[0].SupportsTools)
 }
 
 // TestConfig_MCPMapInitialisedOnLoad confirms loading a config file

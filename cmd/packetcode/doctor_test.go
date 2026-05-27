@@ -170,6 +170,96 @@ func TestDoctorOllamaNeedsNoAPIKey(t *testing.T) {
 	assertDoctorCheck(t, report, "providers.ollama", doctorOK)
 }
 
+func TestDoctorCustomProviderAccepted(t *testing.T) {
+	restore := isolateDoctorEnv(t)
+	defer restore()
+
+	cfg := config.Default()
+	cfg.Default.Provider = "localai"
+	cfg.Default.Model = "local-model"
+	keyless := false
+	cfg.Providers["localai"] = config.ProviderConfig{
+		Type:           "openai_compatible",
+		BaseURL:        "http://localhost:8080/v1",
+		DefaultModel:   "local-model",
+		APIKeyRequired: &keyless,
+	}
+	requireSaveConfig(t, cfg)
+
+	var stdout, stderr bytes.Buffer
+	code := runDoctorCommand([]string{"--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("doctor exit = %d, stderr=%q stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("doctor json: %v\n%s", err, stdout.String())
+	}
+	assertDoctorCheck(t, report, "config.default_provider", doctorOK)
+	check := assertDoctorCheck(t, report, "providers.localai", doctorOK)
+	if !strings.Contains(check.Detail, "keyless") || !strings.Contains(check.Detail, "http://localhost:8080/v1") {
+		t.Fatalf("custom provider detail not useful: %+v", check)
+	}
+}
+
+func TestDoctorCustomProviderInvalidBaseURLFails(t *testing.T) {
+	restore := isolateDoctorEnv(t)
+	defer restore()
+
+	cfg := config.Default()
+	cfg.Default.Provider = "localai"
+	cfg.Default.Model = "local-model"
+	cfg.Providers["localai"] = config.ProviderConfig{
+		Type:         "openai_compatible",
+		BaseURL:      "localhost:8080/v1",
+		DefaultModel: "local-model",
+	}
+	requireSaveConfig(t, cfg)
+
+	var stdout, stderr bytes.Buffer
+	code := runDoctorCommand([]string{"--json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("doctor exit = %d, want 1; stderr=%q stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("doctor json: %v\n%s", err, stdout.String())
+	}
+	assertDoctorCheck(t, report, "config.default_provider", doctorFail)
+}
+
+func TestDoctorBuiltInProviderRejectsCustomFields(t *testing.T) {
+	restore := isolateDoctorEnv(t)
+	defer restore()
+
+	keyless := false
+	cfg := config.Default()
+	cfg.Default.Provider = "openai"
+	cfg.Default.Model = "gpt-4.1"
+	cfg.Providers["openai"] = config.ProviderConfig{
+		APIKey:         "sk-test",
+		DefaultModel:   "gpt-4.1",
+		Type:           "openai_compatible",
+		BaseURL:        "http://localhost:8080/v1",
+		APIKeyRequired: &keyless,
+	}
+	requireSaveConfig(t, cfg)
+
+	var stdout, stderr bytes.Buffer
+	code := runDoctorCommand([]string{"--json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("doctor exit = %d, want 1; stderr=%q stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("doctor json: %v\n%s", err, stdout.String())
+	}
+	check := assertDoctorCheck(t, report, "providers.openai.custom_fields", doctorFail)
+	if !strings.Contains(check.Detail, "type") || !strings.Contains(check.Detail, "base_url") || !strings.Contains(check.Detail, "api_key_required") {
+		t.Fatalf("custom field detail not useful: %+v", check)
+	}
+}
+
 func TestDoctorMCPStaticChecks(t *testing.T) {
 	restore := isolateDoctorEnv(t)
 	defer restore()
@@ -179,7 +269,7 @@ func TestDoctorMCPStaticChecks(t *testing.T) {
 	cfg := config.Default()
 	cfg.Default.Provider = "ollama"
 	cfg.Default.Model = "model"
-	cfg.MCP["ok"] = config.MCPServerConfig{Command: cmdPath, Env: map[string]string{"TOKEN": "secret"}}
+	cfg.MCP["ok"] = config.MCPServerConfig{Command: cmdPath, Env: map[string]string{"TOKEN": "secret"}, EnvFrom: []string{"GITHUB_TOKEN"}}
 	cfg.MCP["disabled"] = config.MCPServerConfig{Command: "missing-disabled-command", Enabled: &disabled}
 	cfg.MCP["missing"] = config.MCPServerConfig{Command: "missing-packetcode-doctor-command"}
 	cfg.MCP["bad.name"] = config.MCPServerConfig{Command: cmdPath}
@@ -195,12 +285,42 @@ func TestDoctorMCPStaticChecks(t *testing.T) {
 		t.Fatalf("doctor json: %v\n%s", err, stdout.String())
 	}
 	ok := assertDoctorCheck(t, report, "mcp.ok", doctorOK)
-	if strings.Contains(ok.Detail, "secret") || !strings.Contains(ok.Detail, "auth:env:TOKEN") {
+	if strings.Contains(ok.Detail, "secret") || !strings.Contains(ok.Detail, "auth:env:TOKEN") || !strings.Contains(ok.Detail, "from:GITHUB_TOKEN") {
 		t.Fatalf("MCP auth summary leaked or omitted env key: %+v", ok)
 	}
 	assertDoctorCheck(t, report, "mcp.disabled", doctorSkip)
 	assertDoctorCheck(t, report, "mcp.missing.command", doctorFail)
 	assertDoctorCheck(t, report, "mcp.bad.name.name", doctorFail)
+}
+
+func TestDoctorMCPEnvFromMissingWarnsWithoutLeaking(t *testing.T) {
+	restore := isolateDoctorEnv(t)
+	defer restore()
+
+	cmdPath := doctorTempExecutable(t)
+	cfg := config.Default()
+	cfg.Default.Provider = "ollama"
+	cfg.Default.Model = "model"
+	cfg.MCP["github"] = config.MCPServerConfig{Command: cmdPath, EnvFrom: []string{"MISSING_PACKETCODE_DOCTOR_ENV_FROM"}}
+	requireSaveConfig(t, cfg)
+
+	var stdout, stderr bytes.Buffer
+	code := runDoctorCommand([]string{"--json", "--check", "mcp"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("doctor exit = %d, stderr=%q stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("doctor json: %v\n%s", err, stdout.String())
+	}
+	warn := assertDoctorCheck(t, report, "mcp.github.env_from", doctorWarn)
+	if !strings.Contains(warn.Detail, "MISSING_PACKETCODE_DOCTOR_ENV_FROM") {
+		t.Fatalf("missing env_from detail not useful: %+v", warn)
+	}
+	ok := assertDoctorCheck(t, report, "mcp.github", doctorOK)
+	if !strings.Contains(ok.Detail, "from:MISSING_PACKETCODE_DOCTOR_ENV_FROM:missing") {
+		t.Fatalf("MCP detail should mark missing env_from: %+v", ok)
+	}
 }
 
 func TestDoctorPermissionPolicyChecks(t *testing.T) {

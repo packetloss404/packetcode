@@ -10,6 +10,7 @@ packetcode supports six provider slugs:
 | `minimax` | Yes | Uses MiniMax's OpenAI-compatible API surface. |
 | `openrouter` | Yes | Lists models and pricing from OpenRouter. |
 | `ollama` | No | Uses a reachable Ollama server. |
+| custom slug | Optional | Uses a user-configured OpenAI-compatible `/v1` endpoint. |
 
 ## Configure Keys
 
@@ -32,9 +33,12 @@ PACKETCODE_ANTHROPIC_API_KEY
 PACKETCODE_GEMINI_API_KEY
 PACKETCODE_MINIMAX_API_KEY
 PACKETCODE_OPENROUTER_API_KEY
+PACKETCODE_MY_PROVIDER_API_KEY
 ```
 
-Environment variables win over config file keys.
+Environment variables win over config file keys. Custom provider slugs are
+normalized to `PACKETCODE_<SLUG>_API_KEY`, with non-alphanumeric characters
+converted to `_`; set `api_key_env` to use a different variable.
 
 ## Switch Providers
 
@@ -77,3 +81,39 @@ default_model = "qwen2.5-coder:14b"
 ```
 
 `host` is only used for Ollama. If omitted, packetcode defaults to `http://localhost:11434`. A bare host like `ollama.internal` is normalized to `http://ollama.internal:11434`. You can also set `PACKETCODE_OLLAMA_HOST` to override the saved host for one machine.
+
+## Custom OpenAI-Compatible Providers
+
+Any service that implements OpenAI-compatible `/models` and
+`/chat/completions` endpoints can be added as a provider:
+
+```toml
+[providers.localai]
+type = "openai_compatible"
+display_name = "LocalAI"
+base_url = "http://localhost:8080/v1"
+default_model = "coder-large"
+api_key_required = false
+
+[[providers.localai.models]]
+id = "coder-large"
+context_window = 32768
+supports_tools = true
+```
+
+For hosted gateways, keep `api_key_required` omitted or set it to `true` and
+store the key in config or an env var:
+
+```toml
+[providers.acme]
+type = "openai_compatible"
+display_name = "Acme Gateway"
+base_url = "https://llm.acme.example/v1"
+api_key_env = "ACME_LLM_TOKEN"
+default_model = "acme-coder"
+headers = { "X-Workspace" = "packetcode" }
+```
+
+Static `models` entries are used as a fallback when `/models` is unavailable
+or incomplete. Unknown custom model prices default to zero and context defaults
+to 128k tokens unless configured.

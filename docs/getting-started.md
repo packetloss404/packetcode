@@ -30,7 +30,7 @@ packetcode --trust
 packetcode doctor
 ```
 
-`--provider` only works for providers already configured in `~/.packetcode/config.toml` or available without a key. Use the provider picker to add missing keys.
+`--provider` only works for providers already configured in `~/.packetcode/config.toml` or available without a key. Use the provider picker to add missing keys. To add a custom OpenAI-compatible endpoint, add a `[providers.<slug>]` block with `type = "openai_compatible"` and `base_url`, then run `packetcode doctor`.
 Use `packetcode doctor` before starting the TUI when setup, permissions, git, provider config, or MCP startup looks suspect. Add `--json` for machine-readable output.
 
 ## Everyday Keys
@@ -83,6 +83,7 @@ Type `/` to open autocomplete. Useful commands:
 | `/agents <id>` | Open one background-agent transcript. |
 | `/jobs` / `/jobs <id>` | List jobs or open a transcript. |
 | `/cancel <id\|all>` | Cancel one active job or all active jobs. |
+| `/mcp` | Inspect configured MCP servers and tools. |
 | `/sessions` | List saved sessions. |
 | `/compact` | Summarize older conversation context. |
 | `/clear` | Clear the live pane only; saved session data remains. |

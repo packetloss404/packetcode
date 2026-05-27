@@ -34,6 +34,7 @@ type MCPServerConfig struct {
 	Command    string            `toml:"command"`
 	Args       []string          `toml:"args,omitempty"`
 	Env        map[string]string `toml:"env,omitempty"`
+	EnvFrom    []string          `toml:"env_from,omitempty"`
 	Enabled    *bool             `toml:"enabled,omitempty"`
 	TimeoutSec int               `toml:"timeout_sec,omitempty"`
 }
@@ -48,9 +49,60 @@ type DefaultConfig struct {
 }
 
 type ProviderConfig struct {
-	APIKey       string `toml:"api_key"`
-	DefaultModel string `toml:"default_model"`
-	Host         string `toml:"host,omitempty"` // Ollama only
+	Type           string                `toml:"type,omitempty"`
+	APIKey         string                `toml:"api_key"`
+	APIKeyEnv      string                `toml:"api_key_env,omitempty"`
+	APIKeyRequired *bool                 `toml:"api_key_required,omitempty"`
+	DefaultModel   string                `toml:"default_model"`
+	Host           string                `toml:"host,omitempty"` // Ollama only
+	BaseURL        string                `toml:"base_url,omitempty"`
+	DisplayName    string                `toml:"display_name,omitempty"`
+	BrandColor     string                `toml:"brand_color,omitempty"`
+	Headers        map[string]string     `toml:"headers,omitempty"`
+	Models         []ProviderModelConfig `toml:"models,omitempty"`
+}
+
+// ProviderModelConfig is an optional static model entry for custom
+// OpenAI-compatible providers whose /models endpoint is unavailable or
+// incomplete.
+type ProviderModelConfig struct {
+	ID            string  `toml:"id"`
+	DisplayName   string  `toml:"display_name,omitempty"`
+	ContextWindow int     `toml:"context_window,omitempty"`
+	SupportsTools *bool   `toml:"supports_tools,omitempty"`
+	InputPer1M    float64 `toml:"input_per_1m,omitempty"`
+	OutputPer1M   float64 `toml:"output_per_1m,omitempty"`
+}
+
+// IsOpenAICompatible reports whether this provider is a user-defined
+// OpenAI-compatible endpoint.
+func (c ProviderConfig) IsOpenAICompatible() bool {
+	t := strings.ToLower(strings.TrimSpace(c.Type))
+	return t == "openai_compatible" || t == "openai-compatible"
+}
+
+// RequiresAPIKey reports whether packetcode should require a key before
+// registering or validating this provider.
+func (c ProviderConfig) RequiresAPIKey(slug string) bool {
+	if slug == "ollama" {
+		return false
+	}
+	if isReservedHostedProvider(slug) {
+		return true
+	}
+	if c.APIKeyRequired != nil {
+		return *c.APIKeyRequired
+	}
+	return true
+}
+
+func isReservedHostedProvider(slug string) bool {
+	switch slug {
+	case "openai", "anthropic", "gemini", "minimax", "openrouter":
+		return true
+	default:
+		return false
+	}
 }
 
 type BehaviorConfig struct {
@@ -230,7 +282,7 @@ func (c *Config) SetProviderKey(slug, apiKey string) error {
 // PACKETCODE_<SLUG>_API_KEY takes precedence over the on-disk value.
 // Returns empty string if neither is set.
 func (c *Config) GetProviderKey(slug string) string {
-	envKey := fmt.Sprintf("PACKETCODE_%s_API_KEY", strings.ToUpper(slug))
+	envKey := c.ProviderAPIKeyEnvName(slug)
 	if v := os.Getenv(envKey); v != "" {
 		return v
 	}
@@ -238,6 +290,36 @@ func (c *Config) GetProviderKey(slug string) string {
 		return p.APIKey
 	}
 	return ""
+}
+
+// ProviderAPIKeyEnvName returns the environment variable that overrides
+// the configured API key for slug. Custom providers can set api_key_env;
+// otherwise slugs are normalized to PACKETCODE_<SLUG>_API_KEY.
+func (c *Config) ProviderAPIKeyEnvName(slug string) string {
+	if c != nil {
+		if p, ok := c.Providers[slug]; ok && strings.TrimSpace(p.APIKeyEnv) != "" {
+			return strings.TrimSpace(p.APIKeyEnv)
+		}
+	}
+	return DefaultProviderAPIKeyEnvName(slug)
+}
+
+// DefaultProviderAPIKeyEnvName normalizes provider slugs into shell-safe
+// PACKETCODE_*_API_KEY variable names.
+func DefaultProviderAPIKeyEnvName(slug string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(slug) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	name := strings.Trim(b.String(), "_")
+	if name == "" {
+		name = "CUSTOM"
+	}
+	return fmt.Sprintf("PACKETCODE_%s_API_KEY", name)
 }
 
 // IsFirstRun reports whether the config file is missing on disk.

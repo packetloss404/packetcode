@@ -27,6 +27,7 @@ tool the server exposes — i.e. the LLM sees `<name>__<tool>`, so a
 command     = "binary-name-or-absolute-path"
 args        = ["--flag", "value"]          # optional
 env         = { KEY = "value" }            # optional
+env_from    = ["SOME_SERVICE_TOKEN"]       # optional
 enabled     = true                         # optional; defaults to true
 timeout_sec = 10                           # optional; initialize budget
 ```
@@ -40,6 +41,11 @@ Fields:
   server inherits only a small launch allowlist from packetcode's
   environment (path, home/cache/temp dirs, proxy, locale, and cert
   settings); values here win on conflict.
+- **env_from** — names of variables to copy from packetcode's process
+  environment into this server. Use this for secrets you do not want to
+  store in `config.toml`. Only the named
+  variables are copied; provider API keys are not inherited unless you
+  explicitly name them here.
 - **enabled** — set to `false` to keep the block on disk but skip
   spawning at startup. Omit the field to keep it enabled.
 - **timeout_sec** — how long packetcode waits for the server to reply
