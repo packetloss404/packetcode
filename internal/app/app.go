@@ -529,7 +529,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case "tab":
 			if verb := a.autocomplete.SelectedVerb(); verb != "" {
-				a.acceptAutocomplete(verb)
+				return a, a.acceptAutocomplete(verb)
 			}
 			return a, nil
 		case "enter":
@@ -538,8 +538,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			bufferIsBareVerb := strings.HasPrefix(text, "/") &&
 				!strings.ContainsAny(text, " \t\n")
 			if verb != "" && bufferIsBareVerb {
-				a.acceptAutocomplete(verb)
-				return a, nil
+				return a, a.acceptAutocomplete(verb)
 			}
 			// Fall through to the input's SubmitMsg path (no matches,
 			// or buffer already contains args — let the user send it).
@@ -661,13 +660,27 @@ func (a *App) refreshAutocomplete() {
 	}
 }
 
-// acceptAutocomplete swaps the current input buffer for "/<verb> " and
-// closes the popup. The trailing space both feels natural to type
-// after (so the user can continue with args) and triggers the
-// refreshAutocomplete close path on the next keystroke.
-func (a *App) acceptAutocomplete(verb string) {
-	a.input.SetValue("/" + verb + " ")
+// acceptAutocomplete handles the user accepting a highlighted popup row
+// (Tab, or Enter on a bare verb). For verbs whose only job is to open a
+// selection modal — /provider and /model and their plural aliases — we
+// skip the fill-the-buffer dance and open the picker straight away, so
+// the user picks from a list instead of guessing a slug/id. Every other
+// verb swaps the buffer for "/<verb> ": the trailing space feels natural
+// to continue typing args after and trips refreshAutocomplete's close
+// path on the next keystroke. Returns a tea.Cmd for the picker open
+// (nil for the buffer-fill case).
+func (a *App) acceptAutocomplete(verb string) tea.Cmd {
 	a.autocomplete.Close()
+	switch verb {
+	case "provider", "providers":
+		a.input.Reset()
+		return a.openProviderPicker()
+	case "model", "models":
+		a.input.Reset()
+		return a.openModelPicker()
+	}
+	a.input.SetValue("/" + verb + " ")
+	return nil
 }
 
 func (a *App) View() string {
@@ -1194,9 +1207,9 @@ func (a *App) handleSlashCommand(cmd string, args []string, original string) (te
 		return a.handleJobsCommand(args)
 	case "cancel":
 		return a.handleCancelCommand(args)
-	case "provider":
+	case "provider", "providers":
 		return a.handleProviderCommand(args)
-	case "model":
+	case "model", "models":
 		return a.handleModelCommand(args)
 	case "sessions":
 		return a.handleSessionsCommand(args)

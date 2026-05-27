@@ -208,6 +208,24 @@ func TestParseSlashCommand_Provider(t *testing.T) {
 	})
 }
 
+// TestParseSlashCommand_PluralAliases verifies /providers and /models
+// parse as recognised commands (they dispatch to the same handlers as
+// their singular forms).
+func TestParseSlashCommand_PluralAliases(t *testing.T) {
+	t.Run("providers", func(t *testing.T) {
+		cmd, args, ok := ParseSlashCommand("/providers")
+		if !ok || cmd != "providers" || len(args) != 0 {
+			t.Fatalf("parse = %q %v %v", cmd, args, ok)
+		}
+	})
+	t.Run("models", func(t *testing.T) {
+		cmd, args, ok := ParseSlashCommand("/models")
+		if !ok || cmd != "models" || len(args) != 0 {
+			t.Fatalf("parse = %q %v %v", cmd, args, ok)
+		}
+	})
+}
+
 // ---------------------------------------------------------------------------
 // /model parse variants.
 // ---------------------------------------------------------------------------

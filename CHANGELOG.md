@@ -24,6 +24,7 @@ packetcode has not cut a stable 1.0 release yet. Entries under `Unreleased` desc
 
 ### Changed
 
+- Accepting `/provider` or `/model` from the slash-command autocomplete popup (Tab, or Enter on the bare verb) now opens the picker directly, so you select from a list instead of guessing a slug or id. Added `/providers` and `/models` plural aliases.
 - Topbar/statusline output now includes foreground operation state, elapsed time, and queued prompt count.
 - Approval prompts show clearer job/source context and pending approval depth.
 - Job/session transcript viewer opens at the newest content and includes better scroll hints.

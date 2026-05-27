@@ -77,10 +77,11 @@ The top bar shows foreground operation state such as `thinking` or `compacting`,
 
 Configured providers can be switched without restarting:
 
-- `Ctrl+P` or `/provider` opens the provider picker.
-- `Ctrl+M` or `/model` opens the model picker for the active provider.
+- `Ctrl+P` or `/provider` (also `/providers`) opens the provider picker.
+- `Ctrl+M` or `/model` (also `/models`) opens the model picker for the active provider.
 - `/provider <slug>` switches directly.
 - `/model <id>` switches directly.
+- Accepting `/provider` or `/model` from the `/` autocomplete popup (Tab, or Enter on the bare verb) opens the picker straight away, so you select from a list instead of guessing a slug or id.
 
 To add or update a provider key, open the provider picker with `Ctrl+P` or `/provider`, focus the provider row, then press `Ctrl+A`. `/provider add` opens the same picker, and `/provider add <slug>` opens the same key prompt for a provider.
 
@@ -128,9 +129,9 @@ Built-in commands:
 | `/agents` / `/agents <id>` | Open Agent View or a selected agent transcript. |
 | `/jobs` / `/jobs <id>` | List jobs or open a job transcript. |
 | `/cancel <id\|all>` | Cancel one job or all jobs. |
-| `/provider [slug]` | Open the provider picker or switch provider. |
+| `/provider [slug]` / `/providers` | Open the provider picker or switch provider. |
 | `/provider add [slug]` | Open the provider picker or key prompt. |
-| `/model [id]` | Open the model picker or switch model. |
+| `/model [id]` / `/models` | Open the model picker or switch model. |
 | `/sessions` | List recent sessions. |
 | `/sessions resume <id>` | Resume by full ID or unique prefix. |
 | `/sessions delete <id> --yes` | Delete a saved session. |

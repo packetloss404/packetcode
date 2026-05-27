@@ -122,6 +122,46 @@ func TestApp_Autocomplete_TabAccepts(t *testing.T) {
 	}
 }
 
+// TestApp_Autocomplete_TabAcceptsProviderOpensPicker — accepting
+// /provider from the popup opens the provider picker straight away
+// (instead of leaving "/provider " in the buffer) and clears the input.
+func TestApp_Autocomplete_TabAcceptsProviderOpensPicker(t *testing.T) {
+	r := newTestApp(t)
+	typeRunes(t, r.app, "/prov")
+	if got := r.app.autocomplete.SelectedVerb(); got != "provider" {
+		t.Fatalf("precondition: SelectedVerb = %q, want provider", got)
+	}
+	sendKey(t, r.app, tea.KeyTab)
+	if !r.app.picker.Visible() || r.app.picker.ID() != "provider" {
+		t.Fatalf("Tab on /provider should open provider picker; visible=%v id=%q",
+			r.app.picker.Visible(), r.app.picker.ID())
+	}
+	if got := r.app.input.Value(); got != "" {
+		t.Fatalf("input should be cleared on picker open, got %q", got)
+	}
+	if r.app.autocomplete.Visible() {
+		t.Fatalf("popup should close on accept")
+	}
+}
+
+// TestApp_Autocomplete_TabAcceptsModelOpensPicker — same flow for
+// /model: accepting the verb opens the model picker.
+func TestApp_Autocomplete_TabAcceptsModelOpensPicker(t *testing.T) {
+	r := newTestApp(t)
+	typeRunes(t, r.app, "/mod")
+	if got := r.app.autocomplete.SelectedVerb(); got != "model" {
+		t.Fatalf("precondition: SelectedVerb = %q, want model", got)
+	}
+	sendKey(t, r.app, tea.KeyTab)
+	if !r.app.picker.Visible() || r.app.picker.ID() != "model" {
+		t.Fatalf("Tab on /model should open model picker; visible=%v id=%q",
+			r.app.picker.Visible(), r.app.picker.ID())
+	}
+	if got := r.app.input.Value(); got != "" {
+		t.Fatalf("input should be cleared on picker open, got %q", got)
+	}
+}
+
 // TestApp_Autocomplete_TabWithNoMatchesIsNoOp — Tab with zero matches
 // does not mutate the buffer (SelectedVerb returns "").
 func TestApp_Autocomplete_TabWithNoMatchesIsNoOp(t *testing.T) {

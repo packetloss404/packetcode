@@ -341,6 +341,28 @@ func TestApp_Provider_ListOpensPicker(t *testing.T) {
 	}
 }
 
+// TestApp_Providers_AliasOpensPicker verifies the plural /providers
+// alias dispatches to the same handler as /provider.
+func TestApp_Providers_AliasOpensPicker(t *testing.T) {
+	r := newTestApp(t)
+	r.app.handleSlashCommand("providers", nil, "/providers")
+	if !r.app.picker.Visible() || r.app.picker.ID() != "provider" {
+		t.Fatalf("/providers should open the provider picker; visible=%v id=%q",
+			r.app.picker.Visible(), r.app.picker.ID())
+	}
+}
+
+// TestApp_Models_AliasOpensPicker verifies the plural /models alias
+// dispatches to the same handler as /model.
+func TestApp_Models_AliasOpensPicker(t *testing.T) {
+	r := newTestApp(t)
+	r.app.handleSlashCommand("models", nil, "/models")
+	if !r.app.picker.Visible() || r.app.picker.ID() != "model" {
+		t.Fatalf("/models should open the model picker; visible=%v id=%q",
+			r.app.picker.Visible(), r.app.picker.ID())
+	}
+}
+
 func TestApp_ProviderAdd_OpensPicker(t *testing.T) {
 	r := newTestApp(t)
 	r.app.handleSlashCommand("provider", []string{"add"}, "/provider add")
