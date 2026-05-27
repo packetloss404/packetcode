@@ -67,6 +67,7 @@ var (
 		{"/compact [--keep N]", "Summarise older messages to reclaim context"},
 		{"/cost", "Show cost breakdown (reset --yes to clear)"},
 		{"/trust [on|off]", "Toggle auto-approval of destructive tools"},
+		{"/permissions", "Show or change tool approval policy"},
 		{"/help", "Show this help message"},
 		{"/clear", "Clear the transcript pane"},
 		{"/statusline", "Show or refresh the configured statusline command"},

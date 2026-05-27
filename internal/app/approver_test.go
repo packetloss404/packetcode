@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/packetcode/packetcode/internal/agent"
+	"github.com/packetcode/packetcode/internal/permissions"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/tools"
 )
@@ -58,6 +59,27 @@ func TestUIApproverRoutesDecisionToVisibleRequest(t *testing.T) {
 	got2 := waitDecision(t, dec2)
 	if got2.Approved || got2.Reason != "second decision" {
 		t.Fatalf("second decision = %+v", got2)
+	}
+}
+
+func TestUIApproverPermissionPolicyAllowAndDeny(t *testing.T) {
+	u := newUIApprover()
+	u.SetPermissionPolicy(permissions.DefaultPolicy().WithRule("test_tool", permissions.ActionDeny))
+	denied := u.Approve(context.Background(), approvalReq("deny"))
+	if denied.Approved || denied.Reason == "" {
+		t.Fatalf("denied decision = %+v", denied)
+	}
+	if _, ok := u.Pending(); ok {
+		t.Fatalf("denied policy request should not reach approval queue")
+	}
+
+	u.SetPermissionPolicy(permissions.DefaultPolicy().WithRule("test_tool", permissions.ActionAllow))
+	allowed := u.Approve(context.Background(), approvalReq("allow"))
+	if !allowed.Approved || string(allowed.EditedParams) != `{}` {
+		t.Fatalf("allowed decision = %+v", allowed)
+	}
+	if _, ok := u.Pending(); ok {
+		t.Fatalf("allowed policy request should not reach approval queue")
 	}
 }
 

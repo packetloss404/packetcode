@@ -14,6 +14,7 @@ import (
 	"github.com/packetcode/packetcode/internal/agent"
 	"github.com/packetcode/packetcode/internal/cost"
 	"github.com/packetcode/packetcode/internal/hooks"
+	"github.com/packetcode/packetcode/internal/permissions"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/session"
 	"github.com/packetcode/packetcode/internal/tools"
@@ -75,6 +76,9 @@ type Config struct {
 	// Approver is the main session's Approver. The per-job adapter
 	// (jobApprover) gates destructive tools through it.
 	Approver agent.Approver
+	// PermissionPolicy is shared with the foreground agent so background
+	// jobs obey the same allow/ask/deny profile and rules.
+	PermissionPolicy *permissions.Policy
 
 	// Hooks is shared with the foreground agent so background jobs obey
 	// the same lifecycle hook configuration.
@@ -265,6 +269,15 @@ func (m *Manager) SetSpawnToolFactory(fn func(parentJobID string, parentDepth in
 func (m *Manager) SetApprover(a agent.Approver) {
 	m.mu.Lock()
 	m.cfg.Approver = a
+	m.mu.Unlock()
+}
+
+// SetPermissionPolicy installs the effective foreground permission
+// policy for subsequently spawned jobs. Running jobs keep the immutable
+// policy snapshot they were started with.
+func (m *Manager) SetPermissionPolicy(policy *permissions.Policy) {
+	m.mu.Lock()
+	m.cfg.PermissionPolicy = policy
 	m.mu.Unlock()
 }
 

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/packetcode/packetcode/internal/config"
+	"github.com/packetcode/packetcode/internal/permissions"
 )
 
 type doctorReport struct {
@@ -190,6 +191,7 @@ func buildDoctorReport() doctorReport {
 	addGitChecks(&r, cwd)
 	addExecutableChecks(&r, cfg)
 	addMCPChecks(&r, cfg, cwd)
+	addPermissionChecks(&r, cfg)
 	addAutomationChecks(&r, cfg)
 	r.Status = doctorOverallStatus(r.Checks)
 	return r
@@ -662,6 +664,18 @@ func addAutomationChecks(r *doctorReport, cfg *config.Config) {
 	if hooksConfigured(cfg) {
 		r.add("automation.hooks", "automation", doctorOK, "hooks configured", "commands present, not executed by doctor", "", "docs/hooks-and-statusline.md")
 	}
+}
+
+func addPermissionChecks(r *doctorReport, cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	policy, err := permissions.FromConfig(cfg)
+	if err != nil {
+		r.add("permissions.config", "permissions", doctorFail, "permission policy config invalid", err.Error(), "Use profile balanced, accept_edits, read_only, or bypass and actions ask, allow, or deny", "docs/configuration.md")
+		return
+	}
+	r.add("permissions.profile", "permissions", doctorOK, "permission policy loaded", strings.Join(policy.SummaryLines(), "; "), "", "docs/configuration.md")
 }
 
 func hooksConfigured(cfg *config.Config) bool {

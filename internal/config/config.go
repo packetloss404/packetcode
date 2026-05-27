@@ -15,12 +15,13 @@ import (
 )
 
 type Config struct {
-	Default    DefaultConfig              `toml:"default"`
-	Providers  map[string]ProviderConfig  `toml:"providers"`
-	Behavior   BehaviorConfig             `toml:"behavior"`
-	MCP        map[string]MCPServerConfig `toml:"mcp"`
-	StatusLine StatusLineConfig           `toml:"statusline"`
-	Hooks      HooksConfig                `toml:"hooks"`
+	Default     DefaultConfig              `toml:"default"`
+	Providers   map[string]ProviderConfig  `toml:"providers"`
+	Behavior    BehaviorConfig             `toml:"behavior"`
+	Permissions PermissionConfig           `toml:"permissions"`
+	MCP         map[string]MCPServerConfig `toml:"mcp"`
+	StatusLine  StatusLineConfig           `toml:"statusline"`
+	Hooks       HooksConfig                `toml:"hooks"`
 }
 
 // MCPServerConfig is the per-server entry for [mcp.<name>] in the user's
@@ -63,6 +64,35 @@ type BehaviorConfig struct {
 	BackgroundMaxTotal        int    `toml:"background_max_total"`
 	BackgroundDefaultProvider string `toml:"background_default_provider"`
 	BackgroundDefaultModel    string `toml:"background_default_model"`
+}
+
+// PermissionConfig controls the approval policy applied to tool calls.
+type PermissionConfig struct {
+	// Profile names the active built-in or custom profile. Built-ins:
+	// balanced/ask, safe/read_only, edit/accept_edits, full/trusted.
+	Profile string `toml:"profile,omitempty"`
+	// Profiles maps custom profile names to tool-action maps. Supported
+	// actions are allow, ask, and deny. Keys are tool names, "default",
+	// or "mcp" for all MCP tool aliases.
+	Profiles map[string]PermissionProfile `toml:"profiles,omitempty"`
+	// Rules are ordered explicit overrides. Later rules win when more
+	// than one rule matches a tool call.
+	Rules []PermissionRule `toml:"rules,omitempty"`
+
+	// Legacy inline overrides from the early permissions draft. Keep
+	// parsing them so existing local configs do not break.
+	Default string            `toml:"default,omitempty"`
+	Tools   map[string]string `toml:"tools,omitempty"`
+}
+
+type PermissionProfile map[string]string
+
+type PermissionRule struct {
+	Tool          string   `toml:"tool,omitempty"`
+	Action        string   `toml:"action"`
+	Command       string   `toml:"command,omitempty"`
+	CommandPrefix []string `toml:"command_prefix,omitempty"`
+	Reason        string   `toml:"reason,omitempty"`
 }
 
 // StatusLineConfig declares an optional command that renders the bottom
@@ -130,6 +160,12 @@ func LoadFrom(path string) (*Config, error) {
 	}
 	if cfg.MCP == nil {
 		cfg.MCP = map[string]MCPServerConfig{}
+	}
+	if cfg.Permissions.Tools == nil {
+		cfg.Permissions.Tools = map[string]string{}
+	}
+	if cfg.Permissions.Profiles == nil {
+		cfg.Permissions.Profiles = map[string]PermissionProfile{}
 	}
 	return cfg, nil
 }

@@ -41,8 +41,9 @@ type Model struct {
 	gitBranch   string
 	startTime   time.Time
 
-	activeJobs int
-	customLine string
+	activeJobs        int
+	customLine        string
+	permissionProfile string
 
 	operationActive  bool
 	operationLabel   string
@@ -98,6 +99,10 @@ func (m *Model) SetJobs(n int) {
 // state transition without having to parse the rendered view.
 func (m Model) Jobs() int { return m.activeJobs }
 
+func (m *Model) SetPermissionProfile(profile string) {
+	m.permissionProfile = strings.TrimSpace(profile)
+}
+
 // SetOperation updates the foreground operation segment. label should
 // be a short gerund such as "thinking" or "compacting"; queued is the
 // number of user prompts waiting behind that operation.
@@ -151,6 +156,10 @@ func (m Model) View() string {
 	}
 	durSeg := theme.StyleDim.Render("⏱ " + formatDuration(time.Since(m.startTime)))
 	opSeg := m.renderOperation()
+	permissionSeg := ""
+	if m.permissionProfile != "" {
+		permissionSeg = theme.StyleSecondary.Render("perm " + m.permissionProfile)
+	}
 
 	jobsSeg := ""
 	if m.activeJobs > 0 {
@@ -174,7 +183,7 @@ func (m Model) View() string {
 	// narrow-mode drop sequence becomes:
 	//   duration → git → project → context → jobs
 	required := []string{brand, providerSeg}
-	droppable := []string{jobsSeg, opSeg, contextSeg, projectSeg, gitSeg, durSeg}
+	droppable := []string{jobsSeg, opSeg, permissionSeg, contextSeg, projectSeg, gitSeg, durSeg}
 
 	// Drop right-most droppable segments until the line fits inside the
 	// content area (width minus border + padding budget).

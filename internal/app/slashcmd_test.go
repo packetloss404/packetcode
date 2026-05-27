@@ -347,6 +347,15 @@ func TestParseSlashCommand_Trust(t *testing.T) {
 	}
 }
 
+func TestParseSlashCommand_Permissions(t *testing.T) {
+	for _, in := range []string{"/permissions", "/permissions profile read-only", "/permissions rule execute_command deny"} {
+		cmd, _, ok := ParseSlashCommand(in)
+		if !ok || cmd != "permissions" {
+			t.Fatalf("parse %q = %q %v", in, cmd, ok)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // /help parse.
 // ---------------------------------------------------------------------------

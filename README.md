@@ -42,6 +42,7 @@ Common launch flags:
 ```bash
 packetcode --provider gemini --model gemini-2.5-pro
 packetcode --resume <session-id>
+packetcode --permission-mode accept-edits
 packetcode --trust
 packetcode doctor
 packetcode doctor --json
@@ -49,6 +50,7 @@ packetcode --version
 ```
 
 `--provider` and `--model` override the saved default for the current run. The provider must already be configured, except for Ollama.
+`--permission-mode` overrides the saved approval profile for the current run.
 `packetcode doctor` checks local config, providers, state directories, git, native tools, and MCP setup without starting the TUI.
 
 ## Docs
@@ -58,6 +60,7 @@ packetcode --version
 - [Configuration](docs/configuration.md)
 - [Hooks and statusline](docs/hooks-and-statusline.md)
 - [MCP servers](docs/mcp.md)
+- [Security and permissions](docs/security.md)
 - [Agent View](docs/feature-agent-view.md)
 - [Packet Computers and Packet Control](PACKETCOMPUTERS.md)
 - [Troubleshooting](docs/troubleshooting.md)
@@ -66,11 +69,14 @@ packetcode --version
 
 Type a prompt and press `Enter`. Use `Shift+Enter` for a newline. If you submit while a foreground generation or `/compact` is still running, packetcode queues the prompt, shows it as `You (queued)`, and runs it when the active operation finishes. During a generation, `Ctrl+C` cancels the current provider request, running tool, approval prompt, or queued foreground prompts; pressing `Ctrl+C` again while idle exits.
 
-Destructive actions show an approval prompt:
+Destructive actions are governed by the active permission policy. The default policy asks before writes, patches, shell commands, background-agent spawns, and MCP tool calls:
 
 - `Y` approves.
 - `N` or `Esc` rejects.
-- `--trust` or `trust_mode = true` auto-approves for the session.
+- `--permission-mode accept-edits` auto-approves file edits but still asks for commands, background agents, and MCP.
+- `--permission-mode read-only` denies approval-gated tools.
+- `--trust`, `trust_mode = true`, or `--permission-mode bypass` auto-approves actions that are not denied by policy rules.
+- `/permissions` shows or changes the session policy.
 
 Finalized messages are printed into your terminal scrollback. Use your terminal scroll, `Shift+PageUp`, or tmux copy mode to review older output. `/transcript` opens the current saved session transcript in the transcript viewer. `/clear` and `Ctrl+L` clear packetcode's live transcript pane; they do not delete the saved session.
 
@@ -142,6 +148,7 @@ Built-in commands:
 | `/compact [--keep N]` | Summarize older conversation messages. |
 | `/cost` / `/cost reset --yes` | Show or reset cost totals. |
 | `/trust [on\|off]` | Show or set trust mode. |
+| `/permissions` / `/permissions profile <mode>` / `/permissions rule <tool> <action>` | Show or change the session permission policy. |
 | `/help` | Show keybindings and commands. |
 | `/clear` | Clear the transcript pane only. |
 | `/transcript` | Open the current saved session transcript. |
@@ -201,6 +208,14 @@ max_input_rows = 10
 background_max_concurrent = 4
 background_max_depth = 2
 background_max_total = 32
+
+[permissions]
+profile = "ask"
+default = "ask"
+
+[permissions.tools]
+# Exact tool names, server__* prefixes, mcp:*, or *.
+execute_command = "ask"
 ```
 
 See [Configuration](docs/configuration.md) for the full schema.

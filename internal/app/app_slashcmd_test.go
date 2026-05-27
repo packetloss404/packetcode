@@ -18,6 +18,7 @@ import (
 	"github.com/packetcode/packetcode/internal/config"
 	"github.com/packetcode/packetcode/internal/cost"
 	"github.com/packetcode/packetcode/internal/jobs"
+	"github.com/packetcode/packetcode/internal/permissions"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/session"
 	"github.com/packetcode/packetcode/internal/statusline"
@@ -1059,6 +1060,36 @@ func TestApp_Trust_UnknownValue(t *testing.T) {
 	convContains(t, r.app, `trust: unknown value "maybe"`)
 }
 
+// ─── /permissions ─────────────────────────────────────────────────────
+
+func TestApp_Permissions_Query(t *testing.T) {
+	r := newTestApp(t)
+	r.app.handleSlashCommand("permissions", nil, "/permissions")
+	convContains(t, r.app, "Permission policy")
+	convContains(t, r.app, "profile: ask")
+	convContains(t, r.app, "trust_mode: off")
+}
+
+func TestApp_Permissions_Profile(t *testing.T) {
+	r := newTestApp(t)
+	r.app.handleSlashCommand("permissions", []string{"profile", "accept-edits"}, "/permissions profile accept-edits")
+	convContains(t, r.app, "permission profile: accept_edits")
+	decision := r.app.currentPermissionPolicy().Decide(permissions.Request{ToolName: "write_file", RequiresApproval: true})
+	if decision.Decision != permissions.DecisionAllow {
+		t.Fatalf("write_file decision = %s, want allow", decision.Decision)
+	}
+}
+
+func TestApp_Permissions_Rule(t *testing.T) {
+	r := newTestApp(t)
+	r.app.handleSlashCommand("permissions", []string{"rule", "execute_command", "deny"}, "/permissions rule execute_command deny")
+	convContains(t, r.app, "permission rule: execute_command = deny")
+	decision := r.app.currentPermissionPolicy().Decide(permissions.Request{ToolName: "execute_command", RequiresApproval: true})
+	if decision.Decision != permissions.DecisionDeny {
+		t.Fatalf("execute_command decision = %s, want deny", decision.Decision)
+	}
+}
+
 // ─── /help ─────────────────────────────────────────────────────────────
 
 func TestApp_Help_ContainsAllSections(t *testing.T) {
@@ -1070,7 +1101,7 @@ func TestApp_Help_ContainsAllSections(t *testing.T) {
 	convContains(t, r.app, "Ctrl+A")
 	convContains(t, r.app, "Set/update provider API key")
 	// Lists itself and all nine new verbs.
-	for _, verb := range []string{"/help", "/clear", "/agents", "/provider", "/model", "/sessions", "/undo", "/compact", "/cost", "/trust"} {
+	for _, verb := range []string{"/help", "/clear", "/agents", "/provider", "/model", "/sessions", "/undo", "/compact", "/cost", "/trust", "/permissions"} {
 		convContains(t, r.app, verb)
 	}
 }

@@ -203,6 +203,58 @@ func TestDoctorMCPStaticChecks(t *testing.T) {
 	assertDoctorCheck(t, report, "mcp.bad.name.name", doctorFail)
 }
 
+func TestDoctorPermissionPolicyChecks(t *testing.T) {
+	restore := isolateDoctorEnv(t)
+	defer restore()
+
+	cfg := config.Default()
+	cfg.Default.Provider = "ollama"
+	cfg.Default.Model = "model"
+	cfg.Permissions.Profile = "edit"
+	cfg.Permissions.Rules = []config.PermissionRule{{Tool: "execute_command", Action: "deny"}}
+	requireSaveConfig(t, cfg)
+
+	var stdout, stderr bytes.Buffer
+	code := runDoctorCommand([]string{"--json", "--check", "permissions"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("doctor exit = %d, stderr=%q stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("doctor json: %v\n%s", err, stdout.String())
+	}
+	check := assertDoctorCheck(t, report, "permissions.profile", doctorOK)
+	if !strings.Contains(check.Detail, "profile: accept_edits") || !strings.Contains(check.Detail, "rule: execute_command -> deny") {
+		t.Fatalf("permission detail missing policy summary: %+v", check)
+	}
+}
+
+func TestDoctorPermissionPolicyInvalidConfigFails(t *testing.T) {
+	restore := isolateDoctorEnv(t)
+	defer restore()
+
+	cfg := config.Default()
+	cfg.Default.Provider = "ollama"
+	cfg.Default.Model = "model"
+	cfg.Permissions.Profile = "nope"
+	cfg.Permissions.Rules = []config.PermissionRule{{Tool: "write_file", Action: "maybe"}}
+	requireSaveConfig(t, cfg)
+
+	var stdout, stderr bytes.Buffer
+	code := runDoctorCommand([]string{"--json", "--check", "permissions"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("doctor exit = %d, want 1; stderr=%q stdout=%s", code, stderr.String(), stdout.String())
+	}
+	var report doctorReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("doctor json: %v\n%s", err, stdout.String())
+	}
+	check := assertDoctorCheck(t, report, "permissions.config", doctorFail)
+	if !strings.Contains(check.Detail, "unknown permission") {
+		t.Fatalf("permission failure not actionable: %+v", check)
+	}
+}
+
 func TestResolveCommandRejectsNonExecutablePathOnUnix(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows executability is extension/PATHEXT based")

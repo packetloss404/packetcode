@@ -17,6 +17,7 @@ import (
 
 	"github.com/packetcode/packetcode/internal/cost"
 	"github.com/packetcode/packetcode/internal/hooks"
+	"github.com/packetcode/packetcode/internal/permissions"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/session"
 	"github.com/packetcode/packetcode/internal/tools"
@@ -61,6 +62,7 @@ type Agent struct {
 	session      *session.Manager
 	costTracker  *cost.Tracker
 	approver     Approver
+	policy       *permissions.Policy
 	systemPrompt string
 	hooks        *hooks.Runner
 }
@@ -72,6 +74,7 @@ type Config struct {
 	Session      *session.Manager
 	CostTracker  *cost.Tracker
 	Approver     Approver
+	Policy       *permissions.Policy
 	SystemPrompt string
 	Hooks        *hooks.Runner
 }
@@ -82,12 +85,16 @@ func New(cfg Config) *Agent {
 	if cfg.Approver == nil {
 		cfg.Approver = AutoReject("no approver configured")
 	}
+	if cfg.Policy == nil {
+		cfg.Policy = permissions.DefaultPolicy()
+	}
 	return &Agent{
 		registry:     cfg.Registry,
 		toolRegistry: cfg.Tools,
 		session:      cfg.Session,
 		costTracker:  cfg.CostTracker,
 		approver:     cfg.Approver,
+		policy:       cfg.Policy,
 		systemPrompt: cfg.SystemPrompt,
 		hooks:        cfg.Hooks,
 	}
@@ -97,6 +104,13 @@ func New(cfg Config) *Agent {
 // between user-prompted and auto-approve modes mid-conversation.
 func (a *Agent) SetApprover(approver Approver) {
 	a.approver = approver
+}
+
+func (a *Agent) SetPolicy(policy *permissions.Policy) {
+	if policy == nil {
+		policy = permissions.DefaultPolicy()
+	}
+	a.policy = policy
 }
 
 // Run processes a single user message through the full agentic loop.
@@ -285,6 +299,21 @@ func (a *Agent) handleToolCall(ctx context.Context, call provider.ToolCall, even
 	}
 
 	params := json.RawMessage(call.Arguments)
+	policyResult := a.policy.Decide(permissions.Request{
+		ToolName:         call.Name,
+		RequiresApproval: tool.RequiresApproval(),
+		Params:           params,
+	})
+	if policyResult.Decision == permissions.DecisionDeny {
+		rejection := "permission denied: " + policyResult.Reason
+		events <- AgentEvent{Type: EventToolCallRejected, ToolCall: call, Text: rejection}
+		return a.session.AddMessage(provider.Message{
+			Role:       provider.RoleTool,
+			ToolCallID: call.ID,
+			Name:       call.Name,
+			Content:    rejection,
+		})
+	}
 	if a.hooks != nil {
 		preOut, preErr := a.hooks.RunPreToolUse(ctx, hooks.ToolPayload{
 			SessionID:  a.currentSessionID(),
@@ -306,7 +335,7 @@ func (a *Agent) handleToolCall(ctx context.Context, call provider.ToolCall, even
 			})
 		}
 	}
-	if tool.RequiresApproval() {
+	if policyResult.Decision == permissions.DecisionAsk {
 		decision := a.approver.Approve(ctx, ApprovalRequest{
 			Tool:     tool,
 			ToolCall: call,
@@ -328,6 +357,21 @@ func (a *Agent) handleToolCall(ctx context.Context, call provider.ToolCall, even
 		events <- AgentEvent{Type: EventToolCallApproved, ToolCall: call}
 		if len(decision.EditedParams) > 0 {
 			params = decision.EditedParams
+			editedPolicyResult := a.policy.Decide(permissions.Request{
+				ToolName:         call.Name,
+				RequiresApproval: tool.RequiresApproval(),
+				Params:           params,
+			})
+			if editedPolicyResult.Decision == permissions.DecisionDeny {
+				rejection := "permission denied after approval edit: " + editedPolicyResult.Reason
+				events <- AgentEvent{Type: EventToolCallRejected, ToolCall: call, Text: rejection}
+				return a.session.AddMessage(provider.Message{
+					Role:       provider.RoleTool,
+					ToolCallID: call.ID,
+					Name:       call.Name,
+					Content:    rejection,
+				})
+			}
 		}
 	}
 

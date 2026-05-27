@@ -44,6 +44,22 @@ trust_mode = true
 auto_compact_threshold = 75
 max_input_rows = 8
 
+[permissions]
+profile = "balanced"
+
+[permissions.profiles.balanced]
+default = "ask"
+read_file = "allow"
+search_codebase = "allow"
+list_directory = "allow"
+mcp = "ask"
+
+[[permissions.rules]]
+tool = "execute_command"
+action = "deny"
+command_prefix = ["rm", "-rf"]
+reason = "block broad deletes"
+
 [statusline]
 command = "echo packetcode"
 timeout_sec = 3
@@ -66,6 +82,12 @@ command = "echo guard"
 	assert.True(t, cfg.Behavior.TrustMode)
 	assert.Equal(t, 75, cfg.Behavior.AutoCompactThreshold)
 	assert.Equal(t, 8, cfg.Behavior.MaxInputRows)
+	assert.Equal(t, "balanced", cfg.Permissions.Profile)
+	assert.Equal(t, "allow", cfg.Permissions.Profiles["balanced"]["read_file"])
+	require.Len(t, cfg.Permissions.Rules, 1)
+	assert.Equal(t, "execute_command", cfg.Permissions.Rules[0].Tool)
+	assert.Equal(t, "deny", cfg.Permissions.Rules[0].Action)
+	assert.Equal(t, []string{"rm", "-rf"}, cfg.Permissions.Rules[0].CommandPrefix)
 	assert.Equal(t, "echo packetcode", cfg.StatusLine.Command)
 	assert.Equal(t, 3, cfg.StatusLine.TimeoutSec)
 	require.Len(t, cfg.Hooks.UserPromptSubmit, 1)
@@ -86,6 +108,9 @@ func TestSaveTo_RoundTrip(t *testing.T) {
 		DefaultModel: "gemini-2.5-pro",
 	}
 	original.Behavior.TrustMode = true
+	original.Permissions.Profile = "read_only"
+	original.Permissions.Profiles["ci"] = PermissionProfile{"default": "ask", "execute_command": "allow"}
+	original.Permissions.Rules = []PermissionRule{{Tool: "spawn_agent", Action: "deny"}}
 
 	require.NoError(t, original.SaveTo(path))
 
@@ -94,6 +119,7 @@ func TestSaveTo_RoundTrip(t *testing.T) {
 	assert.Equal(t, original.Default, loaded.Default)
 	assert.Equal(t, original.Providers["gemini"], loaded.Providers["gemini"])
 	assert.Equal(t, original.Behavior, loaded.Behavior)
+	assert.Equal(t, original.Permissions, loaded.Permissions)
 }
 
 func TestSaveTo_FilePermissions0600(t *testing.T) {

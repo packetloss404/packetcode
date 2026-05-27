@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/packetcode/packetcode/internal/agent"
+	"github.com/packetcode/packetcode/internal/permissions"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/tools"
 )
@@ -22,6 +24,7 @@ type uiApprover struct {
 
 	mu        sync.Mutex
 	autoTrust bool // when true, every Approve returns Approved without prompting
+	policy    *permissions.Policy
 	nextID    uint64
 	active    *approvalEnvelope
 }
@@ -36,10 +39,66 @@ type approvalEnvelope struct {
 func newUIApprover() *uiApprover {
 	return &uiApprover{
 		pendingCh: make(chan approvalEnvelope, 16),
+		policy:    permissions.DefaultPolicy(),
 	}
 }
 
 func (u *uiApprover) Approve(ctx context.Context, req agent.ApprovalRequest) agent.ApprovalDecision {
+	return u.decideOrPrompt(ctx, req, true)
+}
+
+func (u *uiApprover) DecideTool(ctx context.Context, req agent.ApprovalRequest, requiresApproval bool) (agent.ApprovalDecision, bool) {
+	decision := u.policyDecision(req, requiresApproval)
+	switch decision.Decision {
+	case permissions.DecisionDeny:
+		return agent.ApprovalDecision{
+			Approved: false,
+			Reason:   "permission policy denied " + req.ToolCall.Name + " (" + decision.Reason + ")",
+		}, true
+	case permissions.DecisionAllow:
+		if requiresApproval {
+			return agent.ApprovalDecision{Approved: true, EditedParams: req.Params}, true
+		}
+		return agent.ApprovalDecision{}, false
+	case permissions.DecisionAsk:
+		return u.decideOrPrompt(ctx, req, requiresApproval), true
+	default:
+		return agent.ApprovalDecision{}, false
+	}
+}
+
+func (u *uiApprover) policyDecision(req agent.ApprovalRequest, requiresApproval bool) permissions.Result {
+	u.mu.Lock()
+	policy := u.policy
+	u.mu.Unlock()
+	if policy == nil {
+		policy = permissions.DefaultPolicy()
+	}
+	name := ""
+	if req.Tool != nil {
+		name = req.Tool.Name()
+	}
+	if name == "" {
+		name = stripJobApprovalPrefix(req.ToolCall.Name)
+	}
+	return policy.Decide(permissions.Request{
+		ToolName:         name,
+		RequiresApproval: requiresApproval,
+		Params:           req.Params,
+	})
+}
+
+func (u *uiApprover) decideOrPrompt(ctx context.Context, req agent.ApprovalRequest, requiresApproval bool) agent.ApprovalDecision {
+	decision := u.policyDecision(req, requiresApproval)
+	switch decision.Decision {
+	case permissions.DecisionDeny:
+		return agent.ApprovalDecision{
+			Approved: false,
+			Reason:   "permission policy denied " + req.ToolCall.Name + " (" + decision.Reason + ")",
+		}
+	case permissions.DecisionAllow:
+		return agent.ApprovalDecision{Approved: true, EditedParams: req.Params}
+	}
 	u.mu.Lock()
 	trusted := u.autoTrust
 	u.nextID++
@@ -147,7 +206,31 @@ func (u *uiApprover) SetTrust(trust bool) {
 func (u *uiApprover) IsTrusted() bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return u.autoTrust
+	return u.autoTrust || (u.policy != nil && u.policy.Profile() == permissions.ProfileFull)
+}
+
+func (u *uiApprover) SetPermissionPolicy(policy *permissions.Policy) {
+	u.mu.Lock()
+	u.policy = policy
+	u.mu.Unlock()
+}
+
+func (u *uiApprover) PermissionPolicy() *permissions.Policy {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.policy == nil {
+		return permissions.DefaultPolicy()
+	}
+	return u.policy
+}
+
+func stripJobApprovalPrefix(name string) string {
+	if strings.HasPrefix(name, "[job:") {
+		if _, rest, ok := strings.Cut(name, "] "); ok {
+			return rest
+		}
+	}
+	return name
 }
 
 // describeRequest is a small helper for the conversation log.

@@ -21,6 +21,14 @@ type Approver interface {
 	Approve(ctx context.Context, req ApprovalRequest) ApprovalDecision
 }
 
+// ToolDecider is an optional extension for approvers that can apply
+// policy before deciding whether a tool call should be allowed, denied,
+// or routed through the normal approval prompt. handled=false means the
+// agent should use the legacy RequiresApproval behavior.
+type ToolDecider interface {
+	DecideTool(ctx context.Context, req ApprovalRequest, requiresApproval bool) (decision ApprovalDecision, handled bool)
+}
+
 // ApprovalRequest is the payload handed to the approver. We pass the Tool
 // itself (not just its name) so the UI can describe the action richly —
 // e.g. render a diff for write_file or the command for execute_command.

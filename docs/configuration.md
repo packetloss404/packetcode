@@ -39,6 +39,26 @@ background_max_total = 32
 background_default_provider = ""
 background_default_model = ""
 
+[permissions]
+profile = "balanced"
+
+[permissions.profiles.balanced]
+default = "ask"
+read_file = "allow"
+search_codebase = "allow"
+list_directory = "allow"
+write_file = "ask"
+patch_file = "ask"
+execute_command = "ask"
+spawn_agent = "ask"
+mcp = "ask"
+
+[[permissions.rules]]
+tool = "execute_command"
+action = "deny"
+command_prefix = ["rm", "-rf"]
+reason = "refuse broad recursive deletes"
+
 [statusline]
 command = ""
 timeout_sec = 2
@@ -64,6 +84,19 @@ Background-agent settings affect both `/spawn` and the `spawn_agent` tool:
 - `background_max_depth` limits nested `spawn_agent` calls.
 - `background_max_total` caps jobs created during one packetcode run.
 - `background_default_provider` and `background_default_model` override the foreground provider/model for jobs when set; empty values inherit the active provider/model.
+
+`[permissions]` controls tool-call policy. `profile` can name a built-in profile (`balanced`/`ask`, `accept_edits`, `read_only`, or `bypass`) or a custom `[permissions.profiles.<name>]` table.
+
+- `balanced` / `ask` allows read/search/list and prompts for writes, shell commands, background-agent spawns, and MCP tools.
+- `accept_edits` auto-approves `write_file` and `patch_file`, but asks for `execute_command`, `spawn_agent`, and MCP tools.
+- `read_only` allows read/search/list and denies everything else.
+- `bypass` auto-approves tools unless an explicit deny rule matches.
+
+Custom profile values are `ask`, `allow`, and `deny`. Use `default` as the fallback, exact tool names for native tools, and `mcp = "ask"` for all MCP aliases.
+
+`[permissions.tools]` is still accepted as a backward-compatible inline rule table, but new config should prefer named profiles plus `[[permissions.rules]]`.
+
+`[[permissions.rules]]` adds ordered policy rules. Later rules win when more than one matches. `command` matches an exact `execute_command` string, and `command_prefix` matches shell command fields from the beginning.
 
 `[statusline]` configures an optional shell command that replaces the built-in bottom bar. See [Hooks and statusline](hooks-and-statusline.md).
 

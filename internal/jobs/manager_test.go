@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/packetcode/packetcode/internal/agent"
+	"github.com/packetcode/packetcode/internal/config"
+	"github.com/packetcode/packetcode/internal/permissions"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/tools"
 )
@@ -839,6 +841,84 @@ func TestManager_SnapshotMarksPendingApproval(t *testing.T) {
 		got, ok := mgr.Get(snap.ID)
 		return ok && got.State == StateCompleted && !got.NeedsInput && !got.NeedsApproval
 	})
+}
+
+func TestManager_SetPermissionPolicyAppliesToFutureJobs(t *testing.T) {
+	prov := &scriptedProvider{turns: [][]provider.StreamEvent{
+		{
+			{Type: provider.EventToolCallStart, ToolCall: &provider.ToolCallDelta{Index: 0, ID: "c1", Name: "danger"}},
+			{Type: provider.EventToolCallDelta, ToolCall: &provider.ToolCallDelta{Index: 0, ArgumentsDelta: `{}`}},
+			{Type: provider.EventToolCallEnd, ToolCall: &provider.ToolCallDelta{Index: 0}},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		},
+		{
+			{Type: provider.EventTextDelta, TextDelta: "done"},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		},
+	}}
+	parent := &blockingApprover{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	toolReg := tools.NewRegistry()
+	toolReg.Register(&noopTool{name: "danger", approval: true})
+	mgr, _ := newTestManager(t, prov, func(c *Config) {
+		c.Tools = toolReg
+		c.Approver = parent
+		c.PermissionPolicy = permissions.Must(config.PermissionConfig{Profile: "bypass"})
+	})
+	mgr.SetPermissionPolicy(permissions.DefaultPolicy())
+
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "use danger", AllowWrite: true})
+	require.Nil(t, perr)
+
+	waitFor(t, 2*time.Second, "future job to use updated ask policy", func() bool {
+		select {
+		case <-parent.started:
+			return true
+		default:
+			return false
+		}
+	})
+	close(parent.release)
+	waitFor(t, 2*time.Second, "job completes after updated-policy approval", func() bool {
+		got, ok := mgr.Get(snap.ID)
+		return ok && got.State == StateCompleted
+	})
+}
+
+func TestManager_ReadOnlyJobPreservesExplicitSpawnDeny(t *testing.T) {
+	prov := &scriptedProvider{turns: [][]provider.StreamEvent{
+		{
+			{Type: provider.EventToolCallStart, ToolCall: &provider.ToolCallDelta{Index: 0, ID: "spawn1", Name: "spawn_agent"}},
+			{Type: provider.EventToolCallDelta, ToolCall: &provider.ToolCallDelta{Index: 0, ArgumentsDelta: `{"prompt":"child"}`}},
+			{Type: provider.EventToolCallEnd, ToolCall: &provider.ToolCallDelta{Index: 0}},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		},
+		{
+			{Type: provider.EventTextDelta, TextDelta: "done"},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		},
+	}}
+	var executed int32
+	spawnTool := &noopTool{name: "spawn_agent", approval: true, executor: func(ctx context.Context, raw json.RawMessage) (tools.ToolResult, error) {
+		atomic.AddInt32(&executed, 1)
+		return tools.ToolResult{Content: "spawned"}, nil
+	}}
+	mgr, _ := newTestManager(t, prov, func(c *Config) {
+		c.PermissionPolicy = permissions.DefaultPolicy().WithRule("spawn_agent", permissions.DecisionDeny)
+		c.SpawnTool = func(string, int, bool) tools.Tool {
+			return spawnTool
+		}
+	})
+
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "try spawn"})
+	require.Nil(t, perr)
+	waitFor(t, 2*time.Second, "job completes after policy-denied spawn", func() bool {
+		got, ok := mgr.Get(snap.ID)
+		return ok && got.State == StateCompleted
+	})
+	assert.Equal(t, int32(0), atomic.LoadInt32(&executed))
 }
 
 func TestManager_ListOrdersByUpdatedAtThenSeq(t *testing.T) {

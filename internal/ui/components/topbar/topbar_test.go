@@ -144,3 +144,13 @@ func TestTopbar_OperationShowsElapsedAndQueuedInputs(t *testing.T) {
 	assert.Contains(t, out, "12s")
 	assert.Contains(t, out, "2 queued")
 }
+
+func TestTopbar_PermissionProfileSegment(t *testing.T) {
+	m := New()
+	m.SetWidth(200)
+	m.SetProvider("openai", "OpenAI", "gpt-4.1")
+	m.SetPermissionProfile("ask")
+
+	out := m.View()
+	assert.Contains(t, out, "perm ask")
+}

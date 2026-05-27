@@ -26,5 +26,11 @@ func Default() *Config {
 			BackgroundDefaultProvider: "",
 			BackgroundDefaultModel:    "",
 		},
+		Permissions: PermissionConfig{
+			Profile:  "balanced",
+			Profiles: map[string]PermissionProfile{},
+			Rules:    nil,
+			Tools:    map[string]string{},
+		},
 	}
 }

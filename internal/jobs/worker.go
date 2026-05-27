@@ -112,6 +112,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	}
 
 	approver := NewJobApprover(parentApprover, j.ID, j.AllowWrite)
+	policy := m.cfg.PermissionPolicy
 
 	a := agent.New(agent.Config{
 		Registry:     subRegistry,
@@ -119,6 +120,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 		Session:      subSession,
 		CostTracker:  m.cfg.CostTracker,
 		Approver:     approver,
+		Policy:       policy,
 		SystemPrompt: systemPrompt,
 		Hooks:        hookRunner,
 	})

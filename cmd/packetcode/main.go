@@ -8,6 +8,7 @@
 //	packetcode --provider gemini --model gemini-2.5-pro
 //	packetcode --resume <session-id>        resume a saved session
 //	packetcode --trust                      auto-approve all tool actions
+//	packetcode --permission-mode ask        override approval profile
 //	packetcode doctor                       diagnose local setup
 package main
 
@@ -29,6 +30,7 @@ import (
 	"github.com/packetcode/packetcode/internal/hooks"
 	"github.com/packetcode/packetcode/internal/jobs"
 	"github.com/packetcode/packetcode/internal/mcp"
+	"github.com/packetcode/packetcode/internal/permissions"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/provider/anthropic"
 	"github.com/packetcode/packetcode/internal/provider/gemini"
@@ -48,7 +50,7 @@ var (
 	commit  = "none"
 )
 
-const systemPrompt = `You are packetcode, a keyboard-first AI coding agent running in the user's terminal. You have direct access to the user's project via tools (read_file, write_file, patch_file, execute_command, search_codebase, list_directory). All file modifications and command executions require user approval before running.
+const systemPrompt = `You are packetcode, a keyboard-first AI coding agent running in the user's terminal. You have direct access to the user's project via tools (read_file, write_file, patch_file, execute_command, search_codebase, list_directory). File modifications, command executions, background-agent spawns, and MCP tool calls are governed by the user's current permission policy.
 
 Be concise. Prefer small, surgical edits. When the user asks you to do something, propose a plan, gather context with read tools as needed, then make the changes one tool call at a time. After tool execution, briefly summarize what changed.`
 
@@ -58,6 +60,7 @@ func main() {
 	modelFlag := flag.String("model", "", "override default model for this session")
 	resumeFlag := flag.String("resume", "", "resume a saved session by ID")
 	trustFlag := flag.Bool("trust", false, "auto-approve all tool actions for this session")
+	permissionFlag := flag.String("permission-mode", "", "override permission profile for this session (ask, accept-edits, read-only, bypass)")
 	flag.Parse()
 
 	if *versionFlag {
@@ -68,7 +71,7 @@ func main() {
 		os.Exit(code)
 	}
 
-	if err := run(*providerFlag, *modelFlag, *resumeFlag, *trustFlag); err != nil {
+	if err := run(*providerFlag, *modelFlag, *resumeFlag, *trustFlag, *permissionFlag); err != nil {
 		fmt.Fprintf(os.Stderr, "packetcode: %s\n", err)
 		os.Exit(1)
 	}
@@ -86,10 +89,18 @@ func dispatchSubcommand(args []string, stdout, stderr io.Writer) (int, bool) {
 	}
 }
 
-func run(providerOverride, modelOverride, resumeID string, trust bool) error {
+func run(providerOverride, modelOverride, resumeID string, trust bool, permissionMode string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	if permissionMode != "" {
+		profile, err := permissions.ParseProfile(permissionMode)
+		if err != nil {
+			return err
+		}
+		cfg.Permissions.Profile = permissions.ProfileConfigName(profile)
+		cfg.Permissions.Default = ""
 	}
 
 	// Optional user theme. A missing file is silent; a parse error
@@ -150,6 +161,18 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 
 	if trust {
 		cfg.Behavior.TrustMode = true
+	}
+	if permissionMode != "" {
+		profile, err := permissions.ParseProfile(permissionMode)
+		if err != nil {
+			return err
+		}
+		cfg.Permissions.Profile = permissions.ProfileConfigName(profile)
+		cfg.Permissions.Default = ""
+	}
+	permissionPolicy, err := permissions.FromConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("permissions: %w", err)
 	}
 
 	// Build the provider registry. Only register providers the user has
@@ -289,13 +312,14 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 		SystemPromptFor: func(parentDepth int) string {
 			return systemPrompt + "\n\nYou are a background sub-agent. Be concise and direct. Do not ask the user clarifying questions — make reasonable assumptions and act. Your final assistant message becomes your delivered result."
 		},
-		MaxConcurrent:   cfg.Behavior.BackgroundMaxConcurrent,
-		MaxDepth:        cfg.Behavior.BackgroundMaxDepth,
-		MaxTotal:        cfg.Behavior.BackgroundMaxTotal,
-		DefaultProvider: cfg.Behavior.BackgroundDefaultProvider,
-		DefaultModel:    cfg.Behavior.BackgroundDefaultModel,
-		Root:            root,
-		Hooks:           hookRunner,
+		MaxConcurrent:    cfg.Behavior.BackgroundMaxConcurrent,
+		MaxDepth:         cfg.Behavior.BackgroundMaxDepth,
+		MaxTotal:         cfg.Behavior.BackgroundMaxTotal,
+		DefaultProvider:  cfg.Behavior.BackgroundDefaultProvider,
+		DefaultModel:     cfg.Behavior.BackgroundDefaultModel,
+		PermissionPolicy: permissionPolicy,
+		Root:             root,
+		Hooks:            hookRunner,
 		// Approver and SpawnTool are set below, once jobsMgr and the
 		// App's uiApprover exist. Leaving them nil here is fine: the
 		// manager guards both before use.
@@ -329,19 +353,20 @@ func run(providerOverride, modelOverride, resumeID string, trust bool) error {
 	}
 
 	a, err := app.New(app.Deps{
-		Config:       cfg,
-		Registry:     reg,
-		Tools:        toolReg,
-		Sessions:     sessions,
-		CostTracker:  tracker,
-		Jobs:         jobsMgr,
-		Backups:      bk,
-		MCP:          mcpMgr,
-		WorkingDir:   root,
-		SystemPrompt: systemPrompt,
-		Hooks:        hookRunner,
-		Version:      welcomeVersion(),
-		Factories:    factories,
+		Config:           cfg,
+		Registry:         reg,
+		Tools:            toolReg,
+		Sessions:         sessions,
+		CostTracker:      tracker,
+		Jobs:             jobsMgr,
+		Backups:          bk,
+		MCP:              mcpMgr,
+		PermissionPolicy: permissionPolicy,
+		WorkingDir:       root,
+		SystemPrompt:     systemPrompt,
+		Hooks:            hookRunner,
+		Version:          welcomeVersion(),
+		Factories:        factories,
 	})
 	if err != nil {
 		return err

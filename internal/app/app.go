@@ -30,6 +30,7 @@ import (
 	"github.com/packetcode/packetcode/internal/hooks"
 	"github.com/packetcode/packetcode/internal/jobs"
 	"github.com/packetcode/packetcode/internal/mcp"
+	"github.com/packetcode/packetcode/internal/permissions"
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/session"
 	"github.com/packetcode/packetcode/internal/statusline"
@@ -82,18 +83,19 @@ type jobUpdateMsg struct{ Snap jobs.Snapshot }
 // Deps bundles everything App needs from main(). main() owns the lifecycle
 // of these objects; App just borrows them.
 type Deps struct {
-	Config       *config.Config
-	Registry     *provider.Registry
-	Tools        *tools.Registry
-	Sessions     *session.Manager
-	CostTracker  *cost.Tracker
-	Jobs         *jobs.Manager
-	Backups      *session.BackupManager
-	MCP          *mcp.Manager
-	WorkingDir   string
-	SystemPrompt string
-	Hooks        *hooks.Runner
-	Version      string // shown on the welcome splash; e.g. "v1" or "v0.1.0"
+	Config           *config.Config
+	Registry         *provider.Registry
+	Tools            *tools.Registry
+	Sessions         *session.Manager
+	CostTracker      *cost.Tracker
+	Jobs             *jobs.Manager
+	Backups          *session.BackupManager
+	MCP              *mcp.Manager
+	PermissionPolicy *permissions.Policy
+	WorkingDir       string
+	SystemPrompt     string
+	Hooks            *hooks.Runner
+	Version          string // shown on the welcome splash; e.g. "v1" or "v0.1.0"
 
 	// Factories maps provider slug → constructor. Used at runtime when
 	// the user sets or updates an API key through the provider picker,
@@ -119,8 +121,11 @@ type App struct {
 	slashCommands *SlashCommandRegistry
 
 	// Agent + bridge.
-	agent    *agent.Agent
-	approver *uiApprover
+	agent            *agent.Agent
+	approver         *uiApprover
+	permissionPolicy *permissions.Policy
+	permissionBase   *permissions.Policy
+	preTrustPolicy   *permissions.Policy
 
 	// Background-agents manager. Non-nil when deps.Jobs is set. All
 	// job-related UI code paths guard on `a.jobs != nil`.
@@ -188,10 +193,27 @@ func New(deps Deps) (*App, error) {
 		deps.WorkingDir = "."
 	}
 
-	approver := newUIApprover()
-	if deps.Config != nil && deps.Config.Behavior.TrustMode {
-		approver.SetTrust(true)
+	policy := deps.PermissionPolicy
+	if policy == nil {
+		var err error
+		policy, err = permissions.FromConfig(deps.Config)
+		if err != nil {
+			return nil, fmt.Errorf("permissions: %w", err)
+		}
 	}
+	if policy == nil {
+		policy = permissions.DefaultPolicy()
+	}
+	basePolicy := policy
+	if deps.Config != nil && deps.Config.Behavior.TrustMode {
+		cfgCopy := *deps.Config
+		cfgCopy.Behavior.TrustMode = false
+		if p, err := permissions.FromConfig(&cfgCopy); err == nil && p != nil {
+			basePolicy = p
+		}
+	}
+	approver := newUIApprover()
+	approver.SetPermissionPolicy(policy)
 
 	a := agent.New(agent.Config{
 		Registry:     deps.Registry,
@@ -199,6 +221,7 @@ func New(deps Deps) (*App, error) {
 		Session:      deps.Sessions,
 		CostTracker:  deps.CostTracker,
 		Approver:     approver,
+		Policy:       policy,
 		SystemPrompt: deps.SystemPrompt,
 		Hooks:        deps.Hooks,
 	})
@@ -225,28 +248,30 @@ func New(deps Deps) (*App, error) {
 
 	slashCommands := LoadSlashRegistry(deps.WorkingDir)
 	app := &App{
-		deps:            deps,
-		topbar:          topbar.New(),
-		conversation:    conv,
-		input:           input.New(),
-		approval:        approval.New(),
-		jobsPanel:       jobs_ui.New(),
-		agentView:       agentview.New(),
-		picker:          picker.New("", ""),
-		prompt:          prompt.New(""),
-		spinner:         spinner.New(),
-		autocomplete:    autocomplete.New(buildAutocompleteEntries(slashCommands.HelpRows())),
-		slashCommands:   slashCommands,
-		agent:           a,
-		approver:        approver,
-		jobs:            deps.Jobs,
-		backups:         deps.Backups,
-		mcp:             deps.MCP,
-		contextMgr:      ctxMgr,
-		statusLine:      statusRunner,
-		startedAt:       time.Now(),
-		jobSeqSeen:      map[string]int64{},
-		jobTerminalSeen: map[string]bool{},
+		deps:             deps,
+		topbar:           topbar.New(),
+		conversation:     conv,
+		input:            input.New(),
+		approval:         approval.New(),
+		jobsPanel:        jobs_ui.New(),
+		agentView:        agentview.New(),
+		picker:           picker.New("", ""),
+		prompt:           prompt.New(""),
+		spinner:          spinner.New(),
+		autocomplete:     autocomplete.New(buildAutocompleteEntries(slashCommands.HelpRows())),
+		slashCommands:    slashCommands,
+		agent:            a,
+		approver:         approver,
+		permissionPolicy: policy,
+		permissionBase:   basePolicy,
+		jobs:             deps.Jobs,
+		backups:          deps.Backups,
+		mcp:              deps.MCP,
+		contextMgr:       ctxMgr,
+		statusLine:       statusRunner,
+		startedAt:        time.Now(),
+		jobSeqSeen:       map[string]int64{},
+		jobTerminalSeen:  map[string]bool{},
 	}
 
 	if deps.Jobs != nil {
@@ -778,6 +803,11 @@ func (a *App) refreshTopBar() {
 	} else {
 		a.topbar.SetJobs(0)
 	}
+	if a.permissionPolicy != nil {
+		a.topbar.SetPermissionProfile(permissions.ProfileConfigName(a.permissionPolicy.Profile()))
+	} else {
+		a.topbar.SetPermissionProfile("")
+	}
 	a.topbar.SetOperation(a.streaming, a.operationLabel, a.operationStarted, len(a.queuedInputs))
 }
 
@@ -1221,6 +1251,8 @@ func (a *App) handleSlashCommand(cmd string, args []string, original string) (te
 		return a.handleCostCommand(args)
 	case "trust":
 		return a.handleTrustCommand(args)
+	case "permissions":
+		return a.handlePermissionsCommand(args)
 	case "help":
 		return a.handleHelpCommand(args)
 	case "clear":

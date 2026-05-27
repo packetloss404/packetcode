@@ -2,6 +2,18 @@
 
 Run `packetcode doctor` for a local health report covering config, providers, state-directory permissions, git, native tools, and MCP static checks. Use `packetcode doctor --json` when filing an issue or automating setup checks.
 
+## A Tool Was Denied Or Auto-Approved Unexpectedly
+
+Run:
+
+```bash
+packetcode doctor --check permissions
+```
+
+Inside the TUI, `/permissions` shows the active session policy. Configured rules in `[permissions.tools]` override the profile. For example, `profile = "read_only"` denies approval-gated tools unless a rule explicitly allows one, while `profile = "accept_edits"` auto-approves file edits but still asks for shell commands and MCP tools.
+
+Use `/permissions profile ask` to return the current session to prompt-first behavior.
+
 ## `active provider "..." is not configured`
 
 The provider has no usable key in config or environment. Run packetcode without `--provider`, or open `Ctrl+P` / `/provider`, focus the provider, and press `Ctrl+A` to save a key. `/provider add` opens the same picker, and `/provider add <slug>` opens the same key prompt directly.
