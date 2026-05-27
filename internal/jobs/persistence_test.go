@@ -54,6 +54,34 @@ func TestPersistedResultStatusDefaultsToPending(t *testing.T) {
 	assert.Equal(t, ResultStatusPending, j.ResultStatus)
 }
 
+func TestSavePersistedSnapshotSkipsStaleSeq(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	newer := persistedJob{
+		ID:        "seqjob01",
+		SessionID: "main-job-seqjob01",
+		Provider:  "p",
+		Model:     "m",
+		State:     "running",
+		Seq:       2,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	require.NoError(t, savePersistedSnapshot(dir, newer))
+
+	older := newer
+	older.Seq = 1
+	older.State = "queued"
+	require.NoError(t, savePersistedSnapshot(dir, older))
+
+	data, err := os.ReadFile(filepath.Join(dir, "seqjob01.json"))
+	require.NoError(t, err)
+	var got persistedJob
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, int64(2), got.Seq)
+	assert.Equal(t, "running", got.State)
+}
+
 // TestLoadOrphaned_RewritesRunningAndQueued asserts that any persisted
 // job in StateRunning or StateQueued is rewritten as Cancelled with
 // reason "previous app exit". Returns the resurrected jobs so callers

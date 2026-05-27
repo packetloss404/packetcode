@@ -179,6 +179,31 @@ func TestValidateKeyUsesCandidateWithoutMutatingClientKey(t *testing.T) {
 	assert.Equal(t, "sk-live", c.APIKey)
 }
 
+func TestClient_ErrorBodiesAreCapped(t *testing.T) {
+	huge := strings.Repeat("x", int(provider.MaxErrorBodyBytes)+32*1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(huge))
+	}))
+	defer server.Close()
+
+	c := NewClient(server.URL, "sk-test")
+	_, err := c.ListModels(context.Background())
+	require.Error(t, err)
+	assert.Less(t, len(err.Error()), int(provider.MaxErrorBodyBytes)+1024)
+
+	err = c.ValidateKey(context.Background(), "sk-test")
+	require.Error(t, err)
+	assert.Less(t, len(err.Error()), int(provider.MaxErrorBodyBytes)+1024)
+
+	_, err = c.ChatCompletion(context.Background(), provider.ChatRequest{
+		Model:    "gpt-4.1",
+		Messages: []provider.Message{{Role: provider.RoleUser, Content: "hi"}},
+	})
+	require.Error(t, err)
+	assert.Less(t, len(err.Error()), int(provider.MaxErrorBodyBytes)+1024)
+}
+
 // TestExtractAPIErrorMessage_JSONBody confirms the OpenAI-style wrapper
 // is unwrapped to just the message string, so UI error rendering shows
 // "This is not a chat model..." instead of the full JSON blob.

@@ -125,7 +125,7 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.Model, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(resp.Body)
+		body := provider.ReadErrorBody(resp.Body)
 		return nil, fmt.Errorf("list ollama models: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
@@ -271,7 +271,7 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 		return nil, fmt.Errorf("ollama chat: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
-		errBody, _ := io.ReadAll(resp.Body)
+		errBody := provider.ReadErrorBody(resp.Body)
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("ollama chat: status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}

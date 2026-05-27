@@ -10,5 +10,5 @@ func ConfigureTreeCancel(cmd *exec.Cmd) {
 	cmd.Cancel = func() error {
 		return KillTree(cmd)
 	}
-	cmd.WaitDelay = 2 * time.Second
+	cmd.WaitDelay = 250 * time.Millisecond
 }

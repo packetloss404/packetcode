@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -153,6 +154,7 @@ func TestE2E_SpawnAgentToolViaSlashCommand(t *testing.T) {
 	// deps.Sessions, deps.Registry, topbar, conversation, input,
 	// approval, jobsPanel, spinner, and the jobs.Manager subscribe
 	// hook (which handleJobUpdate uses to tick the top bar).
+	var appMu sync.Mutex
 	app := &App{
 		deps: Deps{
 			Jobs:     mgr,
@@ -175,6 +177,8 @@ func TestE2E_SpawnAgentToolViaSlashCommand(t *testing.T) {
 		// The real Bubble Tea path funnels this through Update; we
 		// call the handler directly so the test doesn't spin up the
 		// event loop.
+		appMu.Lock()
+		defer appMu.Unlock()
 		_, _ = app.handleJobUpdate(snap)
 	})
 
@@ -184,13 +188,19 @@ func TestE2E_SpawnAgentToolViaSlashCommand(t *testing.T) {
 	if !ok {
 		t.Fatalf("ParseSlashCommand rejected /spawn hi")
 	}
-	if _, _ = app.handleSlashCommand(cmd, args, "/spawn hi"); false {
+	appMu.Lock()
+	_, _ = app.handleSlashCommand(cmd, args, "/spawn hi")
+	appMu.Unlock()
+	if false {
 		// silence unused-result lint; return values are meaningful to
 		// the Bubble Tea loop but not to us here
 	}
 
 	// (1) Conversation got the queued echo.
-	if !conversationContains(app, "queued") {
+	appMu.Lock()
+	hasQueued := conversationContains(app, "queued")
+	appMu.Unlock()
+	if !hasQueued {
 		t.Fatalf("expected queued echo in conversation; got %#v", app.conversation)
 	}
 
@@ -200,6 +210,8 @@ func TestE2E_SpawnAgentToolViaSlashCommand(t *testing.T) {
 	// callback (running in its own goroutine) may race. We give it a
 	// generous 5s so CI doesn't flake.
 	waitForEq(t, 5*time.Second, "topbar jobs == 1", func() int {
+		appMu.Lock()
+		defer appMu.Unlock()
 		return app.topbar.Jobs()
 	}, 1)
 
@@ -209,13 +221,18 @@ func TestE2E_SpawnAgentToolViaSlashCommand(t *testing.T) {
 	close(prov.blockCh)
 
 	waitForEq(t, 5*time.Second, "topbar jobs == 0 after completion", func() int {
+		appMu.Lock()
+		defer appMu.Unlock()
 		return app.topbar.Jobs()
 	}, 0)
 
 	// A terminal-state system line should have been appended by
 	// handleJobUpdate. We only assert on the [job:...] prefix because
 	// the trailing duration / cost fields are non-deterministic.
-	if !conversationContains(app, "[job:") {
+	appMu.Lock()
+	hasJobLine := conversationContains(app, "[job:")
+	appMu.Unlock()
+	if !hasJobLine {
 		t.Fatalf("expected terminal-state system message in conversation")
 	}
 
@@ -239,7 +256,10 @@ func TestE2E_SpawnAgentToolViaSlashCommand(t *testing.T) {
 
 	// Explicit Agent View injection marks the result injected and adds
 	// a user-role message for the next foreground model turn.
-	if !app.injectJobResultForAgent(jobID) {
+	appMu.Lock()
+	injected := app.injectJobResultForAgent(jobID)
+	appMu.Unlock()
+	if !injected {
 		t.Fatalf("expected explicit result injection to succeed")
 	}
 	cur = sessions.Current()

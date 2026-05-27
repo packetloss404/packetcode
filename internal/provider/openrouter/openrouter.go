@@ -13,7 +13,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -114,7 +113,7 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.Model, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(resp.Body)
+		body := provider.ReadErrorBody(resp.Body)
 		return nil, fmt.Errorf("list openrouter models: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 

@@ -164,6 +164,8 @@ type Manager struct {
 	subscribers  []func(Snapshot)
 	liveSessions map[string]*session.Manager
 	pathLocks    pathLockMap
+	persistMu    sync.Mutex
+	persistSeq   map[string]int64
 	closed       bool
 	totalSpawned int
 	seq          int64
@@ -207,6 +209,7 @@ func NewManager(cfg Config) (*Manager, int, error) {
 		cancel:       map[string]context.CancelFunc{},
 		liveSessions: map[string]*session.Manager{},
 		pathLocks:    pathLockMap{},
+		persistSeq:   map[string]int64{},
 		sem:          make(chan struct{}, cfg.MaxConcurrent),
 		baseCtx:      baseCtx,
 		cancelBase:   cancelBase,
@@ -222,6 +225,7 @@ func NewManager(cfg Config) (*Manager, int, error) {
 	}
 	for _, j := range recovered {
 		m.jobs[j.ID] = j
+		m.persistSeq[j.ID] = j.Seq
 		if j.Seq > m.seq {
 			m.seq = j.Seq
 		}
@@ -535,9 +539,10 @@ func (m *Manager) markResultStatus(id string, status ResultStatus) (Result, bool
 	}
 	subs := snapshotCallbacks(m.subscribers)
 	snap := snapshotOf(j)
+	persisted := toPersisted(j)
 	m.mu.Unlock()
 
-	_ = saveSnapshot(m.cfg.JobsDir, j)
+	_ = m.savePersistedSnapshot(persisted)
 	m.fanOut(snap, subs)
 	return res, true
 }
@@ -558,7 +563,7 @@ func (m *Manager) DrainResults(n int) []Result {
 		n = len(m.results)
 	}
 	out := make([]Result, 0, n)
-	toSave := make([]*Job, 0, n)
+	toSave := make([]persistedJob, 0, n)
 	var snaps []Snapshot
 	subs := snapshotCallbacks(m.subscribers)
 	for _, r := range m.results[:n] {
@@ -566,7 +571,7 @@ func (m *Manager) DrainResults(n int) []Result {
 			j.ResultStatus = ResultStatusInjected
 			m.stampSnapshotLocked(j, time.Now().UTC(), "result injected", "", false, false)
 			out = append(out, resultFromJob(j))
-			toSave = append(toSave, j)
+			toSave = append(toSave, toPersisted(j))
 			snaps = append(snaps, snapshotOf(j))
 		} else {
 			r.Status = ResultStatusInjected
@@ -576,8 +581,8 @@ func (m *Manager) DrainResults(n int) []Result {
 	m.results = m.results[n:]
 	m.mu.Unlock()
 
-	for _, j := range toSave {
-		_ = saveSnapshot(m.cfg.JobsDir, j)
+	for _, p := range toSave {
+		_ = m.savePersistedSnapshot(p)
 	}
 	for _, snap := range snaps {
 		m.fanOut(snap, subs)
@@ -599,8 +604,9 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 	}
 	if j.State.IsTerminal() {
 		out := m.consumeResultLocked(j, ResultStatusInjected)
+		persisted := toPersisted(j)
 		m.mu.Unlock()
-		_ = saveSnapshot(m.cfg.JobsDir, j)
+		_ = m.savePersistedSnapshot(persisted)
 		return out, true
 	}
 	ch, ok := m.terminalCh[id]
@@ -632,8 +638,9 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 						return Result{}, false
 					}
 					out := m.consumeResultLocked(j3, ResultStatusInjected)
+					persisted := toPersisted(j3)
 					m.mu.Unlock()
-					_ = saveSnapshot(m.cfg.JobsDir, j3)
+					_ = m.savePersistedSnapshot(persisted)
 					return out, true
 				}
 				m.mu.RUnlock()
@@ -651,8 +658,9 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 			return Result{}, false
 		}
 		out := m.consumeResultLocked(j2, ResultStatusInjected)
+		persisted := toPersisted(j2)
 		m.mu.Unlock()
-		_ = saveSnapshot(m.cfg.JobsDir, j2)
+		_ = m.savePersistedSnapshot(persisted)
 		return out, true
 	case <-time.After(timeout):
 		return Result{}, false
@@ -796,11 +804,12 @@ func (m *Manager) Spawn(req SpawnRequest) (Snapshot, *SpawnError) {
 	m.totalSpawned++
 	m.terminalCh[id] = make(chan struct{})
 	snap := snapshotOf(job)
+	persisted := toPersisted(job)
 	subscribers := snapshotCallbacks(m.subscribers)
 	m.mu.Unlock()
 
 	// Persist the queued state best-effort.
-	_ = saveSnapshot(m.cfg.JobsDir, job)
+	_ = m.savePersistedSnapshot(persisted)
 
 	m.fanOut(snap, subscribers)
 
@@ -1032,9 +1041,10 @@ func (m *Manager) markTerminal(j *Job, newState State, summary, errMsg, reason s
 	subs := snapshotCallbacks(m.subscribers)
 	ch := m.terminalCh[j.ID]
 	snap := snapshotOf(j)
+	persisted := toPersisted(j)
 	m.mu.Unlock()
 
-	_ = saveSnapshot(m.cfg.JobsDir, j)
+	_ = m.savePersistedSnapshot(persisted)
 
 	if ch != nil {
 		// Best-effort close (channel may have been closed by a racing
@@ -1060,8 +1070,9 @@ func (m *Manager) markRunning(j *Job) {
 	m.stampSnapshotLocked(j, now, "working", "started", false, false)
 	subs := snapshotCallbacks(m.subscribers)
 	snap := snapshotOf(j)
+	persisted := toPersisted(j)
 	m.mu.Unlock()
-	_ = saveSnapshot(m.cfg.JobsDir, j)
+	_ = m.savePersistedSnapshot(persisted)
 	m.fanOut(snap, subs)
 }
 
@@ -1074,9 +1085,22 @@ func (m *Manager) updateActivity(j *Job, activity, message string, needsInput, n
 	m.stampSnapshotLocked(j, time.Now().UTC(), activity, message, needsInput, needsApproval)
 	subs := snapshotCallbacks(m.subscribers)
 	snap := snapshotOf(j)
+	persisted := toPersisted(j)
 	m.mu.Unlock()
-	_ = saveSnapshot(m.cfg.JobsDir, j)
+	_ = m.savePersistedSnapshot(persisted)
 	m.fanOut(snap, subs)
+}
+
+func (m *Manager) savePersistedSnapshot(p persistedJob) error {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
+	if p.Seq > 0 && p.Seq < m.persistSeq[p.ID] {
+		return nil
+	}
+	if p.Seq > m.persistSeq[p.ID] {
+		m.persistSeq[p.ID] = p.Seq
+	}
+	return savePersistedSnapshot(m.cfg.JobsDir, p)
 }
 
 func (m *Manager) touchJobLocked(j *Job, activity, message string) {

@@ -138,17 +138,26 @@ func fromPersisted(p persistedJob) *Job {
 // saveSnapshot persists a Job to <jobsDir>/<id>.json with atomic
 // temp-file-then-rename semantics, mirroring session.Manager.Save.
 func saveSnapshot(jobsDir string, j *Job) error {
+	return savePersistedSnapshot(jobsDir, toPersisted(j))
+}
+
+func savePersistedSnapshot(jobsDir string, p persistedJob) error {
 	if jobsDir == "" {
 		return nil
 	}
 	if err := os.MkdirAll(jobsDir, 0o700); err != nil {
 		return fmt.Errorf("save job: ensure dir: %w", err)
 	}
-	data, err := json.MarshalIndent(toPersisted(j), "", "  ")
+	final := filepath.Join(jobsDir, p.ID+".json")
+	if p.Seq > 0 {
+		if existing, ok := readPersistedJob(final); ok && existing.Seq > p.Seq {
+			return nil
+		}
+	}
+	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return fmt.Errorf("save job: marshal: %w", err)
 	}
-	final := filepath.Join(jobsDir, j.ID+".json")
 	tmp, err := os.CreateTemp(jobsDir, ".job.*.json.tmp")
 	if err != nil {
 		return fmt.Errorf("save job: create temp: %w", err)
@@ -168,6 +177,18 @@ func saveSnapshot(jobsDir string, j *Job) error {
 		return fmt.Errorf("save job: rename: %w", err)
 	}
 	return nil
+}
+
+func readPersistedJob(path string) (persistedJob, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return persistedJob{}, false
+	}
+	var p persistedJob
+	if err := json.Unmarshal(data, &p); err != nil {
+		return persistedJob{}, false
+	}
+	return p, true
 }
 
 // loadOrphaned scans jobsDir for any persisted jobs that were Queued or

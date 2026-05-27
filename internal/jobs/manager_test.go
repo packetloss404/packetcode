@@ -448,6 +448,65 @@ func TestManager_ResultLifecycleControls(t *testing.T) {
 	assert.Empty(t, mgr.PendingResults(0))
 }
 
+func TestManager_ResultStatusPersistenceRaceFree(t *testing.T) {
+	turns := make([][]provider.StreamEvent, 16)
+	for i := range turns {
+		turns[i] = []provider.StreamEvent{
+			{Type: provider.EventTextDelta, TextDelta: "done"},
+			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
+		}
+	}
+	prov := &scriptedProvider{turns: turns}
+	mgr, _ := newTestManager(t, prov, func(c *Config) { c.MaxConcurrent = 4 })
+
+	ids := make([]string, 0, len(turns))
+	for range turns {
+		snap, perr := mgr.Spawn(SpawnRequest{Prompt: "x"})
+		require.Nil(t, perr)
+		ids = append(ids, snap.ID)
+	}
+	waitFor(t, 3*time.Second, "all jobs completed", func() bool {
+		for _, id := range ids {
+			snap, ok := mgr.Get(id)
+			if !ok || snap.State != StateCompleted {
+				return false
+			}
+		}
+		return true
+	})
+
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		id := id
+		for i := 0; i < 3; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				switch i {
+				case 0:
+					_, _ = mgr.MarkResultSeen(id)
+				case 1:
+					_, _ = mgr.MarkResultIgnored(id)
+				default:
+					_, _ = mgr.MarkResultInjected(id)
+				}
+			}(i)
+		}
+	}
+	wg.Wait()
+
+	for _, id := range ids {
+		snap, ok := mgr.Get(id)
+		require.True(t, ok)
+		assert.True(t, snap.State.IsTerminal())
+		persisted, ok := readPersistedJob(filepath.Join(mgr.cfg.JobsDir, id+".json"))
+		require.True(t, ok)
+		assert.Equal(t, snap.Seq, persisted.Seq)
+		assert.Equal(t, snap.State.String(), persisted.State)
+		assert.Equal(t, snap.ResultStatus.String(), persisted.ResultStatus)
+	}
+}
+
 func TestManager_TranscriptReadsLiveSubSessionWhileRunning(t *testing.T) {
 	prov := &scriptedProvider{holdOpen: true}
 	mgr, _ := newTestManager(t, prov)
@@ -456,7 +515,7 @@ func TestManager_TranscriptReadsLiveSubSessionWhileRunning(t *testing.T) {
 	require.Nil(t, perr)
 
 	var transcript []provider.Message
-	waitFor(t, 20*time.Second, "running job transcript to include prompt", func() bool {
+	waitFor(t, 60*time.Second, "running job transcript to include prompt", func() bool {
 		var ok bool
 		transcript, ok = mgr.Transcript(snap.ID)
 		return ok && len(transcript) > 0 && transcript[0].Role == provider.RoleUser

@@ -227,9 +227,10 @@ func (m *Manager) applyUsage(j *Job, usage provider.Usage) {
 	m.stampSnapshotLocked(j, time.Now().UTC(), "", "", j.NeedsInput, j.NeedsApproval)
 	subs := snapshotCallbacks(m.subscribers)
 	snap := snapshotOf(j)
+	persisted := toPersisted(j)
 	m.mu.Unlock()
 
-	_ = saveSnapshot(m.cfg.JobsDir, j)
+	_ = m.savePersistedSnapshot(persisted)
 	m.fanOut(snap, subs)
 }
 

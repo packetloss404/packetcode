@@ -68,7 +68,7 @@ func (p *Provider) ValidateKey(ctx context.Context, apiKey string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(resp.Body)
+		body := provider.ReadErrorBody(resp.Body)
 		return fmt.Errorf("validate key: status %d: %s", resp.StatusCode, extractErrorMessage(body))
 	}
 	return nil
@@ -98,7 +98,7 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.Model, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(resp.Body)
+		body := provider.ReadErrorBody(resp.Body)
 		return nil, fmt.Errorf("list models: status %d: %s", resp.StatusCode, extractErrorMessage(body))
 	}
 
@@ -157,7 +157,7 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 		return nil, fmt.Errorf("request: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(resp.Body)
+		body := provider.ReadErrorBody(resp.Body)
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, extractErrorMessage(body))
 	}
