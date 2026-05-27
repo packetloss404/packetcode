@@ -173,6 +173,7 @@ type App struct {
 	lastStatusLineErr  error
 	jobSeqSeen         map[string]int64
 	jobTerminalSeen    map[string]bool
+	jobWorktreeSeen    map[string]bool
 }
 
 // isCancellation reports whether err is (or wraps) a context cancellation
@@ -272,6 +273,7 @@ func New(deps Deps) (*App, error) {
 		startedAt:        time.Now(),
 		jobSeqSeen:       map[string]int64{},
 		jobTerminalSeen:  map[string]bool{},
+		jobWorktreeSeen:  map[string]bool{},
 	}
 
 	if deps.Jobs != nil {
@@ -1105,6 +1107,15 @@ func (a *App) handleJobUpdate(snap jobs.Snapshot) (tea.Model, tea.Cmd) {
 		a.jobSeqSeen[snap.ID] = snap.Seq
 	}
 	a.refreshTopBar()
+	if wt := worktreeSummary(snap); wt != "" {
+		if a.jobWorktreeSeen == nil {
+			a.jobWorktreeSeen = map[string]bool{}
+		}
+		if !a.jobWorktreeSeen[snap.ID] {
+			a.conversation.AppendSystem(fmt.Sprintf("[job:%s worktree] %s", snap.ID, wt))
+			a.jobWorktreeSeen[snap.ID] = true
+		}
+	}
 	if snap.State.IsTerminal() {
 		if a.jobTerminalSeen == nil {
 			a.jobTerminalSeen = map[string]bool{}
@@ -1157,7 +1168,12 @@ func formatTerminalJobLine(snap jobs.Snapshot) string {
 		body += "error: " + snap.Error
 	}
 	if body == "" {
-		return head
+		body = worktreeSummary(snap)
+		if body == "" {
+			return head
+		}
+	} else if wt := worktreeSummary(snap); wt != "" {
+		body += "\n" + wt
 	}
 	return head + "\n" + body
 }
@@ -1181,11 +1197,34 @@ func formatAgentPeek(snap jobs.Snapshot) string {
 	if body == "" {
 		body = strings.TrimSpace(snap.Prompt)
 	}
+	if wt := worktreeSummary(snap); wt != "" {
+		if body != "" {
+			body += "\n"
+		}
+		body += wt
+	}
 	head := fmt.Sprintf("[agent:%s — %s · %s]", snap.ID, snap.State.String(), prov)
 	if body == "" {
 		return head
 	}
 	return head + "\n" + body
+}
+
+func worktreeSummary(snap jobs.Snapshot) string {
+	if snap.WorktreePath != "" {
+		parts := []string{"worktree: " + snap.WorktreePath}
+		if snap.WorktreeBranch != "" {
+			parts = append(parts, "branch "+snap.WorktreeBranch)
+		}
+		if snap.WorktreeBase != "" {
+			parts = append(parts, "base "+snap.WorktreeBase)
+		}
+		return strings.Join(parts, " · ")
+	}
+	if snap.AllowWrite && snap.WorktreeNote != "" {
+		return "worktree unavailable: " + snap.WorktreeNote
+	}
+	return ""
 }
 
 func agentResultBody(r jobs.Result) string {
@@ -1199,7 +1238,24 @@ func agentResultBody(r jobs.Result) string {
 	if summary == "" {
 		summary = "(no summary)"
 	}
+	if r.WorktreePath != "" {
+		summary += "\n" + resultWorktreeSummary(r)
+	}
 	return fmt.Sprintf("[Background job %s result]\n%s", r.JobID, summary)
+}
+
+func resultWorktreeSummary(r jobs.Result) string {
+	if r.WorktreePath == "" {
+		return ""
+	}
+	parts := []string{"worktree: " + r.WorktreePath}
+	if r.WorktreeBranch != "" {
+		parts = append(parts, "branch "+r.WorktreeBranch)
+	}
+	if r.WorktreeBase != "" {
+		parts = append(parts, "base "+r.WorktreeBase)
+	}
+	return strings.Join(parts, " · ")
 }
 
 // roundedDuration renders a duration as a short "12s" / "1m03s" string
@@ -1326,7 +1382,11 @@ func (a *App) handleSpawnCommand(args []string) (tea.Model, tea.Cmd) {
 			prov = snap.Model
 		}
 	}
-	a.conversation.AppendSystem(fmt.Sprintf("[job:%s queued — %s] %s", snap.ID, prov, snap.Prompt))
+	mode := "read-only"
+	if allowWrite {
+		mode = "write · worktree pending"
+	}
+	a.conversation.AppendSystem(fmt.Sprintf("[job:%s queued — %s · %s] %s", snap.ID, prov, mode, snap.Prompt))
 	// Reflect the new job on the top bar immediately. The Subscribe
 	// fanout will do this too, but asynchronously on a goroutine —
 	// bumping the counter here is synchronous and matches the user's
@@ -1493,7 +1553,7 @@ func renderJobsTable(snaps []jobs.Snapshot) string {
 		return snaps[i].CreatedAt.After(snaps[j].CreatedAt)
 	})
 	var b strings.Builder
-	b.WriteString("ID    STATE      PROV/MODEL              AGE    TOK(IN/OUT)  PROMPT\n")
+	b.WriteString("ID    STATE      ROOT      PROV/MODEL              AGE    TOK(IN/OUT)  PROMPT\n")
 	now := time.Now()
 	for _, s := range snaps {
 		prov := s.Provider
@@ -1510,8 +1570,25 @@ func renderJobsTable(snaps []jobs.Snapshot) string {
 		if len(prompt) > 50 {
 			prompt = prompt[:47] + "..."
 		}
-		fmt.Fprintf(&b, "%-5s %-10s %-23s %-6s %-12s %s\n",
-			trunc(s.ID, 5), trunc(s.State.String(), 10), trunc(prov, 23), age, trunc(tok, 12), prompt)
+		rootMode := "main"
+		if s.WorktreePath != "" {
+			rootMode = "worktree"
+		} else if s.AllowWrite {
+			if s.State.IsTerminal() {
+				if s.State == jobs.StateFailed {
+					rootMode = "failed"
+				} else {
+					rootMode = "none"
+				}
+			} else {
+				rootMode = "pending"
+			}
+		}
+		fmt.Fprintf(&b, "%-5s %-10s %-9s %-23s %-6s %-12s %s\n",
+			trunc(s.ID, 5), trunc(s.State.String(), 10), trunc(rootMode, 9), trunc(prov, 23), age, trunc(tok, 12), prompt)
+		if wt := worktreeSummary(s); wt != "" {
+			fmt.Fprintf(&b, "      %s\n", wt)
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

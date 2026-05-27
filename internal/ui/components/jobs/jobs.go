@@ -208,7 +208,29 @@ func (m Model) renderHeader() string {
 		"%s · %s · %s · $%.4f",
 		state, prov, age, s.CostUSD,
 	))
-	return id + " " + rest
+	header := id + " " + rest
+	if wt := m.renderWorktreeLine(); wt != "" {
+		header += "\n" + theme.StyleDim.Render(wt)
+	}
+	return header
+}
+
+func (m Model) renderWorktreeLine() string {
+	s := m.snap
+	if s.WorktreePath == "" {
+		if s.AllowWrite && s.WorktreeNote != "" {
+			return "worktree unavailable: " + s.WorktreeNote
+		}
+		return ""
+	}
+	parts := []string{"worktree: " + s.WorktreePath}
+	if s.WorktreeBranch != "" {
+		parts = append(parts, "branch "+s.WorktreeBranch)
+	}
+	if s.WorktreeBase != "" {
+		parts = append(parts, "base "+s.WorktreeBase)
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m Model) renderFooter() string {

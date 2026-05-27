@@ -66,6 +66,33 @@ func TestJobsPanel_RendersTranscript(t *testing.T) {
 	assert.Contains(t, out, "G newest")
 }
 
+func TestJobsPanel_RendersWorktreeHeaderLine(t *testing.T) {
+	m := New()
+	m.Resize(120, 24)
+	snap := fakeSnap()
+	snap.AllowWrite = true
+	snap.WorktreePath = "wt/7f3a0b12"
+	snap.WorktreeBranch = "packetcode-job-7f3a0b12"
+	snap.WorktreeBase = "deadbeef"
+	m.Show(snap, nil)
+
+	out := m.View()
+	assert.Contains(t, out, "worktree: wt/7f3a0b12")
+	assert.Contains(t, out, "branch packetcode-job-7f3a0b12")
+	assert.Contains(t, out, "base deadbeef")
+}
+
+func TestJobsPanel_RendersWorktreeUnavailableHeaderLine(t *testing.T) {
+	m := New()
+	m.Resize(120, 24)
+	snap := fakeSnap()
+	snap.AllowWrite = true
+	snap.WorktreeNote = "git rejected repository ownership"
+	m.Show(snap, nil)
+
+	assert.Contains(t, m.View(), "worktree unavailable: git rejected repository ownership")
+}
+
 // TestJobsPanel_EscClosesPanel verifies Esc toggles Visible() off. We
 // push the key through Update the same way the App shell does.
 func TestJobsPanel_EscClosesPanel(t *testing.T) {

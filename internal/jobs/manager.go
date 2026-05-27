@@ -45,9 +45,10 @@ type Config struct {
 
 	// SessionsDir / BackupsDir / JobsDir are the per-tree state dirs.
 	// Each job creates its own session.Manager rooted at SessionsDir.
-	SessionsDir string
-	BackupsDir  string
-	JobsDir     string
+	SessionsDir  string
+	BackupsDir   string
+	JobsDir      string
+	WorktreesDir string
 
 	// CostTracker is shared with the main App; jobs key into it under
 	// their own sub-session ids so totals naturally aggregate.
@@ -142,18 +143,21 @@ func (e *SpawnError) Error() string {
 // back to its parent and that DrainResults yields to the App for inline
 // notification.
 type Result struct {
-	JobID        string
-	Provider     string
-	Model        string
-	Summary      string
-	Error        string
-	Reason       string
-	State        State
-	Status       ResultStatus
-	DurationMS   int64
-	InputTokens  int
-	OutputTokens int
-	CostUSD      float64
+	JobID          string
+	Provider       string
+	Model          string
+	Summary        string
+	Error          string
+	Reason         string
+	State          State
+	Status         ResultStatus
+	DurationMS     int64
+	InputTokens    int
+	OutputTokens   int
+	CostUSD        float64
+	WorktreePath   string
+	WorktreeBranch string
+	WorktreeBase   string
 }
 
 // Manager owns the lifecycle of every background job. Construction is
@@ -736,18 +740,21 @@ func resultFromJob(j *Job) Result {
 		dur = j.FinishedAt.Sub(j.StartedAt).Milliseconds()
 	}
 	return Result{
-		JobID:        j.ID,
-		Provider:     j.Provider,
-		Model:        j.Model,
-		Summary:      j.Summary,
-		Error:        j.Error,
-		Reason:       j.Reason,
-		State:        j.State,
-		Status:       normalizeResultStatus(j.ResultStatus),
-		DurationMS:   dur,
-		InputTokens:  j.InputTokens,
-		OutputTokens: j.OutputTokens,
-		CostUSD:      j.CostUSD,
+		JobID:          j.ID,
+		Provider:       j.Provider,
+		Model:          j.Model,
+		Summary:        j.Summary,
+		Error:          j.Error,
+		Reason:         j.Reason,
+		State:          j.State,
+		Status:         normalizeResultStatus(j.ResultStatus),
+		DurationMS:     dur,
+		InputTokens:    j.InputTokens,
+		OutputTokens:   j.OutputTokens,
+		CostUSD:        j.CostUSD,
+		WorktreePath:   j.WorktreePath,
+		WorktreeBranch: j.WorktreeBranch,
+		WorktreeBase:   j.WorktreeBase,
 	}
 }
 

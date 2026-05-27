@@ -108,9 +108,11 @@ Environment variables take precedence over `~/.packetcode/config.toml`.
 
 ## Background Agents
 
-`/spawn <prompt>` starts a background agent. Background agents are read-only by default; use `/spawn --write <prompt>` when a delegated task may need file writes, patches, or shell commands. Write-capable background agents still go through the normal approval flow unless trust mode is enabled.
+`/spawn <prompt>` starts a background agent. Background agents are read-only by default. Use `/spawn --write <prompt>` when a delegated task may need file writes, patches, or shell commands. Write-capable jobs run in a git worktree under `~/.packetcode/worktrees/<repo-key>/<job-id>` on branch `packetcode-job-<job-id>`, based on the current `HEAD`; uncommitted foreground changes are not copied. If git worktree isolation cannot be created, the write job fails instead of editing the main checkout.
 
 `/agents` opens Agent View, which groups jobs by state and shows provider/model, age, token counts, estimated cost, status badges, and recent activity. `Enter` or `/agents <id>` opens the transcript for a selected agent, `p` peeks, `i` injects a completed result, and `c` cancels.
+
+packetcode leaves write-job worktrees in place for inspection. Use `/jobs` or `/agents <id>` to find the path, then inspect with `git -C <path> status` or `git -C <path> diff` before merging or copying changes. To clean one up, run `git worktree remove <path>` from the source repository, then delete the `packetcode-job-<job-id>` branch if you no longer need it.
 
 See [Agent View](docs/feature-agent-view.md) for the full workflow.
 

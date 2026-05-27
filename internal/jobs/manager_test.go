@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -634,7 +635,8 @@ func TestManager_Isolation_Backups(t *testing.T) {
 		},
 	}}
 
-	root := t.TempDir()
+	root := initTestGitRepo(t)
+	worktreesDir := t.TempDir()
 	backupsRoot := t.TempDir()
 
 	parentTools := tools.NewRegistry()
@@ -643,6 +645,7 @@ func TestManager_Isolation_Backups(t *testing.T) {
 	mgr, _ := newTestManager(t, prov, func(c *Config) {
 		c.Tools = parentTools
 		c.Root = root
+		c.WorktreesDir = worktreesDir
 		c.BackupsDir = backupsRoot
 	})
 
@@ -655,6 +658,13 @@ func TestManager_Isolation_Backups(t *testing.T) {
 
 	// The backup dir for the job's sub-session id should exist...
 	got, _ := mgr.Get(snap.ID)
+	require.NotEmpty(t, got.WorktreePath)
+	assert.NotEqual(t, root, got.WorktreePath)
+	assert.Contains(t, got.WorktreePath, worktreesDir)
+	assert.NotEmpty(t, got.WorktreeBranch)
+	assert.NotEmpty(t, got.WorktreeBase)
+	assert.NoFileExists(t, filepath.Join(root, "hello.txt"))
+	assert.FileExists(t, filepath.Join(got.WorktreePath, "hello.txt"))
 	subBackup := filepath.Join(backupsRoot, "main-job-"+got.ID)
 	_ = subBackup
 	// ... and we've not perturbed the parent BackupManager (we never
@@ -672,6 +682,48 @@ func TestManager_Isolation_Backups(t *testing.T) {
 		// per-job sub-session, not a global parent directory.
 		assert.Contains(t, e.Name(), "-job-")
 	}
+}
+
+func TestManager_Worktree_ReadOnlyJobDoesNotCreateWorktree(t *testing.T) {
+	prov := &scriptedProvider{turns: scriptedHello()}
+	root := initTestGitRepo(t)
+	worktreesDir := t.TempDir()
+	mgr, _ := newTestManager(t, prov, func(c *Config) {
+		c.Root = root
+		c.WorktreesDir = worktreesDir
+		c.Tools = makeMainRegistry(t, root)
+	})
+
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "read only"})
+	require.Nil(t, perr)
+	waitFor(t, 2*time.Second, "read-only job completes", func() bool {
+		got, _ := mgr.Get(snap.ID)
+		return got.State == StateCompleted
+	})
+	got, _ := mgr.Get(snap.ID)
+	assert.Empty(t, got.WorktreePath)
+	assert.Empty(t, got.WorktreeBranch)
+	assert.Empty(t, got.WorktreeBase)
+	entries, err := os.ReadDir(worktreesDir)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestManager_Worktree_WriteJobFailsOutsideGitRepo(t *testing.T) {
+	prov := &scriptedProvider{turns: scriptedHello()}
+	root := t.TempDir()
+	mgr, _ := newTestManager(t, prov, func(c *Config) {
+		c.Root = root
+		c.WorktreesDir = t.TempDir()
+		c.Tools = makeMainRegistry(t, root)
+	})
+
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "write", AllowWrite: true})
+	require.Nil(t, perr)
+	waitFor(t, 2*time.Second, "write job fails without git worktree", func() bool {
+		got, _ := mgr.Get(snap.ID)
+		return got.State == StateFailed && strings.Contains(got.Error, "worktree")
+	})
 }
 
 // Test 11 — pathLockTool serialises concurrent writes targeting the
@@ -793,8 +845,8 @@ func TestManager_SnapshotMetadataMonotonicAcrossLifecycle(t *testing.T) {
 func TestManager_SnapshotMarksPendingApproval(t *testing.T) {
 	prov := &scriptedProvider{turns: [][]provider.StreamEvent{
 		{
-			{Type: provider.EventToolCallStart, ToolCall: &provider.ToolCallDelta{Index: 0, ID: "c1", Name: "danger"}},
-			{Type: provider.EventToolCallDelta, ToolCall: &provider.ToolCallDelta{Index: 0, ArgumentsDelta: `{}`}},
+			{Type: provider.EventToolCallStart, ToolCall: &provider.ToolCallDelta{Index: 0, ID: "c1", Name: "execute_command"}},
+			{Type: provider.EventToolCallDelta, ToolCall: &provider.ToolCallDelta{Index: 0, ArgumentsDelta: `{"command":"echo done"}`}},
 			{Type: provider.EventToolCallEnd, ToolCall: &provider.ToolCallDelta{Index: 0}},
 			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
 		},
@@ -807,14 +859,15 @@ func TestManager_SnapshotMarksPendingApproval(t *testing.T) {
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	toolReg := tools.NewRegistry()
-	toolReg.Register(&noopTool{name: "danger", approval: true})
+	root := initTestGitRepo(t)
 	mgr, _ := newTestManager(t, prov, func(c *Config) {
-		c.Tools = toolReg
+		c.Root = root
+		c.WorktreesDir = t.TempDir()
+		c.Tools = makeMainRegistry(t, root)
 		c.Approver = parent
 	})
 
-	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "use danger", AllowWrite: true})
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "use command", AllowWrite: true})
 	require.Nil(t, perr)
 
 	waitFor(t, 2*time.Second, "approval request to block", func() bool {
@@ -846,8 +899,8 @@ func TestManager_SnapshotMarksPendingApproval(t *testing.T) {
 func TestManager_SetPermissionPolicyAppliesToFutureJobs(t *testing.T) {
 	prov := &scriptedProvider{turns: [][]provider.StreamEvent{
 		{
-			{Type: provider.EventToolCallStart, ToolCall: &provider.ToolCallDelta{Index: 0, ID: "c1", Name: "danger"}},
-			{Type: provider.EventToolCallDelta, ToolCall: &provider.ToolCallDelta{Index: 0, ArgumentsDelta: `{}`}},
+			{Type: provider.EventToolCallStart, ToolCall: &provider.ToolCallDelta{Index: 0, ID: "c1", Name: "execute_command"}},
+			{Type: provider.EventToolCallDelta, ToolCall: &provider.ToolCallDelta{Index: 0, ArgumentsDelta: `{"command":"echo done"}`}},
 			{Type: provider.EventToolCallEnd, ToolCall: &provider.ToolCallDelta{Index: 0}},
 			{Type: provider.EventDone, Usage: &provider.Usage{InputTokens: 1, OutputTokens: 1}},
 		},
@@ -860,16 +913,17 @@ func TestManager_SetPermissionPolicyAppliesToFutureJobs(t *testing.T) {
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	toolReg := tools.NewRegistry()
-	toolReg.Register(&noopTool{name: "danger", approval: true})
+	root := initTestGitRepo(t)
 	mgr, _ := newTestManager(t, prov, func(c *Config) {
-		c.Tools = toolReg
+		c.Root = root
+		c.WorktreesDir = t.TempDir()
+		c.Tools = makeMainRegistry(t, root)
 		c.Approver = parent
 		c.PermissionPolicy = permissions.Must(config.PermissionConfig{Profile: "bypass"})
 	})
 	mgr.SetPermissionPolicy(permissions.DefaultPolicy())
 
-	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "use danger", AllowWrite: true})
+	snap, perr := mgr.Spawn(SpawnRequest{Prompt: "use command", AllowWrite: true})
 	require.Nil(t, perr)
 
 	waitFor(t, 2*time.Second, "future job to use updated ask policy", func() bool {
@@ -961,21 +1015,25 @@ func TestManager_ListOrdersByUpdatedAtThenSeq(t *testing.T) {
 // affect the snapshot.
 func TestSnapshotMatchesJob(t *testing.T) {
 	j := &Job{
-		ID:           "abc12345",
-		SessionID:    "main-job-abc12345",
-		ParentJobID:  "parent01",
-		Prompt:       "do",
-		Provider:     "scripted",
-		Model:        "model",
-		State:        StateRunning,
-		CreatedAt:    time.Now().UTC(),
-		StartedAt:    time.Now().UTC(),
-		Summary:      "s",
-		Error:        "",
-		InputTokens:  10,
-		OutputTokens: 20,
-		CostUSD:      1.5,
-		Depth:        1,
+		ID:             "abc12345",
+		SessionID:      "main-job-abc12345",
+		ParentJobID:    "parent01",
+		Prompt:         "do",
+		Provider:       "scripted",
+		Model:          "model",
+		State:          StateRunning,
+		CreatedAt:      time.Now().UTC(),
+		StartedAt:      time.Now().UTC(),
+		Summary:        "s",
+		Error:          "",
+		InputTokens:    10,
+		OutputTokens:   20,
+		CostUSD:        1.5,
+		Depth:          1,
+		WorktreePath:   "D:/tmp/packetcode-worktrees/abc12345",
+		WorktreeBranch: "packetcode-job-abc12345",
+		WorktreeBase:   "0123456789abcdef",
+		WorktreeNote:   "ready",
 	}
 	snap := snapshotOf(j)
 	assert.Equal(t, j.ID, snap.ID)
@@ -988,6 +1046,10 @@ func TestSnapshotMatchesJob(t *testing.T) {
 	assert.Equal(t, j.OutputTokens, snap.Tokens.Output)
 	assert.InDelta(t, j.CostUSD, snap.CostUSD, 1e-9)
 	assert.Equal(t, j.Depth, snap.Depth)
+	assert.Equal(t, j.WorktreePath, snap.WorktreePath)
+	assert.Equal(t, j.WorktreeBranch, snap.WorktreeBranch)
+	assert.Equal(t, j.WorktreeBase, snap.WorktreeBase)
+	assert.Equal(t, j.WorktreeNote, snap.WorktreeNote)
 
 	// Mutating the source after snapshotting must not affect the snap.
 	j.State = StateCompleted

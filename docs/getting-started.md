@@ -78,7 +78,7 @@ Type `/` to open autocomplete. Useful commands:
 | `/provider` | Open the provider picker. |
 | `/model` | Open the model picker. |
 | `/spawn <prompt>` | Start a read-only background agent. |
-| `/spawn --write <prompt>` | Start a background agent that may request write/command approval. |
+| `/spawn --write <prompt>` | Start a write-capable background agent in an isolated git worktree. |
 | `/agents` | Open Agent View for live background-agent status and actions. |
 | `/agents <id>` | Open one background-agent transcript. |
 | `/jobs` / `/jobs <id>` | List jobs or open a transcript. |
@@ -91,3 +91,5 @@ Type `/` to open autocomplete. Useful commands:
 Unknown slash commands show an error. Use `//text` when you want to send a prompt that starts with `/`.
 
 Agent View keys: `p` peeks, `Enter` or `o` opens a transcript, `c` cancels, `i` injects a completed result into the next foreground turn, and `Esc` or `q` closes the dashboard.
+
+Write-capable background agents require git worktree isolation. They create `~/.packetcode/worktrees/<repo-key>/<job-id>` on branch `packetcode-job-<job-id>` from the current `HEAD`; uncommitted foreground changes are not copied. Packetcode leaves the worktree for review after completion.

@@ -94,7 +94,7 @@ func TestRegistry_ReadOnlyDoesNotForwardUnknownTools(t *testing.T) {
 	assert.False(t, ok, "read-only jobs must not inherit unknown main-session tools")
 }
 
-func TestRegistry_AllowWriteForwardsUnknownTools(t *testing.T) {
+func TestRegistry_AllowWriteDoesNotForwardUnknownTools(t *testing.T) {
 	root := t.TempDir()
 	parent := makeMainRegistry(t, root)
 	extra := &noopTool{name: "custom_safe", approval: false}
@@ -105,8 +105,45 @@ func TestRegistry_AllowWriteForwardsUnknownTools(t *testing.T) {
 	reg := mgr.buildJobToolRegistry(0, true, "abc12345", bm, nil)
 
 	got, ok := reg.Get("custom_safe")
+	assert.False(t, ok)
+	assert.Nil(t, got)
+}
+
+func TestRegistry_AllowWriteRootOverrideUsesWorktreeRoot(t *testing.T) {
+	root := t.TempDir()
+	worktreeRoot := t.TempDir()
+	mgr := &Manager{cfg: Config{Tools: makeMainRegistry(t, root), Root: root}, pathLocks: pathLockMap{}}
+	bm := session.NewBackupManager(t.TempDir(), "s")
+
+	reg := mgr.buildJobToolRegistry(0, true, "abc12345", bm, nil, worktreeRoot)
+
+	read, ok := reg.Get("read_file")
 	require.True(t, ok)
-	assert.Equal(t, extra, got)
+	assert.Equal(t, worktreeRoot, read.(*tools.ReadFileTool).Root)
+
+	search, ok := reg.Get("search_codebase")
+	require.True(t, ok)
+	assert.Equal(t, worktreeRoot, search.(*tools.SearchCodebaseTool).Root)
+
+	list, ok := reg.Get("list_directory")
+	require.True(t, ok)
+	assert.Equal(t, worktreeRoot, list.(*tools.ListDirectoryTool).Root)
+
+	write, ok := reg.Get("write_file")
+	require.True(t, ok)
+	writeLocked := write.(*pathLockTool)
+	assert.Equal(t, worktreeRoot, writeLocked.root)
+	assert.Equal(t, worktreeRoot, writeLocked.inner.(*tools.WriteFileTool).Root)
+
+	patch, ok := reg.Get("patch_file")
+	require.True(t, ok)
+	patchLocked := patch.(*pathLockTool)
+	assert.Equal(t, worktreeRoot, patchLocked.root)
+	assert.Equal(t, worktreeRoot, patchLocked.inner.(*tools.PatchFileTool).Root)
+
+	execTool, ok := reg.Get("execute_command")
+	require.True(t, ok)
+	assert.Equal(t, worktreeRoot, execTool.(*tools.ExecuteCommandTool).Root)
 }
 
 func TestRegistry_DoesNotInheritMainSpawnAgent(t *testing.T) {

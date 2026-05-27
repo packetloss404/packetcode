@@ -34,11 +34,13 @@ func (a *spawnerAdapter) Spawn(req tools.JobSpawnRequest) (tools.JobSpawnResult,
 		return tools.JobSpawnResult{}, &tools.JobSpawnError{Code: err.Code, Reason: err.Reason}
 	}
 	return tools.JobSpawnResult{
-		ID:       snap.ID,
-		Provider: snap.Provider,
-		Model:    snap.Model,
-		Prompt:   snap.Prompt,
-		Depth:    snap.Depth,
+		ID:             snap.ID,
+		Provider:       snap.Provider,
+		Model:          snap.Model,
+		Prompt:         snap.Prompt,
+		Depth:          snap.Depth,
+		WorktreePath:   snap.WorktreePath,
+		WorktreeBranch: snap.WorktreeBranch,
 	}, nil
 }
 
@@ -52,14 +54,16 @@ func (a *spawnerAdapter) WaitForJob(id string, timeout time.Duration) (tools.Job
 		return tools.JobWaitResult{}, false
 	}
 	return tools.JobWaitResult{
-		JobID:        res.JobID,
-		Provider:     res.Provider,
-		Model:        res.Model,
-		Summary:      res.Summary,
-		State:        res.State.String(),
-		DurationMS:   res.DurationMS,
-		InputTokens:  res.InputTokens,
-		OutputTokens: res.OutputTokens,
-		CostUSD:      res.CostUSD,
+		JobID:          res.JobID,
+		Provider:       res.Provider,
+		Model:          res.Model,
+		Summary:        res.Summary,
+		State:          res.State.String(),
+		DurationMS:     res.DurationMS,
+		InputTokens:    res.InputTokens,
+		OutputTokens:   res.OutputTokens,
+		CostUSD:        res.CostUSD,
+		WorktreePath:   res.WorktreePath,
+		WorktreeBranch: res.WorktreeBranch,
 	}, true
 }

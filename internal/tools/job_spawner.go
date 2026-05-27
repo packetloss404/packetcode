@@ -48,11 +48,13 @@ type JobSpawnRequest struct {
 // Only the fields the spawn_agent tool actually consumes are mirrored;
 // callers that need more can extend this struct alongside the adapter.
 type JobSpawnResult struct {
-	ID       string
-	Provider string
-	Model    string
-	Prompt   string
-	Depth    int
+	ID             string
+	Provider       string
+	Model          string
+	Prompt         string
+	Depth          int
+	WorktreePath   string
+	WorktreeBranch string
 }
 
 // JobSpawnError mirrors jobs.SpawnError.
@@ -75,13 +77,15 @@ func (e *JobSpawnError) Error() string {
 // (e.g. "completed", "failed", "cancelled") so the tools package doesn't
 // have to re-declare the State enum.
 type JobWaitResult struct {
-	JobID        string
-	Provider     string
-	Model        string
-	Summary      string
-	State        string
-	DurationMS   int64
-	InputTokens  int
-	OutputTokens int
-	CostUSD      float64
+	JobID          string
+	Provider       string
+	Model          string
+	Summary        string
+	State          string
+	DurationMS     int64
+	InputTokens    int
+	OutputTokens   int
+	CostUSD        float64
+	WorktreePath   string
+	WorktreeBranch string
 }

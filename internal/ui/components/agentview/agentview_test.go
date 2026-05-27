@@ -8,6 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	jobspkg "github.com/packetcode/packetcode/internal/jobs"
 )
 
 func snap(id string, state string, created time.Time, prompt string) Job {
@@ -93,6 +95,33 @@ func TestAgentView_RendersStatusBadges(t *testing.T) {
 	assert.Contains(t, out, "approval")
 	assert.Contains(t, out, "seen")
 	assert.Contains(t, out, "$0.0123")
+}
+
+func TestAgentView_RendersWorktreeDetailsFromSnapshot(t *testing.T) {
+	now := time.Now()
+	s := jobspkg.Snapshot{
+		ID:             "wt111111",
+		Provider:       "openai",
+		Model:          "gpt-5",
+		State:          jobspkg.StateCompleted,
+		ResultStatus:   jobspkg.ResultStatusSeen,
+		CreatedAt:      now.Add(-time.Minute),
+		FinishedAt:     now,
+		Summary:        "updated files",
+		AllowWrite:     true,
+		WorktreePath:   "wt/wt111111",
+		WorktreeBranch: "packetcode-job-wt111111",
+		WorktreeBase:   "deadbeef",
+	}
+
+	m := New()
+	m.Resize(140, 20)
+	m.Show([]jobspkg.Snapshot{s})
+
+	out := m.View()
+	assert.Contains(t, out, "worktree: wt/wt111111")
+	assert.Contains(t, out, "packetcode-job-wt111111")
+	assert.Contains(t, out, "deadbeef")
 }
 
 func TestAgentView_SelectionMovesAcrossGroups(t *testing.T) {

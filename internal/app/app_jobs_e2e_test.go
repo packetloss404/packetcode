@@ -199,9 +199,13 @@ func TestE2E_SpawnAgentToolViaSlashCommand(t *testing.T) {
 	// (1) Conversation got the queued echo.
 	appMu.Lock()
 	hasQueued := conversationContains(app, "queued")
+	hasReadOnly := conversationContains(app, "read-only")
 	appMu.Unlock()
 	if !hasQueued {
 		t.Fatalf("expected queued echo in conversation; got %#v", app.conversation)
+	}
+	if !hasReadOnly {
+		t.Fatalf("expected read-only spawn mode in queued echo")
 	}
 
 	// (2) Top-bar counter reaches 1 while the job is running. After

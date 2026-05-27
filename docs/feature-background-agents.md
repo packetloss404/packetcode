@@ -2,7 +2,7 @@
 
 ## Summary
 
-Background agents let the user (via `/spawn`) or the main agent (via a `spawn_agent` tool call) launch independent agent loops that run concurrently with the foreground conversation. Each job is a fully isolated mini-`Agent` with its own session, cost tally, backup stack, and provider/model selection; a new `internal/jobs` package owns lifecycle, concurrency limits, cancellation, and result fan-in. Results surface in Agent View and can be explicitly injected into the foreground conversation when the user chooses.
+Background agents let the user (via `/spawn`) or the main agent (via a `spawn_agent` tool call) launch independent agent loops that run concurrently with the foreground conversation. Each job is a fully isolated mini-`Agent` with its own session, cost tally, backup stack, provider/model selection, and, for write-capable jobs, a dedicated git worktree. The `internal/jobs` package owns lifecycle, concurrency limits, cancellation, result fan-in, and worktree metadata. Results surface in Agent View and can be explicitly injected into the foreground conversation when the user chooses.
 
 ## User stories
 
@@ -50,6 +50,10 @@ type Job struct {
     CostUSD       float64
     Depth         int           // 0 for main-spawned, parent.Depth+1 otherwise
     Transcript    []provider.Message // snapshot taken when state becomes terminal
+    WorktreePath   string       // write-job git worktree root, when active
+    WorktreeBranch string
+    WorktreeBase   string
+    WorktreeNote   string
 }
 
 type Snapshot struct {  // safe-to-copy projection used by UI
@@ -74,6 +78,7 @@ type Config struct {
     SessionsDir     string                    // ~/.packetcode/sessions
     BackupsDir      string                    // ~/.packetcode/backups
     JobsDir         string                    // ~/.packetcode/jobs (transcript snapshots)
+    WorktreesDir    string                    // ~/.packetcode/worktrees (write-job worktrees)
     CostTracker     *cost.Tracker             // shared; jobs key by their own session id
     PricingFor      cost.PricingFunc
     SystemPromptFor func(parentDepth int) string  // builds job's system prompt
@@ -178,7 +183,8 @@ Valid transitions: `Queued → Running | Cancelled`; `Running → Completed | Fa
 
 - `Manager.Spawn` allocates the `Job`, persists a `queued.json`, and spawns a worker goroutine: `go m.runJob(job)`.
 - `runJob` blocks on `m.sem <- struct{}{}` to honour `MaxConcurrent`. While blocked the job is `StateQueued`. Acquisition flips to `StateRunning`.
-- The worker creates a private `session.Manager` (one-shot, in-memory + persisted under `sessions/<sub-uuid>.json`), a private `session.BackupManager` keyed by the sub-session id, and a per-job `tools.Registry` cloned from the main one but with the job's BackupManager wired into `write_file`/`patch_file` (see Isolation).
+- For write-capable jobs, the worker creates a git worktree under `~/.packetcode/worktrees/<repo-key>/<job-id>` on branch `packetcode-job-<job-id>` from the current `HEAD`. If worktree isolation cannot be created, the job fails before any agent tools run.
+- The worker creates a private `session.Manager` (one-shot, in-memory + persisted under `sessions/<sub-uuid>.json`), a private `session.BackupManager` keyed by the sub-session id, and a per-job `tools.Registry` cloned from the main one but rooted at the job worktree for write jobs (see Isolation).
 - It builds an `agent.Agent` with the per-job dependencies, calls `agent.Run(jobCtx, prompt)`, and consumes the event channel. Each `EventTextDelta` is appended to an in-memory transcript; tool events feed the live transcript surfaced by `/jobs <id>`. `EventUsageUpdate` updates `Job.InputTokens/OutputTokens` and reports to the shared `cost.Tracker` keyed by the sub-session id (so totals naturally aggregate).
 - On `EventDone` → `StateCompleted`. On `EventError` → `StateFailed`. The worker computes a `Summary` (last assistant text trimmed to ~280 chars) and pushes a `Result` to an internal results queue.
 - On any terminal state the worker releases the semaphore (`<-m.sem`), persists the final snapshot to `~/.packetcode/jobs/<short-id>.json`, and fires the final `OnUpdate`.
@@ -192,7 +198,7 @@ Valid transitions: `Queued → Running | Cancelled`; `Running → Completed | Fa
 | Cost tracking | Existing `cost.Tracker` keyed by main session id | Same shared `*cost.Tracker`, keyed by the **sub-session id**. `Tracker.Breakdown()` already returns per-session entries — the UI sums them. No tracker code change. |
 | `BackupManager` (undo) | `session.NewBackupManager(backupsDir, mainID)` | `session.NewBackupManager(backupsDir, subID)`. The job's backups live in `backups/<subID>/`. The main `/undo` only sees its own stack, so a background write does not pollute foreground undo history. |
 | Provider/model | Whatever `provider.Registry.Active()` returns | Resolved at spawn time from `SpawnRequest.Provider/Model` → `cfg.DefaultProvider/Model` → `Registry.Active()`. The job binds its (provider, model) at spawn — main session hot-switches do **not** retroactively switch a running job's model. We thread the bound (provider, model) into a per-job mini-`provider.Registry` that overrides `Active()`. |
-| Tool registry | Main `*tools.Registry` | Per-job clone built from `cfg.Tools.All()` with replacements for `write_file`/`patch_file` (job-local backup manager) and an `execute_command` wrapped to honour the per-job `cwd` lock. `spawn_agent` is included only when `Job.Depth < cfg.MaxDepth`. |
+| Tool registry | Main `*tools.Registry` | Per-job clone built from `cfg.Tools.All()` with native read/search/list/write/patch/execute tools rooted at the job worktree when `AllowWrite` is true. `write_file`/`patch_file` use the job-local backup manager and path lock wrapper. `spawn_agent` is included only when `Job.Depth < cfg.MaxDepth`. Unknown/custom/MCP-backed tools are omitted from write-job registries until they can advertise worktree-aware cloning. |
 | System prompt | `app.systemPrompt` | `cfg.SystemPromptFor(parentDepth)` returns a hardened prompt: same base but with an appended block "You are a background sub-agent. Be concise. Do not ask the user clarifying questions — make reasonable assumptions and act. Your final assistant message becomes your delivered result." Plus, when restricted, "You may only call read-only tools." |
 | Approver | `uiApprover` (channel-based) | Per the policy below — defaults to `agent.AutoApprove()` against a pre-filtered tool subset, no UI prompt. |
 
@@ -242,7 +248,7 @@ Both `/spawn` and `spawn_agent` are supported. `/spawn` is the first concrete us
 
 | Command | Effect |
 |---|---|
-| `/spawn [--provider <slug>] [--model <id>] [--write] <prompt...>` | Calls `JobManager.Spawn`. Echoes `[job:7f3a queued — gemini/gemini-2.5-flash] <prompt>` into the conversation as a system message. |
+| `/spawn [--provider <slug>] [--model <id>] [--write] <prompt...>` | Calls `JobManager.Spawn`. Echoes `[job:7f3a queued — gemini/gemini-2.5-flash · read-only] <prompt>` or `[job:7f3a queued — gemini/gemini-2.5-flash · write · worktree pending] <prompt>` into the conversation as a system message. |
 | `/agents` | Opens Agent View, a grouped dashboard with peek, open transcript, cancel, and explicit result injection actions. |
 | `/agents <id>` | Opens the transcript modal for one background agent. |
 | `/jobs` | Renders an inline ASCII table: `id  state  prov/model  age  tok in/out  prompt-snippet`. Newest first. |
@@ -293,8 +299,8 @@ func (j *jobApprover) Approve(ctx context.Context, req agent.ApprovalRequest) ag
 - **Lifetime cap:** `MaxTotal = 32` jobs per app run. Configured as `background_max_total`.
 - **Recursion depth:** default `MaxDepth = 2` (main → spawn → spawn). Configurable as `background_max_depth`. Past max depth, `spawn_agent` is not registered in the sub-agent's tool registry.
 - **Fan-out per parent:** soft-capped via system-prompt addendum; hard-capped only by global `MaxConcurrent`.
-- **File-write conflicts:** the `Manager` keeps a `map[string]*sync.Mutex` of locked absolute paths. Wrapped `write_file` and `patch_file` acquire the mutex before touching the path; conflicts serialise. Last write wins, but writes are atomic.
-- **CWD conflicts for `execute_command`:** no isolation in v1. Concurrent execs allowed; kernel handles process isolation.
+- **File-write isolation:** write-capable jobs run in per-job git worktrees, so sibling jobs do not edit the foreground checkout or each other's checkout. Wrapped `write_file` and `patch_file` still acquire a path mutex inside the job root for intra-job serialization.
+- **Command isolation:** `execute_command` runs from the job worktree root by default and can only change into directories under that root. Concurrent commands are process-isolated by the OS.
 - **Cancellation propagation:**
   - `Cancel(id)` calls the per-job `cancelFunc`, derived from `context.WithCancel(managerCtx)`.
   - The agent loop already plumbs ctx through to `provider.ChatCompletion` and `tool.Execute`.
@@ -353,6 +359,7 @@ For `StateCancelled`: `[job:7f3a — cancelled · 4s]`.
 
 - During a job's lifetime: the underlying `session.Session` is auto-saved by the existing `session.Manager.AddMessage` flow. So the *transcript* is always on disk under `~/.packetcode/sessions/<sub-uuid>.json`.
 - Job *metadata* (state, prompt, summary, timing, parent linkage) is written to `~/.packetcode/jobs/<short-id>.json` on every state transition. Atomic temp-file rename.
+- Write-job worktree metadata is persisted in the job snapshot and in a separate sentinel under `~/.packetcode/worktrees/metadata/<repo-key>/<short-id>.json`. Packetcode does not use persisted worktree paths as cleanup authority.
 - On app start, `JobManager` reads `~/.packetcode/jobs/`, finds any files in `StateRunning` or `StateQueued` (orphans from a crash), and rewrites them to `StateCancelled` with reason `previous app exit`. They appear in `/jobs` history but are not resumed.
 - On clean shutdown, in-flight jobs are cancelled and persisted with `StateCancelled` reason `app shutdown`.
 
@@ -375,7 +382,8 @@ Background job tokens **aggregate into the same `cost.Tracker`** because the tra
 | **NEW** `internal/jobs/job.go` | `State` constants, `Job`, `Snapshot`. State `String()` for logging. |
 | **NEW** `internal/jobs/manager.go` | `Manager`, `Config`, `SpawnRequest`, `SpawnError`, `Result`. Methods listed above. Owns: `jobs map[string]*Job`, `sem chan struct{}`, `cancel map[string]context.CancelFunc`, `pathLocks map[string]*sync.Mutex`, `results []Result`, `subscribers []func(Snapshot)`. |
 | **NEW** `internal/jobs/worker.go` | `(m *Manager).runJob(j *Job)`. Acquires sem, builds per-job `session.Manager`, per-job `BackupManager`, per-job tool registry via `m.buildJobToolRegistry(parentDepth, allowWrite)`, builds `agent.Agent`, runs the loop, drains events, writes Snapshot updates. Catches panics → `StateFailed`. |
-| **NEW** `internal/jobs/registry.go` | `(m *Manager).buildJobToolRegistry(parentDepth int, allowWrite bool, jobID string)`. Iterates `cfg.Tools.All()` and re-registers using job-local `BackupManager`. Adds `spawn_agent` when `parentDepth < cfg.MaxDepth-1`. Drops destructive tools when `!allowWrite`. |
+| **NEW** `internal/jobs/registry.go` | `(m *Manager).buildJobToolRegistry(parentDepth int, allowWrite bool, jobID string)`. Iterates `cfg.Tools.All()` and re-registers native tools against the job root. Adds `spawn_agent` when `parentDepth < cfg.MaxDepth-1`. Drops destructive tools when `!allowWrite`; omits unknown/custom/MCP-backed tools from write jobs until they are worktree-aware. |
+| **NEW** `internal/jobs/worktree.go` | Creates git worktrees for write-capable jobs, validates branch/path state, writes out-of-worktree sentinel metadata, and fails closed when git isolation is unavailable. |
 | **NEW** `internal/jobs/approver.go` | `jobApprover{parent agent.Approver, jobID string, allowWrite bool}` implementing `agent.Approver`. |
 | **NEW** `internal/jobs/persistence.go` | `loadOrphaned(jobsDir)` + `saveSnapshot(jobsDir string, j *Job)`. Atomic temp-file rename. |
 | **NEW** `internal/jobs/manager_test.go`, `worker_test.go`, `registry_test.go`, `approver_test.go`, `persistence_test.go` | See Tests section. |
@@ -455,7 +463,6 @@ Background job tokens **aggregate into the same `cost.Tracker`** because the tra
 ## Out of scope (v1 of this feature)
 
 - **Resumable jobs across restart.** Persisted but not re-launched.
-- **Per-job worktree isolation.** Path-lock serialisation is the v1 conflict story.
 - **Streaming sub-agent output into the main conversation in real time.** v1 surfaces only the final summary plus a transcript view on demand.
 - **Cross-job dependencies / DAG scheduling.** Each spawn is independent.
 - **Per-tool trust setting.** Trust is still all-or-nothing via `--trust`.

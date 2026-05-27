@@ -16,14 +16,18 @@ import (
 func TestSaveSnapshot_AtomicWrite(t *testing.T) {
 	dir := t.TempDir()
 	j := &Job{
-		ID:         "abcd1234",
-		SessionID:  "main-job-abcd1234",
-		Prompt:     "do",
-		Provider:   "scripted",
-		Model:      "model",
-		State:      StateCompleted,
-		CreatedAt:  time.Now().UTC(),
-		FinishedAt: time.Now().UTC(),
+		ID:             "abcd1234",
+		SessionID:      "main-job-abcd1234",
+		Prompt:         "do",
+		Provider:       "scripted",
+		Model:          "model",
+		State:          StateCompleted,
+		CreatedAt:      time.Now().UTC(),
+		FinishedAt:     time.Now().UTC(),
+		WorktreePath:   filepath.Join(dir, "worktrees", "abcd1234"),
+		WorktreeBranch: "packetcode-job-abcd1234",
+		WorktreeBase:   "0123456789abcdef",
+		WorktreeNote:   "ready",
 	}
 	require.NoError(t, saveSnapshot(dir, j))
 
@@ -40,6 +44,16 @@ func TestSaveSnapshot_AtomicWrite(t *testing.T) {
 	assert.Equal(t, "abcd1234", p.ID)
 	assert.Equal(t, "completed", p.State)
 	assert.Equal(t, "pending", p.ResultStatus)
+	assert.Equal(t, j.WorktreePath, p.WorktreePath)
+	assert.Equal(t, j.WorktreeBranch, p.WorktreeBranch)
+	assert.Equal(t, j.WorktreeBase, p.WorktreeBase)
+	assert.Equal(t, j.WorktreeNote, p.WorktreeNote)
+
+	roundTripped := fromPersisted(p)
+	assert.Equal(t, j.WorktreePath, roundTripped.WorktreePath)
+	assert.Equal(t, j.WorktreeBranch, roundTripped.WorktreeBranch)
+	assert.Equal(t, j.WorktreeBase, roundTripped.WorktreeBase)
+	assert.Equal(t, j.WorktreeNote, roundTripped.WorktreeNote)
 }
 
 func TestPersistedResultStatusDefaultsToPending(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -232,4 +234,27 @@ func waitFor(t *testing.T, timeout time.Duration, msg string, pred func() bool) 
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("waitFor timed out after %s: %s", timeout, msg)
+}
+
+func initTestGitRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "packetcode-test@example.com")
+	runGit(t, root, "config", "user.name", "Packetcode Test")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "README.md"), []byte("base\n"), 0o644))
+	runGit(t, root, "add", "README.md")
+	runGit(t, root, "commit", "-m", "initial")
+	return root
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
 }

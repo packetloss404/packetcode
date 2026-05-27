@@ -14,6 +14,18 @@ Inside the TUI, `/permissions` shows the active session policy. Configured rules
 
 Use `/permissions profile ask` to return the current session to prompt-first behavior.
 
+## `/spawn --write` Failed Before Running
+
+Write-capable background agents require git worktree isolation. If git is missing, the project is not a git repository, or git refuses the repository because of ownership checks, packetcode fails the job instead of writing in the main checkout.
+
+Run:
+
+```bash
+packetcode doctor --check project,state.worktrees
+```
+
+Then resolve the git issue directly. For dubious-ownership failures, run `git status` in the project and only add a `safe.directory` entry if you trust that checkout. For completed write jobs, `/jobs` and `/agents <id>` show the worktree path; inspect it with `git -C <path> status` and `git -C <path> diff`.
+
 ## `active provider "..." is not configured`
 
 The provider has no usable key in config or environment. Run packetcode without `--provider`, or open `Ctrl+P` / `/provider`, focus the provider, and press `Ctrl+A` to save a key. `/provider add` opens the same picker, and `/provider add <slug>` opens the same key prompt directly.

@@ -88,32 +88,36 @@ func normalizeResultStatus(s ResultStatus) ResultStatus {
 // Manager owns the canonical Job; UI/test code should consume Snapshots
 // to avoid sharing mutable state.
 type Job struct {
-	ID            string // 8-char short id, also the subsession suffix
-	SessionID     string // full id of the job's underlying session.Session
-	ParentJobID   string // "" when spawned from the main session
-	Prompt        string // initial user message
-	Provider      string // slug; may differ from main session
-	Model         string // model id under that provider
-	State         State
-	CreatedAt     time.Time
-	StartedAt     time.Time
-	FinishedAt    time.Time
-	UpdatedAt     time.Time
-	Summary       string // short result summary surfaced into main convo
-	Error         string // populated on StateFailed
-	Reason        string // free-form; "previous app exit" / "app shutdown" / etc.
-	LastActivity  string // concise activity label for dashboards
-	LastMessage   string // latest human-visible text/result snippet
-	NeedsInput    bool   // true while a job is blocked on user action
-	NeedsApproval bool   // true while a job is blocked on tool approval
-	Seq           int64  // monotonic snapshot sequence for stale-update guards
-	InputTokens   int
-	OutputTokens  int
-	CostUSD       float64
-	Depth         int                // 0 for main-spawned, parent.Depth+1 otherwise
-	Transcript    []provider.Message // snapshot taken when state becomes terminal
-	AllowWrite    bool               // tracks whether destructive tools were enabled
-	ResultStatus  ResultStatus       // pending/seen/ignored/injected after terminal result exists
+	ID             string // 8-char short id, also the subsession suffix
+	SessionID      string // full id of the job's underlying session.Session
+	ParentJobID    string // "" when spawned from the main session
+	Prompt         string // initial user message
+	Provider       string // slug; may differ from main session
+	Model          string // model id under that provider
+	State          State
+	CreatedAt      time.Time
+	StartedAt      time.Time
+	FinishedAt     time.Time
+	UpdatedAt      time.Time
+	Summary        string // short result summary surfaced into main convo
+	Error          string // populated on StateFailed
+	Reason         string // free-form; "previous app exit" / "app shutdown" / etc.
+	LastActivity   string // concise activity label for dashboards
+	LastMessage    string // latest human-visible text/result snippet
+	NeedsInput     bool   // true while a job is blocked on user action
+	NeedsApproval  bool   // true while a job is blocked on tool approval
+	Seq            int64  // monotonic snapshot sequence for stale-update guards
+	InputTokens    int
+	OutputTokens   int
+	CostUSD        float64
+	Depth          int                // 0 for main-spawned, parent.Depth+1 otherwise
+	Transcript     []provider.Message // snapshot taken when state becomes terminal
+	AllowWrite     bool               // tracks whether destructive tools were enabled
+	ResultStatus   ResultStatus       // pending/seen/ignored/injected after terminal result exists
+	WorktreePath   string             // per-job git worktree root when write isolation is active
+	WorktreeBranch string             // branch checked out by the worktree
+	WorktreeBase   string             // base ref/SHA used to create the worktree
+	WorktreeNote   string             // fallback or setup note when no worktree was created
 }
 
 // Snapshot is a safe-to-copy projection of Job for UI consumption. It
@@ -130,33 +134,38 @@ type Snapshot struct {
 	Depth                                                    int
 	NeedsInput, NeedsApproval, AllowWrite                    bool
 	Seq                                                      int64
+	WorktreePath, WorktreeBranch, WorktreeBase, WorktreeNote string
 }
 
 // snapshotOf builds a Snapshot from a Job. Caller must hold the Manager's
 // read lock (or otherwise know the Job is not being mutated).
 func snapshotOf(j *Job) Snapshot {
 	s := Snapshot{
-		ID:            j.ID,
-		ParentJobID:   j.ParentJobID,
-		Prompt:        j.Prompt,
-		Provider:      j.Provider,
-		Model:         j.Model,
-		Summary:       j.Summary,
-		Error:         j.Error,
-		State:         j.State,
-		ResultStatus:  normalizeResultStatus(j.ResultStatus),
-		CreatedAt:     j.CreatedAt,
-		StartedAt:     j.StartedAt,
-		FinishedAt:    j.FinishedAt,
-		UpdatedAt:     j.UpdatedAt,
-		CostUSD:       j.CostUSD,
-		Depth:         j.Depth,
-		LastActivity:  j.LastActivity,
-		LastMessage:   j.LastMessage,
-		NeedsInput:    j.NeedsInput,
-		NeedsApproval: j.NeedsApproval,
-		AllowWrite:    j.AllowWrite,
-		Seq:           j.Seq,
+		ID:             j.ID,
+		ParentJobID:    j.ParentJobID,
+		Prompt:         j.Prompt,
+		Provider:       j.Provider,
+		Model:          j.Model,
+		Summary:        j.Summary,
+		Error:          j.Error,
+		State:          j.State,
+		ResultStatus:   normalizeResultStatus(j.ResultStatus),
+		CreatedAt:      j.CreatedAt,
+		StartedAt:      j.StartedAt,
+		FinishedAt:     j.FinishedAt,
+		UpdatedAt:      j.UpdatedAt,
+		CostUSD:        j.CostUSD,
+		Depth:          j.Depth,
+		LastActivity:   j.LastActivity,
+		LastMessage:    j.LastMessage,
+		NeedsInput:     j.NeedsInput,
+		NeedsApproval:  j.NeedsApproval,
+		AllowWrite:     j.AllowWrite,
+		Seq:            j.Seq,
+		WorktreePath:   j.WorktreePath,
+		WorktreeBranch: j.WorktreeBranch,
+		WorktreeBase:   j.WorktreeBase,
+		WorktreeNote:   j.WorktreeNote,
 	}
 	s.Tokens.Input = j.InputTokens
 	s.Tokens.Output = j.OutputTokens

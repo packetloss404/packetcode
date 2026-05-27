@@ -65,6 +65,21 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	}
 
 	m.markRunning(j)
+	worktree, worktreeErr := m.prepareWorktree(jobCtx, j)
+	if worktreeErr != nil {
+		if jobCtx.Err() != nil {
+			m.markTerminal(j, StateCancelled, "", "", jobCtx.Err().Error(),
+				j.InputTokens, j.OutputTokens, j.CostUSD, nil)
+			return
+		}
+		m.markTerminal(j, StateFailed, "", "prepare worktree: "+worktreeErr.Error(), "",
+			j.InputTokens, j.OutputTokens, j.CostUSD, nil)
+		return
+	}
+	jobRoot := worktree.Root
+	if jobRoot == "" {
+		jobRoot = m.cfg.Root
+	}
 
 	// Build the per-job dependencies.
 	subSession, sessErr := m.openSubSession(j)
@@ -94,6 +109,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	hookRunner := m.cfg.Hooks
 	maxDepth := m.cfg.MaxDepth
 	m.mu.RUnlock()
+	hookRunner = hookRunner.WithCWD(jobRoot)
 
 	// Conditionally include spawn_agent only when the new job's depth
 	// is below MaxDepth-1 (so its children would still be inside the
@@ -104,7 +120,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 			extraTools = append(extraTools, t)
 		}
 	}
-	toolReg := m.buildJobToolRegistry(j.Depth, j.AllowWrite, j.ID, backups, extraTools)
+	toolReg := m.buildJobToolRegistry(j.Depth, j.AllowWrite, j.ID, backups, extraTools, jobRoot)
 
 	systemPrompt := req.SystemPrompt
 	if systemPrompt == "" && systemPromptFor != nil {

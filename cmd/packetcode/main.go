@@ -295,6 +295,10 @@ func run(providerOverride, modelOverride, resumeID string, trust bool, permissio
 	if err != nil {
 		return err
 	}
+	worktreesDir, err := config.WorktreesDir()
+	if err != nil {
+		return err
+	}
 	jobsMgr, recovered, err := jobs.NewManager(jobs.Config{
 		Registry:     reg,
 		Tools:        toolReg,
@@ -302,6 +306,7 @@ func run(providerOverride, modelOverride, resumeID string, trust bool, permissio
 		SessionsDir:  sessionsDir,
 		BackupsDir:   backupsDir,
 		JobsDir:      jobsDir,
+		WorktreesDir: worktreesDir,
 		CostTracker:  tracker,
 		PricingFor: func(slug, modelID string) (float64, float64) {
 			if p, ok := reg.Get(slug); ok {

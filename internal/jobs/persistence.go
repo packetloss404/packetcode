@@ -13,60 +13,68 @@ import (
 // Mirrors Job but uses a stable JSON form so future versions can decode
 // it without depending on Go field order.
 type persistedJob struct {
-	ID            string    `json:"id"`
-	SessionID     string    `json:"session_id"`
-	ParentJobID   string    `json:"parent_job_id,omitempty"`
-	Prompt        string    `json:"prompt"`
-	Provider      string    `json:"provider"`
-	Model         string    `json:"model"`
-	State         string    `json:"state"`
-	Seq           int64     `json:"seq,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at,omitempty"`
-	StartedAt     time.Time `json:"started_at,omitempty"`
-	FinishedAt    time.Time `json:"finished_at,omitempty"`
-	LastActivity  string    `json:"last_activity,omitempty"`
-	LastMessage   string    `json:"last_message,omitempty"`
-	NeedsInput    bool      `json:"needs_input,omitempty"`
-	NeedsApproval bool      `json:"needs_approval,omitempty"`
-	Summary       string    `json:"summary,omitempty"`
-	Error         string    `json:"error,omitempty"`
-	Reason        string    `json:"reason,omitempty"`
-	InputTokens   int       `json:"input_tokens"`
-	OutputTokens  int       `json:"output_tokens"`
-	CostUSD       float64   `json:"cost_usd"`
-	Depth         int       `json:"depth"`
-	AllowWrite    bool      `json:"allow_write"`
-	ResultStatus  string    `json:"result_status,omitempty"`
+	ID             string    `json:"id"`
+	SessionID      string    `json:"session_id"`
+	ParentJobID    string    `json:"parent_job_id,omitempty"`
+	Prompt         string    `json:"prompt"`
+	Provider       string    `json:"provider"`
+	Model          string    `json:"model"`
+	State          string    `json:"state"`
+	Seq            int64     `json:"seq,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at,omitempty"`
+	StartedAt      time.Time `json:"started_at,omitempty"`
+	FinishedAt     time.Time `json:"finished_at,omitempty"`
+	LastActivity   string    `json:"last_activity,omitempty"`
+	LastMessage    string    `json:"last_message,omitempty"`
+	NeedsInput     bool      `json:"needs_input,omitempty"`
+	NeedsApproval  bool      `json:"needs_approval,omitempty"`
+	Summary        string    `json:"summary,omitempty"`
+	Error          string    `json:"error,omitempty"`
+	Reason         string    `json:"reason,omitempty"`
+	InputTokens    int       `json:"input_tokens"`
+	OutputTokens   int       `json:"output_tokens"`
+	CostUSD        float64   `json:"cost_usd"`
+	Depth          int       `json:"depth"`
+	AllowWrite     bool      `json:"allow_write"`
+	ResultStatus   string    `json:"result_status,omitempty"`
+	WorktreePath   string    `json:"worktree_path,omitempty"`
+	WorktreeBranch string    `json:"worktree_branch,omitempty"`
+	WorktreeBase   string    `json:"worktree_base,omitempty"`
+	WorktreeNote   string    `json:"worktree_note,omitempty"`
 }
 
 func toPersisted(j *Job) persistedJob {
 	return persistedJob{
-		ID:            j.ID,
-		SessionID:     j.SessionID,
-		ParentJobID:   j.ParentJobID,
-		Prompt:        j.Prompt,
-		Provider:      j.Provider,
-		Model:         j.Model,
-		State:         j.State.String(),
-		Seq:           j.Seq,
-		CreatedAt:     j.CreatedAt,
-		UpdatedAt:     j.UpdatedAt,
-		StartedAt:     j.StartedAt,
-		FinishedAt:    j.FinishedAt,
-		LastActivity:  j.LastActivity,
-		LastMessage:   j.LastMessage,
-		NeedsInput:    j.NeedsInput,
-		NeedsApproval: j.NeedsApproval,
-		Summary:       j.Summary,
-		Error:         j.Error,
-		Reason:        j.Reason,
-		InputTokens:   j.InputTokens,
-		OutputTokens:  j.OutputTokens,
-		CostUSD:       j.CostUSD,
-		Depth:         j.Depth,
-		AllowWrite:    j.AllowWrite,
-		ResultStatus:  normalizeResultStatus(j.ResultStatus).String(),
+		ID:             j.ID,
+		SessionID:      j.SessionID,
+		ParentJobID:    j.ParentJobID,
+		Prompt:         j.Prompt,
+		Provider:       j.Provider,
+		Model:          j.Model,
+		State:          j.State.String(),
+		Seq:            j.Seq,
+		CreatedAt:      j.CreatedAt,
+		UpdatedAt:      j.UpdatedAt,
+		StartedAt:      j.StartedAt,
+		FinishedAt:     j.FinishedAt,
+		LastActivity:   j.LastActivity,
+		LastMessage:    j.LastMessage,
+		NeedsInput:     j.NeedsInput,
+		NeedsApproval:  j.NeedsApproval,
+		Summary:        j.Summary,
+		Error:          j.Error,
+		Reason:         j.Reason,
+		InputTokens:    j.InputTokens,
+		OutputTokens:   j.OutputTokens,
+		CostUSD:        j.CostUSD,
+		Depth:          j.Depth,
+		AllowWrite:     j.AllowWrite,
+		ResultStatus:   normalizeResultStatus(j.ResultStatus).String(),
+		WorktreePath:   j.WorktreePath,
+		WorktreeBranch: j.WorktreeBranch,
+		WorktreeBase:   j.WorktreeBase,
+		WorktreeNote:   j.WorktreeNote,
 	}
 }
 
@@ -107,31 +115,35 @@ func fromPersisted(p persistedJob) *Job {
 		updatedAt = p.CreatedAt
 	}
 	return &Job{
-		ID:            p.ID,
-		SessionID:     p.SessionID,
-		ParentJobID:   p.ParentJobID,
-		Prompt:        p.Prompt,
-		Provider:      p.Provider,
-		Model:         p.Model,
-		State:         parseState(p.State),
-		Seq:           p.Seq,
-		CreatedAt:     p.CreatedAt,
-		UpdatedAt:     updatedAt,
-		StartedAt:     p.StartedAt,
-		FinishedAt:    p.FinishedAt,
-		LastActivity:  p.LastActivity,
-		LastMessage:   p.LastMessage,
-		NeedsInput:    p.NeedsInput,
-		NeedsApproval: p.NeedsApproval,
-		Summary:       p.Summary,
-		Error:         p.Error,
-		Reason:        p.Reason,
-		InputTokens:   p.InputTokens,
-		OutputTokens:  p.OutputTokens,
-		CostUSD:       p.CostUSD,
-		Depth:         p.Depth,
-		AllowWrite:    p.AllowWrite,
-		ResultStatus:  parseResultStatus(p.ResultStatus),
+		ID:             p.ID,
+		SessionID:      p.SessionID,
+		ParentJobID:    p.ParentJobID,
+		Prompt:         p.Prompt,
+		Provider:       p.Provider,
+		Model:          p.Model,
+		State:          parseState(p.State),
+		Seq:            p.Seq,
+		CreatedAt:      p.CreatedAt,
+		UpdatedAt:      updatedAt,
+		StartedAt:      p.StartedAt,
+		FinishedAt:     p.FinishedAt,
+		LastActivity:   p.LastActivity,
+		LastMessage:    p.LastMessage,
+		NeedsInput:     p.NeedsInput,
+		NeedsApproval:  p.NeedsApproval,
+		Summary:        p.Summary,
+		Error:          p.Error,
+		Reason:         p.Reason,
+		InputTokens:    p.InputTokens,
+		OutputTokens:   p.OutputTokens,
+		CostUSD:        p.CostUSD,
+		Depth:          p.Depth,
+		AllowWrite:     p.AllowWrite,
+		ResultStatus:   parseResultStatus(p.ResultStatus),
+		WorktreePath:   p.WorktreePath,
+		WorktreeBranch: p.WorktreeBranch,
+		WorktreeBase:   p.WorktreeBase,
+		WorktreeNote:   p.WorktreeNote,
 	}
 }
 

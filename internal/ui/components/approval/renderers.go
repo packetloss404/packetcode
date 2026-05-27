@@ -44,6 +44,14 @@ const maxApprovalDiffRows = 40
 // an error fallback. Same logic as the diff cap, looser ceiling.
 const maxFallbackPreviewLines = 40
 
+type writeDiffPreviewer interface {
+	PreviewDiff(path, content string) (string, bool, error)
+}
+
+type patchDiffPreviewer interface {
+	PreviewPatchDiff(path string, patches []tools.PatchOp) (string, error)
+}
+
 func renderWriteFile(ctx RenderContext) string {
 	var params struct {
 		Path    string `json:"path"`
@@ -52,7 +60,7 @@ func renderWriteFile(ctx RenderContext) string {
 	if err := json.Unmarshal([]byte(ctx.Arguments), &params); err != nil {
 		return renderDiffErrorFallback(err, ctx.Arguments)
 	}
-	wt, ok := ctx.Tool.(*tools.WriteFileTool)
+	wt, ok := ctx.Tool.(writeDiffPreviewer)
 	if !ok {
 		return summariseParams(ctx.Arguments)
 	}
@@ -86,7 +94,7 @@ func renderPatchFile(ctx RenderContext) string {
 	if err := json.Unmarshal([]byte(ctx.Arguments), &params); err != nil {
 		return renderDiffErrorFallback(err, ctx.Arguments)
 	}
-	pt, ok := ctx.Tool.(*tools.PatchFileTool)
+	pt, ok := ctx.Tool.(patchDiffPreviewer)
 	if !ok {
 		return summariseParams(ctx.Arguments)
 	}

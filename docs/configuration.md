@@ -85,6 +85,8 @@ Background-agent settings affect both `/spawn` and the `spawn_agent` tool:
 - `background_max_total` caps jobs created during one packetcode run.
 - `background_default_provider` and `background_default_model` override the foreground provider/model for jobs when set; empty values inherit the active provider/model.
 
+Write-capable background agents create git worktrees under `~/.packetcode/worktrees/<repo-key>/<job-id>` using branch `packetcode-job-<job-id>` and the current `HEAD` commit as the base. This state directory is internal; there is no config key for it yet. Read-only jobs do not create worktrees.
+
 `[permissions]` controls tool-call policy. `profile` can name a built-in profile (`balanced`/`ask`, `accept_edits`, `read_only`, or `bypass`) or a custom `[permissions.profiles.<name>]` table.
 
 - `balanced` / `ask` allows read/search/list and prompts for writes, shell commands, background-agent spawns, and MCP tools.

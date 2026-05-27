@@ -185,6 +185,7 @@ func buildDoctorReport() doctorReport {
 	addStateDirCheck(&r, "state.sessions", "sessions dir", config.SessionsDir)
 	addStateDirCheck(&r, "state.backups", "backups dir", config.BackupsDir)
 	addStateDirCheck(&r, "state.jobs", "jobs dir", config.JobsDir)
+	addStateDirCheck(&r, "state.worktrees", "worktrees dir", config.WorktreesDir)
 	addStateDirCheck(&r, "state.commands", "commands dir", config.UserCommandsDir)
 	addPathCheck(&r, "state.cost_tally", "cost tally path", config.CostTallyPath)
 	addPathCheck(&r, "state.theme", "theme path", config.ThemePath)

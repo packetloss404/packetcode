@@ -34,6 +34,8 @@ type Job struct {
 	ResultStatus                             string
 	Summary, Error                           string
 	LastActivity, LastMessage                string
+	WorktreePath, WorktreeBranch             string
+	WorktreeBase, WorktreeNote               string
 	CreatedAt, UpdatedAt, FinishedAt         time.Time
 	Tokens                                   struct{ Input, Output int }
 	CostUSD                                  float64
@@ -153,24 +155,28 @@ func normalizeJobs(items any) []Job {
 
 func fromSnapshot(s jobspkg.Snapshot) Job {
 	j := Job{
-		ID:            s.ID,
-		ParentJobID:   s.ParentJobID,
-		Prompt:        s.Prompt,
-		Provider:      s.Provider,
-		Model:         s.Model,
-		State:         s.State.String(),
-		ResultStatus:  s.ResultStatus.String(),
-		Summary:       s.Summary,
-		Error:         s.Error,
-		LastActivity:  s.LastActivity,
-		LastMessage:   s.LastMessage,
-		CreatedAt:     s.CreatedAt,
-		UpdatedAt:     s.UpdatedAt,
-		FinishedAt:    s.FinishedAt,
-		CostUSD:       s.CostUSD,
-		Depth:         s.Depth,
-		NeedsInput:    s.NeedsInput,
-		NeedsApproval: s.NeedsApproval,
+		ID:             s.ID,
+		ParentJobID:    s.ParentJobID,
+		Prompt:         s.Prompt,
+		Provider:       s.Provider,
+		Model:          s.Model,
+		State:          s.State.String(),
+		ResultStatus:   s.ResultStatus.String(),
+		Summary:        s.Summary,
+		Error:          s.Error,
+		LastActivity:   s.LastActivity,
+		LastMessage:    s.LastMessage,
+		WorktreePath:   s.WorktreePath,
+		WorktreeBranch: s.WorktreeBranch,
+		WorktreeBase:   s.WorktreeBase,
+		WorktreeNote:   s.WorktreeNote,
+		CreatedAt:      s.CreatedAt,
+		UpdatedAt:      s.UpdatedAt,
+		FinishedAt:     s.FinishedAt,
+		CostUSD:        s.CostUSD,
+		Depth:          s.Depth,
+		NeedsInput:     s.NeedsInput,
+		NeedsApproval:  s.NeedsApproval,
 	}
 	j.Tokens.Input = s.Tokens.Input
 	j.Tokens.Output = s.Tokens.Output
@@ -528,7 +534,10 @@ func (m Model) renderJobRow(j Job, selected bool, w int) string {
 	}, " ")
 	line = truncate(line, w)
 	if selected {
-		return lipgloss.NewStyle().Background(theme.BaseSurfaceBright).Render(line)
+		line = lipgloss.NewStyle().Background(theme.BaseSurfaceBright).Render(line)
+	}
+	if wt := worktreeMessage(j); wt != "" {
+		line += "\n" + theme.StyleDim.Render("  "+truncate(wt, max(0, w-2)))
 	}
 	return line
 }
@@ -632,6 +641,23 @@ func rowMessage(j Job) string {
 		return j.Error
 	}
 	return j.Prompt
+}
+
+func worktreeMessage(j Job) string {
+	if j.WorktreePath != "" {
+		parts := []string{"worktree: " + j.WorktreePath}
+		if j.WorktreeBranch != "" {
+			parts = append(parts, "branch "+j.WorktreeBranch)
+		}
+		if j.WorktreeBase != "" {
+			parts = append(parts, "base "+j.WorktreeBase)
+		}
+		return strings.Join(parts, " · ")
+	}
+	if j.WorktreeNote != "" {
+		return "worktree unavailable: " + j.WorktreeNote
+	}
+	return ""
 }
 
 func nonEmpty(v, fallback string) string {

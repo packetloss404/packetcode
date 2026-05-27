@@ -73,6 +73,20 @@ func JobsDir() (string, error) {
 	return jobs, nil
 }
 
+// WorktreesDir returns ~/.packetcode/worktrees/, creating it if missing.
+// Write-enabled background agents create per-job git worktrees here.
+func WorktreesDir() (string, error) {
+	dir, err := HomeDir()
+	if err != nil {
+		return "", err
+	}
+	worktrees := filepath.Join(dir, "worktrees")
+	if err := EnsureDir(worktrees); err != nil {
+		return "", err
+	}
+	return worktrees, nil
+}
+
 // CostTallyPath returns ~/.packetcode/cost-tally.json.
 // The directory is created if missing; the file is not.
 func CostTallyPath() (string, error) {

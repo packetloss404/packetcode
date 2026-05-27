@@ -66,6 +66,13 @@ func New(cfg config.HooksConfig, cwd string) *Runner {
 	return &Runner{cfg: cfg, cwd: cwd}
 }
 
+func (r *Runner) WithCWD(cwd string) *Runner {
+	if r == nil {
+		return nil
+	}
+	return &Runner{cfg: r.cfg, cwd: cwd}
+}
+
 func (r *Runner) RunUserPromptSubmit(ctx context.Context, payload PromptPayload) (string, error) {
 	if r == nil {
 		return "", nil

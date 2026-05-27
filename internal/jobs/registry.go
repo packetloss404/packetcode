@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	"github.com/packetcode/packetcode/internal/session"
@@ -50,6 +51,7 @@ func (m *Manager) buildJobToolRegistry(
 	jobID string,
 	backups *session.BackupManager,
 	extraTools []tools.Tool,
+	rootOverride ...string,
 ) *tools.Registry {
 	out := tools.NewRegistry()
 
@@ -66,6 +68,9 @@ func (m *Manager) buildJobToolRegistry(
 	}
 
 	root := m.cfg.Root
+	if len(rootOverride) > 0 && rootOverride[0] != "" {
+		root = rootOverride[0]
+	}
 	for _, t := range src.All() {
 		name := t.Name()
 		switch {
@@ -81,9 +86,10 @@ func (m *Manager) buildJobToolRegistry(
 			// worker has already applied depth and parent-write gates.
 			continue
 		default:
-			if allowWrite {
-				out.Register(t)
-			}
+			// Unknown and MCP-backed tools are not guaranteed to honor
+			// the per-job worktree root. Leave them out until they can
+			// advertise workspace-aware cloning.
+			continue
 		}
 	}
 	for _, t := range extraTools {
@@ -145,6 +151,26 @@ func (p *pathLockTool) Name() string            { return p.inner.Name() }
 func (p *pathLockTool) Description() string     { return p.inner.Description() }
 func (p *pathLockTool) Schema() json.RawMessage { return p.inner.Schema() }
 func (p *pathLockTool) RequiresApproval() bool  { return p.inner.RequiresApproval() }
+
+func (p *pathLockTool) PreviewDiff(path, content string) (string, bool, error) {
+	previewer, ok := p.inner.(interface {
+		PreviewDiff(string, string) (string, bool, error)
+	})
+	if !ok {
+		return "", false, fmt.Errorf("%s does not support diff previews", p.Name())
+	}
+	return previewer.PreviewDiff(path, content)
+}
+
+func (p *pathLockTool) PreviewPatchDiff(path string, patches []tools.PatchOp) (string, error) {
+	previewer, ok := p.inner.(interface {
+		PreviewPatchDiff(string, []tools.PatchOp) (string, error)
+	})
+	if !ok {
+		return "", fmt.Errorf("%s does not support patch previews", p.Name())
+	}
+	return previewer.PreviewPatchDiff(path, patches)
+}
 
 func (p *pathLockTool) Execute(ctx context.Context, raw json.RawMessage) (tools.ToolResult, error) {
 	abs := p.extractPath(raw)
