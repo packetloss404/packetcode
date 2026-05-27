@@ -75,6 +75,33 @@ func TestAppendToolArtifact_CompactsPersistedMetadata(t *testing.T) {
 	assert.NotContains(t, artifacts[0].Metadata, "stdout")
 }
 
+func TestAppendToolArtifact_CodeIntelSummaryIncludesScopeAndEngine(t *testing.T) {
+	call := provider.ToolCall{
+		Name:      "find_references",
+		Arguments: `{"symbol":"NewServer","scope_path":"internal","file_glob":"**/*.go"}`,
+	}
+	res := tools.ToolResult{
+		Content: "Found 2 reference(s) for \"NewServer\"",
+		Metadata: map[string]any{
+			"symbol":          "NewServer",
+			"reference_count": 2,
+			"engine":          "lexical-fallback",
+			"confidence":      "low",
+			"truncated":       true,
+		},
+	}
+
+	artifacts := appendToolArtifact(nil, call, res, nowForArtifactTest())
+	require.Len(t, artifacts, 1)
+	assert.Equal(t, "code_intel", artifacts[0].Kind)
+	assert.True(t, artifacts[0].Truncated)
+	assert.Contains(t, artifacts[0].Summary, "2 reference(s) for NewServer")
+	assert.Contains(t, artifacts[0].Summary, "scope internal")
+	assert.Contains(t, artifacts[0].Summary, "glob **/*.go")
+	assert.Contains(t, artifacts[0].Summary, "via lexical-fallback low confidence")
+	assert.Contains(t, artifacts[0].Summary, "truncated")
+}
+
 func TestAppendWorktreeArtifacts_CapturesCommandGeneratedFiles(t *testing.T) {
 	root := initTestGitRepo(t)
 	worktreesDir := t.TempDir()

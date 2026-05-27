@@ -123,7 +123,8 @@ As with every MCP tool, every `fetch__fetch` call requires approval.
   collide — you'll see e.g. `filesystem__read_file` and
   `git__read_file`.
 - Native tools (`read_file`, `write_file`, `patch_file`,
-  `search_codebase`, `list_directory`, `execute_command`,
+  `search_codebase`, `list_directory`, `list_symbols`,
+  `find_definition`, `find_references`, `get_diagnostics`, `execute_command`,
   `spawn_agent`) are never prefixed and never collide with MCP tools.
 - Every MCP tool returns `true` from `RequiresApproval()`, no matter
   what the server is. Trust mode (`--trust` or `trust_mode = true`)

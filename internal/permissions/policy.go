@@ -321,7 +321,7 @@ func profileDecision(profile Profile, req Request) (Decision, string) {
 
 func readOnlyTool(name string) bool {
 	switch name {
-	case "read_file", "search_codebase", "list_directory":
+	case "read_file", "search_codebase", "list_directory", "list_symbols", "find_definition", "find_references", "get_diagnostics":
 		return true
 	default:
 		return false

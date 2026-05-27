@@ -11,6 +11,10 @@ func TestPolicy_DefaultProfilePromptsDestructiveAllowsRead(t *testing.T) {
 	p := Must(config.PermissionConfig{})
 
 	assertDecision(t, p, Request{ToolName: "read_file"}, DecisionAllow)
+	assertDecision(t, p, Request{ToolName: "list_symbols"}, DecisionAllow)
+	assertDecision(t, p, Request{ToolName: "find_definition"}, DecisionAllow)
+	assertDecision(t, p, Request{ToolName: "find_references"}, DecisionAllow)
+	assertDecision(t, p, Request{ToolName: "get_diagnostics"}, DecisionAllow)
 	assertDecision(t, p, Request{ToolName: "write_file", RequiresApproval: true}, DecisionAsk)
 	assertDecision(t, p, Request{ToolName: "execute_command", RequiresApproval: true}, DecisionAsk)
 	assertDecision(t, p, Request{ToolName: "filesystem__write_file", RequiresApproval: true}, DecisionAsk)
@@ -37,6 +41,8 @@ func TestPolicy_SafeProfileDeniesDestructiveAndAllowsRead(t *testing.T) {
 	p := Must(config.PermissionConfig{Profile: string(ProfileSafe)})
 
 	assertDecision(t, p, Request{ToolName: "search_codebase"}, DecisionAllow)
+	assertDecision(t, p, Request{ToolName: "find_references"}, DecisionAllow)
+	assertDecision(t, p, Request{ToolName: "get_diagnostics"}, DecisionAllow)
 	assertDecision(t, p, Request{ToolName: "patch_file", RequiresApproval: true}, DecisionDeny)
 	assertDecision(t, p, Request{ToolName: "spawn_agent", RequiresApproval: true}, DecisionDeny)
 	assertDecision(t, p, Request{ToolName: "filesystem__read_file", RequiresApproval: true}, DecisionDeny)

@@ -25,6 +25,8 @@ Profiles:
 - `read_only`: deny approval-gated tools.
 - `bypass`: auto-approve approval-gated tools.
 
+Read-only native tools include file reads, search/list operations, and code-intelligence lookups (`list_symbols`, `find_definition`, `find_references`, `get_diagnostics`). They remain root-scoped and do not require approval.
+
 `--trust` and `trust_mode = true` auto-approve actions that the policy would otherwise ask for. Explicit `deny` rules still deny.
 
 ## Rules

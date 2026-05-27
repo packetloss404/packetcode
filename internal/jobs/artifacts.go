@@ -226,6 +226,50 @@ func artifactFromTool(seq int, call provider.ToolCall, res tools.ToolResult, at 
 		if pattern != "" {
 			a.Summary += " for " + pattern
 		}
+	case "list_symbols":
+		a.Kind = "code_intel"
+		a.Title = "list symbols"
+		a.Summary = fmt.Sprintf("%d symbol(s)", intValue(meta, "symbol_count"))
+		if query := stringValue(args, "query"); query != "" {
+			a.Summary += " matching " + query
+		}
+		a.Summary += codeIntelScopeSuffix(args)
+		a.Summary += codeIntelEngineSuffix(meta)
+	case "find_definition":
+		symbol := stringValue(meta, "symbol")
+		if symbol == "" {
+			symbol = stringValue(args, "symbol")
+		}
+		a.Kind = "code_intel"
+		a.Title = "find definition " + nonEmptyString(symbol, "(symbol)")
+		a.Summary = fmt.Sprintf("%d definition candidate(s)", intValue(meta, "definition_count"))
+		if symbol != "" {
+			a.Summary += " for " + symbol
+		}
+		a.Summary += codeIntelScopeSuffix(args)
+		a.Summary += codeIntelEngineSuffix(meta)
+	case "find_references":
+		symbol := stringValue(meta, "symbol")
+		if symbol == "" {
+			symbol = stringValue(args, "symbol")
+		}
+		a.Kind = "code_intel"
+		a.Title = "find references " + nonEmptyString(symbol, "(symbol)")
+		a.Summary = fmt.Sprintf("%d reference(s)", intValue(meta, "reference_count"))
+		if symbol != "" {
+			a.Summary += " for " + symbol
+		}
+		a.Summary += codeIntelScopeSuffix(args)
+		a.Summary += codeIntelEngineSuffix(meta)
+	case "get_diagnostics":
+		a.Kind = "code_intel"
+		a.Title = "get diagnostics"
+		a.Summary = fmt.Sprintf("%d diagnostic(s)", intValue(meta, "diagnostic_count"))
+		a.Summary += codeIntelScopeSuffix(args)
+		if skipped := intValue(meta, "unsupported_files"); skipped > 0 {
+			a.Summary += fmt.Sprintf(", %d unsupported", skipped)
+		}
+		a.Summary += codeIntelEngineSuffix(meta)
 	case "read_file":
 		path := stringValue(meta, "path")
 		a.Kind = "file_read"
@@ -312,6 +356,44 @@ func truncateRunes(s string, max int) string {
 	return string(rs[:max])
 }
 
+func codeIntelScopeSuffix(args map[string]any) string {
+	var parts []string
+	if path := stringValue(args, "path"); path != "" {
+		parts = append(parts, "path "+path)
+	}
+	if scope := stringValue(args, "scope_path"); scope != "" {
+		parts = append(parts, "scope "+scope)
+	}
+	if glob := stringValue(args, "file_glob"); glob != "" {
+		parts = append(parts, "glob "+glob)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " in " + strings.Join(parts, ", ")
+}
+
+func codeIntelEngineSuffix(meta map[string]any) string {
+	engine := stringValue(meta, "engine")
+	confidence := stringValue(meta, "confidence")
+	if boolValue(meta, "truncated") {
+		if engine == "" && confidence == "" {
+			return " (truncated)"
+		}
+		if confidence == "" {
+			return " via " + engine + " (truncated)"
+		}
+		return " via " + engine + " " + confidence + " confidence (truncated)"
+	}
+	if engine == "" {
+		return ""
+	}
+	if confidence == "" {
+		return " via " + engine
+	}
+	return " via " + engine + " " + confidence + " confidence"
+}
+
 func stringValue(m map[string]any, key string) string {
 	if m == nil {
 		return ""
@@ -391,6 +473,7 @@ func ArtifactDigest(artifacts []Artifact) string {
 	add("test", "test run")
 	add("command", "command")
 	add("search", "search")
+	add("code_intel", "code insight")
 	add("spawned_job", "child job")
 	add("tool_rejection", "tool rejection")
 	add("file_read", "file read")

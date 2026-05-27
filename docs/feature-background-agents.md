@@ -200,7 +200,7 @@ Valid transitions: `Queued → Running | Cancelled`; `Running → Completed | Fa
 | Cost tracking | Existing `cost.Tracker` keyed by main session id | Same shared `*cost.Tracker`, keyed by the **sub-session id**. `Tracker.Breakdown()` already returns per-session entries — the UI sums them. No tracker code change. |
 | `BackupManager` (undo) | `session.NewBackupManager(backupsDir, mainID)` | `session.NewBackupManager(backupsDir, subID)`. The job's backups live in `backups/<subID>/`. The main `/undo` only sees its own stack, so a background write does not pollute foreground undo history. |
 | Provider/model | Whatever `provider.Registry.Active()` returns | Resolved at spawn time from `SpawnRequest.Provider/Model` → `cfg.DefaultProvider/Model` → `Registry.Active()`. The job binds its (provider, model) at spawn — main session hot-switches do **not** retroactively switch a running job's model. We thread the bound (provider, model) into a per-job mini-`provider.Registry` that overrides `Active()`. |
-| Tool registry | Main `*tools.Registry` | Per-job clone built from `cfg.Tools.All()` with native read/search/list/write/patch/execute tools rooted at the job worktree when `AllowWrite` is true. `write_file`/`patch_file` use the job-local backup manager and path lock wrapper. `spawn_agent` is included only when `Job.Depth < cfg.MaxDepth`. Unknown/custom/MCP-backed tools are omitted from write-job registries until they can advertise worktree-aware cloning. |
+| Tool registry | Main `*tools.Registry` | Per-job clone built from `cfg.Tools.All()` with native read/search/list/code-intelligence/write/patch/execute tools rooted at the job worktree when `AllowWrite` is true. `write_file`/`patch_file` use the job-local backup manager and path lock wrapper. `spawn_agent` is included only when `Job.Depth < cfg.MaxDepth`. Unknown/custom/MCP-backed tools are omitted from write-job registries until they can advertise worktree-aware cloning. |
 | System prompt | `app.systemPrompt` | `cfg.SystemPromptFor(parentDepth)` returns a hardened prompt: same base but with an appended block "You are a background sub-agent. Be concise. Do not ask the user clarifying questions — make reasonable assumptions and act. Your final assistant message becomes your delivered result." Plus, when restricted, "You may only call read-only tools." |
 | Approver | `uiApprover` (channel-based) | Per the policy below — defaults to `agent.AutoApprove()` against a pre-filtered tool subset, no UI prompt. |
 
@@ -267,7 +267,7 @@ Both `/spawn` and `spawn_agent` are supported. `/spawn` is the first concrete us
 
 A background job's tool registry is built in two tiers:
 
-1. **Always available, never approval-gated:** `read_file`, `search_codebase`, `list_directory`, `spawn_agent` (gated by depth, not approval).
+1. **Always available, never approval-gated:** `read_file`, `search_codebase`, `list_directory`, `list_symbols`, `find_definition`, `find_references`, `get_diagnostics`, `spawn_agent` (gated by depth, not approval).
 2. **Available only when explicitly opted in via spawn flag `--write` or tool argument `allow_write=true`:** `write_file`, `patch_file`, `execute_command`. When opted in, these tools route their approval through the **main session's `uiApprover`**, prefixing the approval prompt header with `(from job:<id>)`.
 
 Why this combination:

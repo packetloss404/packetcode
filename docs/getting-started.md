@@ -90,6 +90,8 @@ Type `/` to open autocomplete. Useful commands:
 
 Unknown slash commands show an error. Use `//text` when you want to send a prompt that starts with `/`.
 
+The agent also has read-only code-intelligence tools for symbols, likely definitions, references, and syntax diagnostics. These are model-facing tools rather than slash commands, so you can ask natural questions like "find the definition of X" or "show references before editing".
+
 Agent View keys: `p` peeks, `Enter` or `o` opens a transcript, `c` cancels, `i` injects a completed result into the next foreground turn, and `Esc` or `q` closes the dashboard.
 
 Write-capable background agents require git worktree isolation. They create `~/.packetcode/worktrees/<repo-key>/<job-id>` on branch `packetcode-job-<job-id>` from the current `HEAD`; uncommitted foreground changes are not copied. Packetcode leaves the worktree for review after completion.

@@ -19,6 +19,10 @@ func makeMainRegistry(t *testing.T, root string) *tools.Registry {
 	reg.Register(tools.NewReadFileTool(root))
 	reg.Register(tools.NewSearchCodebaseTool(root))
 	reg.Register(tools.NewListDirectoryTool(root))
+	reg.Register(tools.NewListSymbolsTool(root))
+	reg.Register(tools.NewFindDefinitionTool(root))
+	reg.Register(tools.NewFindReferencesTool(root))
+	reg.Register(tools.NewGetDiagnosticsTool(root))
 	reg.Register(tools.NewWriteFileTool(root, nil))
 	reg.Register(tools.NewPatchFileTool(root, nil))
 	reg.Register(tools.NewExecuteCommandTool(root))
@@ -34,7 +38,7 @@ func TestRegistry_ReadOnlyByDefault(t *testing.T) {
 	bm := session.NewBackupManager(t.TempDir(), "test-session")
 	reg := mgr.buildJobToolRegistry(0, false /* allowWrite */, "abc12345", bm, nil)
 
-	for _, name := range []string{"read_file", "search_codebase", "list_directory"} {
+	for _, name := range []string{"read_file", "search_codebase", "list_directory", "list_symbols", "find_definition", "find_references", "get_diagnostics"} {
 		_, ok := reg.Get(name)
 		assert.True(t, ok, "read-only tool %s should be present", name)
 	}
@@ -54,7 +58,7 @@ func TestRegistry_AllowWriteIncludesDestructive(t *testing.T) {
 	bm := session.NewBackupManager(t.TempDir(), "s")
 	reg := mgr.buildJobToolRegistry(0, true, "abc12345", bm, nil)
 
-	for _, name := range []string{"read_file", "search_codebase", "list_directory", "write_file", "patch_file", "execute_command"} {
+	for _, name := range []string{"read_file", "search_codebase", "list_directory", "list_symbols", "find_definition", "find_references", "get_diagnostics", "write_file", "patch_file", "execute_command"} {
 		_, ok := reg.Get(name)
 		assert.True(t, ok, "tool %s should be present in allowWrite mode", name)
 	}
@@ -128,6 +132,22 @@ func TestRegistry_AllowWriteRootOverrideUsesWorktreeRoot(t *testing.T) {
 	list, ok := reg.Get("list_directory")
 	require.True(t, ok)
 	assert.Equal(t, worktreeRoot, list.(*tools.ListDirectoryTool).Root)
+
+	symbols, ok := reg.Get("list_symbols")
+	require.True(t, ok)
+	assert.Equal(t, worktreeRoot, symbols.(*tools.ListSymbolsTool).Root)
+
+	defs, ok := reg.Get("find_definition")
+	require.True(t, ok)
+	assert.Equal(t, worktreeRoot, defs.(*tools.FindDefinitionTool).Root)
+
+	refs, ok := reg.Get("find_references")
+	require.True(t, ok)
+	assert.Equal(t, worktreeRoot, refs.(*tools.FindReferencesTool).Root)
+
+	diagnostics, ok := reg.Get("get_diagnostics")
+	require.True(t, ok)
+	assert.Equal(t, worktreeRoot, diagnostics.(*tools.GetDiagnosticsTool).Root)
 
 	write, ok := reg.Get("write_file")
 	require.True(t, ok)

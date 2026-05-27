@@ -106,6 +106,10 @@ PACKETCODE_OPENROUTER_API_KEY
 
 Environment variables take precedence over `~/.packetcode/config.toml`.
 
+## Code Intelligence
+
+packetcode can use read-only code-intelligence tools to list symbols, find likely definitions, find references, and report syntax diagnostics. Go files are parsed with the standard Go AST; other common languages use bounded lexical heuristics for symbols and references. Results are root-scoped, capped, and formatted as `path:line:column` entries so the agent can navigate large codebases without dumping full files into context. See [Code Intelligence](docs/code-intelligence.md) for limitations.
+
 ## Background Agents
 
 `/spawn <prompt>` starts a background agent. Background agents are read-only by default. Use `/spawn --write <prompt>` when a delegated task may need file writes, patches, or shell commands. Write-capable jobs run in a git worktree under `~/.packetcode/worktrees/<repo-key>/<job-id>` on branch `packetcode-job-<job-id>`, based on the current `HEAD`; uncommitted foreground changes are not copied. If git worktree isolation cannot be created, the write job fails instead of editing the main checkout.

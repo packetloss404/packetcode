@@ -17,6 +17,10 @@ var readOnlyToolNames = map[string]bool{
 	"read_file":       true,
 	"search_codebase": true,
 	"list_directory":  true,
+	"list_symbols":    true,
+	"find_definition": true,
+	"find_references": true,
+	"get_diagnostics": true,
 }
 
 // destructiveToolNames is the set of tools only available when the job
@@ -109,6 +113,14 @@ func cloneReadOnlyTool(name, root string, src tools.Tool) tools.Tool {
 		return tools.NewSearchCodebaseTool(root)
 	case "list_directory":
 		return tools.NewListDirectoryTool(root)
+	case "list_symbols":
+		return tools.NewListSymbolsTool(root)
+	case "find_definition":
+		return tools.NewFindDefinitionTool(root)
+	case "find_references":
+		return tools.NewFindReferencesTool(root)
+	case "get_diagnostics":
+		return tools.NewGetDiagnosticsTool(root)
 	}
 	return src
 }

@@ -212,7 +212,7 @@ func (c MCPServerConfig) IsEnabled() bool { return c.Enabled == nil || *c.Enable
 ### Name disambiguation
 
 - MCP tools are ALWAYS prefixed with provider-safe aliases: `<serverName>__<toolName>`.
-- Native tools (`read_file`, `write_file`, `patch_file`, `search_codebase`, `list_directory`, `execute_command`, `spawn_agent`) are never prefixed and never collide.
+- Native tools (`read_file`, `write_file`, `patch_file`, `search_codebase`, `list_directory`, `list_symbols`, `find_definition`, `find_references`, `get_diagnostics`, `execute_command`, `spawn_agent`) are never prefixed and never collide.
 - If two MCP servers both expose `read_file`, names are `fs__read_file` vs `git__read_file` — still unique.
 
 ### Log files

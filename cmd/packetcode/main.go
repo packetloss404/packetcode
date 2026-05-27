@@ -50,7 +50,7 @@ var (
 	commit  = "none"
 )
 
-const systemPrompt = `You are packetcode, a keyboard-first AI coding agent running in the user's terminal. You have direct access to the user's project via tools (read_file, write_file, patch_file, execute_command, search_codebase, list_directory). File modifications, command executions, background-agent spawns, and MCP tool calls are governed by the user's current permission policy.
+const systemPrompt = `You are packetcode, a keyboard-first AI coding agent running in the user's terminal. You have direct access to the user's project via tools (read_file, write_file, patch_file, execute_command, search_codebase, list_directory, list_symbols, find_definition, find_references, get_diagnostics). File modifications, command executions, background-agent spawns, foreground result collection, and MCP tool calls are governed by the user's current permission policy.
 
 Be concise. Prefer small, surgical edits. When the user asks you to do something, propose a plan, gather context with read tools as needed, then make the changes one tool call at a time. After tool execution, briefly summarize what changed.`
 
@@ -199,6 +199,10 @@ func run(providerOverride, modelOverride, resumeID string, trust bool, permissio
 	toolReg.Register(tools.NewReadFileTool(root))
 	toolReg.Register(tools.NewSearchCodebaseTool(root))
 	toolReg.Register(tools.NewListDirectoryTool(root))
+	toolReg.Register(tools.NewListSymbolsTool(root))
+	toolReg.Register(tools.NewFindDefinitionTool(root))
+	toolReg.Register(tools.NewFindReferencesTool(root))
+	toolReg.Register(tools.NewGetDiagnosticsTool(root))
 	toolReg.Register(tools.NewExecuteCommandTool(root))
 
 	// Sessions.
