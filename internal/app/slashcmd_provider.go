@@ -27,6 +27,11 @@ func (a *App) handleProviderCommand(args []string) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 	}
+	if _, ok := a.deps.Registry.Get(args[0]); !ok && a.deps.Factories != nil {
+		if _, known := a.deps.Factories[args[0]]; known && !a.providerHasKey(args[0]) {
+			return a, a.openProviderKeyPrompt(args[0])
+		}
+	}
 	if err := a.applyProviderSwitch(args[0]); err != nil {
 		a.conversation.AppendSystem("provider: " + err.Error())
 	}

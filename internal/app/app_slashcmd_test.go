@@ -29,6 +29,7 @@ import (
 	"github.com/packetcode/packetcode/internal/ui/components/conversation"
 	"github.com/packetcode/packetcode/internal/ui/components/input"
 	jobs_ui "github.com/packetcode/packetcode/internal/ui/components/jobs"
+	"github.com/packetcode/packetcode/internal/ui/components/prompt"
 	"github.com/packetcode/packetcode/internal/ui/components/spinner"
 	"github.com/packetcode/packetcode/internal/ui/components/topbar"
 )
@@ -390,6 +391,76 @@ func TestApp_ProviderAddSlug_OpensKeyPrompt(t *testing.T) {
 	}
 }
 
+func TestApp_ProviderSwitchKnownFactoryWithoutKeyOpensPrompt(t *testing.T) {
+	r := newTestApp(t)
+	r.app.deps.Factories = FactoryMap{
+		"second": func(_ string) provider.Provider {
+			return &fakeProvider{slug: "second", name: "Second"}
+		},
+	}
+
+	r.app.handleSlashCommand("provider", []string{"second"}, "/provider second")
+	if !r.app.prompt.Visible() {
+		t.Fatalf("/provider second should open key prompt when factory is known but key is missing")
+	}
+	if got := r.app.prompt.Context(); got != "second" {
+		t.Fatalf("prompt context = %q, want second", got)
+	}
+}
+
+func TestApp_ProviderKeyValidationIgnoresStaleSameSlugResult(t *testing.T) {
+	r := newTestApp(t)
+	r.app.deps.Factories = FactoryMap{
+		"second": func(_ string) provider.Provider {
+			return &fakeProvider{slug: "second", name: "Second"}
+		},
+	}
+	_ = r.app.openProviderKeyPrompt("second")
+
+	_, firstCmd := r.app.handlePromptSubmit(prompt.SubmitMsg{
+		PromptID: providerKeyPromptID,
+		Context:  "second",
+		Value:    "sk-first",
+	})
+	if firstCmd == nil {
+		t.Fatalf("first submit should start validation")
+	}
+	_, dupCmd := r.app.handlePromptSubmit(prompt.SubmitMsg{
+		PromptID: providerKeyPromptID,
+		Context:  "second",
+		Value:    "sk-first",
+	})
+	if dupCmd != nil {
+		t.Fatalf("duplicate submit while validating should not launch another validation")
+	}
+	_, secondCmd := r.app.handlePromptSubmit(prompt.SubmitMsg{
+		PromptID: providerKeyPromptID,
+		Context:  "second",
+		Value:    "sk-second",
+	})
+	if secondCmd == nil {
+		t.Fatalf("changed key submit should start a fresh validation")
+	}
+
+	firstMsg, ok := firstCmd().(providerKeyValidatedMsg)
+	if !ok {
+		t.Fatalf("first cmd returned %T", firstCmd())
+	}
+	r.app.handleProviderKeyValidated(firstMsg)
+	if got := r.cfg.GetProviderKey("second"); got != "" {
+		t.Fatalf("stale validation saved key %q", got)
+	}
+
+	secondMsg, ok := secondCmd().(providerKeyValidatedMsg)
+	if !ok {
+		t.Fatalf("second cmd returned %T", secondCmd())
+	}
+	r.app.handleProviderKeyValidated(secondMsg)
+	if got := r.cfg.GetProviderKey("second"); got != "sk-second" {
+		t.Fatalf("saved key = %q, want sk-second", got)
+	}
+}
+
 func TestApp_Provider_SwitchWithDefaultModel(t *testing.T) {
 	r := newTestApp(t)
 	// Register a second provider with a config default model.
@@ -507,7 +578,25 @@ func TestApp_Sessions_List(t *testing.T) {
 
 	r.app.handleSlashCommand("sessions", nil, "/sessions")
 	convContains(t, r.app, "ID")
+	convContains(t, r.app, "MSGS")
+	convContains(t, r.app, "COST")
 	convContains(t, r.app, curID[:8])
+}
+
+func TestApp_Sessions_Rename(t *testing.T) {
+	r := newTestApp(t)
+	cur := r.sessions.Current()
+
+	r.app.handleSlashCommand("sessions", []string{"rename", "Release", "Planning"}, "/sessions rename Release Planning")
+
+	convContains(t, r.app, "renamed session "+cur.ID[:8]+" to release-planning")
+	reloaded, err := r.sessions.Load(cur.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reloaded.Name != "release-planning" {
+		t.Fatalf("name = %q, want release-planning", reloaded.Name)
+	}
 }
 
 func TestApp_Sessions_ResumeByFullID(t *testing.T) {
@@ -1101,7 +1190,7 @@ func TestApp_Help_ContainsAllSections(t *testing.T) {
 	convContains(t, r.app, "Ctrl+A")
 	convContains(t, r.app, "Set/update provider API key")
 	// Lists itself and all nine new verbs.
-	for _, verb := range []string{"/help", "/clear", "/agents", "/provider", "/model", "/sessions", "/undo", "/compact", "/cost", "/trust", "/permissions"} {
+	for _, verb := range []string{"/help", "/clear", "/agents", "/provider", "/model", "/sessions", "/sessions rename", "/queue", "/undo", "/compact", "/cost", "/trust", "/permissions"} {
 		convContains(t, r.app, verb)
 	}
 }
@@ -1122,6 +1211,32 @@ func TestApp_Clear_EquivalentToCtrlL(t *testing.T) {
 	}
 	if !r.app.conversation.IsEmpty() {
 		t.Fatalf("conversation should be empty post-clear")
+	}
+}
+
+func TestApp_Queue_ListDropAndClear(t *testing.T) {
+	r := newTestApp(t)
+	now := time.Now()
+	r.app.queuedInputs = []queuedInput{
+		{Text: "first queued prompt", At: now.Add(-2 * time.Minute)},
+		{Text: "second queued prompt", At: now.Add(-time.Minute)},
+	}
+	r.app.refreshTopBar()
+
+	r.app.handleSlashCommand("queue", nil, "/queue")
+	convContains(t, r.app, "queued prompts (2)")
+	convContains(t, r.app, "first queued prompt")
+
+	r.app.handleSlashCommand("queue", []string{"drop", "1"}, "/queue drop 1")
+	convContains(t, r.app, "dropped queued prompt 1")
+	if got := len(r.app.queuedInputs); got != 1 || r.app.queuedInputs[0].Text != "second queued prompt" {
+		t.Fatalf("queue after drop = %+v", r.app.queuedInputs)
+	}
+
+	r.app.handleSlashCommand("queue", []string{"clear"}, "/queue clear")
+	convContains(t, r.app, "cleared 1 queued prompt")
+	if got := len(r.app.queuedInputs); got != 0 {
+		t.Fatalf("queue after clear = %d", got)
 	}
 }
 
@@ -1348,6 +1463,7 @@ func TestApp_Dispatch_NonJobsVerbsWorkWithoutJobsManager(t *testing.T) {
 		{"provider"},
 		{"model"},
 		{"sessions"},
+		{"queue"},
 		{"undo"},
 		{"cost"},
 		{"trust"},

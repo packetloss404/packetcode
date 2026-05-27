@@ -60,6 +60,10 @@ type CancelMsg struct{ JobID string }
 // foreground conversation context.
 type InjectMsg struct{ JobID string }
 
+// IgnoreMsg is emitted when the user dismisses a terminal job result without
+// injecting it into the foreground conversation.
+type IgnoreMsg struct{ JobID string }
+
 type group int
 
 const (
@@ -198,6 +202,17 @@ func (m Model) SelectedID() string {
 	return r.job.ID
 }
 
+func (m Model) selectedJob() (Job, bool) {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return Job{}, false
+	}
+	r := m.rows[m.cursor]
+	if r.kind != rowJob {
+		return Job{}, false
+	}
+	return r.job, true
+}
+
 // Update handles list navigation and emits action messages for the selected
 // job.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -237,9 +252,20 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case "enter", "o", "O":
 		return m, m.emitForSelection(func(id string) tea.Msg { return OpenMsg{JobID: id} })
 	case "c", "C":
+		if job, ok := m.selectedJob(); !ok || !canCancel(job) {
+			return m, nil
+		}
 		return m, m.emitForSelection(func(id string) tea.Msg { return CancelMsg{JobID: id} })
 	case "i", "I":
+		if job, ok := m.selectedJob(); !ok || !canDecideResult(job) {
+			return m, nil
+		}
 		return m, m.emitForSelection(func(id string) tea.Msg { return InjectMsg{JobID: id} })
+	case "x", "X", "d", "D":
+		if job, ok := m.selectedJob(); !ok || !canDecideResult(job) {
+			return m, nil
+		}
+		return m, m.emitForSelection(func(id string) tea.Msg { return IgnoreMsg{JobID: id} })
 	}
 	return m, nil
 }
@@ -260,7 +286,7 @@ func (m Model) View() string {
 	meta := theme.StyleSecondary.Render(fmt.Sprintf("%d jobs", len(m.jobs)))
 	header := lipgloss.JoinHorizontal(lipgloss.Top, title, theme.StyleDim.Render("  "), meta)
 	body := m.renderRows(innerW)
-	footer := theme.StyleDim.Render("↑/↓ move · p peek · enter open · c cancel · i inject · Esc close")
+	footer := theme.StyleDim.Render(m.footerText())
 
 	content := strings.Join([]string{header, body, footer}, "\n")
 	return lipgloss.NewStyle().
@@ -269,6 +295,20 @@ func (m Model) View() string {
 		Padding(0, 1).
 		Width(innerW + 2).
 		Render(content)
+}
+
+func (m Model) footerText() string {
+	parts := []string{"↑/↓ move", "p peek", "enter open"}
+	if job, ok := m.selectedJob(); ok {
+		if canCancel(job) {
+			parts = append(parts, "c cancel")
+		}
+		if canDecideResult(job) {
+			parts = append(parts, "i inject", "x ignore")
+		}
+	}
+	parts = append(parts, "Esc close")
+	return strings.Join(parts, " · ")
 }
 
 func emit(msg tea.Msg) tea.Cmd {
@@ -463,7 +503,7 @@ func (m Model) renderRows(w int) string {
 	h := m.listHeight()
 	if len(m.rows) == 0 {
 		lines := make([]string, 0, h)
-		msg := theme.StyleDim.Render("no background agents")
+		msg := theme.StyleDim.Render("no background agents - /spawn <prompt>")
 		pad := h / 2
 		for i := 0; i < pad; i++ {
 			lines = append(lines, "")
@@ -555,6 +595,8 @@ func statusBadge(j Job) string {
 		return "input"
 	}
 	switch strings.ToLower(strings.TrimSpace(j.ResultStatus)) {
+	case "consumed":
+		return "consumed"
 	case "injected":
 		return "injected"
 	case "ignored":
@@ -563,6 +605,12 @@ func statusBadge(j Job) string {
 		return "seen"
 	case "pending":
 		if groupForState(j.State) != groupActive {
+			if strings.EqualFold(strings.TrimSpace(j.State), StateCancelled) {
+				return "cancelled"
+			}
+			if strings.EqualFold(strings.TrimSpace(j.State), StateFailed) && strings.TrimSpace(j.Error) == "" && strings.TrimSpace(j.Summary) == "" {
+				return "failed"
+			}
 			return "ready"
 		}
 	}
@@ -571,6 +619,27 @@ func statusBadge(j Job) string {
 		return activity
 	}
 	return strings.ToLower(strings.TrimSpace(j.State))
+}
+
+func canCancel(j Job) bool {
+	return groupForState(j.State) == groupActive
+}
+
+func canDecideResult(j Job) bool {
+	if groupForState(j.State) == groupActive {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(j.ResultStatus)) {
+	case "", "pending", "seen":
+		if strings.EqualFold(strings.TrimSpace(j.State), StateCancelled) &&
+			strings.TrimSpace(j.Summary) == "" &&
+			strings.TrimSpace(j.Error) == "" {
+			return false
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func renderState(s string, w int) string {

@@ -21,6 +21,7 @@ const providerKeyPromptID = "provider-key"
 type providerKeyValidatedMsg struct {
 	slug string
 	key  string
+	seq  uint64
 	err  error
 }
 
@@ -43,6 +44,10 @@ func (a *App) providerHasKey(slug string) bool {
 // a new key, so we explain instead of opening a dead-end prompt).
 func (a *App) openProviderKeyPrompt(slug string) tea.Cmd {
 	a.picker.Hide()
+	a.providerKeyValidationSeq++
+	a.providerKeyValidationActive = false
+	a.providerKeyValidationSlug = ""
+	a.providerKeyValidationKey = ""
 	if !a.providerRequiresKey(slug) {
 		a.conversation.AppendSystem(fmt.Sprintf("provider: %s is keyless — no API key required", slug))
 		return a.openProviderPicker()
@@ -91,6 +96,17 @@ func (a *App) handlePromptSubmit(msg prompt.SubmitMsg) (tea.Model, tea.Cmd) {
 		a.prompt.SetError(fmt.Sprintf("unknown provider %q", slug))
 		return a, nil
 	}
+	if a.providerKeyValidationActive &&
+		a.providerKeyValidationSlug == slug &&
+		a.providerKeyValidationKey == key {
+		a.prompt.SetError("validating...")
+		return a, nil
+	}
+	a.providerKeyValidationSeq++
+	seq := a.providerKeyValidationSeq
+	a.providerKeyValidationActive = true
+	a.providerKeyValidationSlug = slug
+	a.providerKeyValidationKey = key
 	// Kick validation off on a background goroutine so the TUI stays
 	// responsive — OpenAI's /v1/models ping can take a few seconds on a
 	// cold network. We leave the prompt visible with no error text so
@@ -102,7 +118,7 @@ func (a *App) handlePromptSubmit(msg prompt.SubmitMsg) (tea.Model, tea.Cmd) {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		err := prov.ValidateKey(ctx, key)
-		return providerKeyValidatedMsg{slug: slug, key: key, err: err}
+		return providerKeyValidatedMsg{slug: slug, key: key, seq: seq, err: err}
 	}
 }
 
@@ -113,11 +129,17 @@ func (a *App) handlePromptSubmit(msg prompt.SubmitMsg) (tea.Model, tea.Cmd) {
 // update to "key present". On failure: keep the prompt open with the error
 // so the user can retry or paste a different key.
 func (a *App) handleProviderKeyValidated(msg providerKeyValidatedMsg) (tea.Model, tea.Cmd) {
-	if !a.prompt.Visible() || a.prompt.Context() != msg.slug {
+	if msg.seq != a.providerKeyValidationSeq ||
+		!a.providerKeyValidationActive ||
+		a.providerKeyValidationSlug != msg.slug ||
+		a.providerKeyValidationKey != msg.key ||
+		!a.prompt.Visible() ||
+		a.prompt.Context() != msg.slug {
 		// User cancelled or moved on before validation returned. Drop
 		// the result silently.
 		return a, nil
 	}
+	a.providerKeyValidationActive = false
 	if msg.err != nil {
 		a.prompt.SetError("invalid key: " + msg.err.Error())
 		return a, nil

@@ -11,6 +11,13 @@ import (
 // It matches the order in the vision doc so the UI feels consistent.
 var displayOrder = []string{"openai", "anthropic", "gemini", "minimax", "openrouter", "ollama"}
 
+// DisplayOrder returns the canonical provider display order used by the TUI.
+func DisplayOrder() []string {
+	out := make([]string, len(displayOrder))
+	copy(out, displayOrder)
+	return out
+}
+
 // Registry holds the set of available providers and tracks the active
 // (provider, model) pair. Hot-switching mutates only the active fields;
 // the underlying Provider instances are long-lived.

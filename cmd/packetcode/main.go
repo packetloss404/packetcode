@@ -199,7 +199,11 @@ func run(providerOverride, modelOverride, resumeID string, trust bool, permissio
 	}
 	sessions := session.NewManager(sessionsDir)
 	if resumeID != "" {
-		loaded, err := sessions.Load(resumeID)
+		resolvedID, err := sessions.ResolveID(resumeID)
+		if err != nil {
+			return fmt.Errorf("resume %s: %w", resumeID, err)
+		}
+		loaded, err := sessions.Load(resolvedID)
 		if err != nil {
 			return fmt.Errorf("resume %s: %w", resumeID, err)
 		}
@@ -367,6 +371,7 @@ func run(providerOverride, modelOverride, resumeID string, trust bool, permissio
 		Hooks:            hookRunner,
 		Version:          welcomeVersion(),
 		Factories:        factories,
+		ResumeHydrate:    resumeID != "",
 	})
 	if err != nil {
 		return err

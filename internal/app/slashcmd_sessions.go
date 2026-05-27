@@ -13,12 +13,14 @@ import (
 	"github.com/packetcode/packetcode/internal/ui/components/conversation"
 )
 
+const resumeTranscriptLimit = 20
+
 // handleSessionsCommand lists, resumes, or deletes sessions. The bare
 // form shows the top 20 newest-first; resume/delete accept either a
 // full ID or any unique 8-char prefix; delete is gated on --yes because
 // it is irreversible.
 func (a *App) handleSessionsCommand(args []string) (tea.Model, tea.Cmd) {
-	sub, id, yes, err := parseSessionsArgs(args)
+	sub, id, name, yes, err := parseSessionsArgs(args)
 	if err != nil {
 		a.conversation.AppendSystem("sessions: " + err.Error())
 		return a, nil
@@ -35,6 +37,20 @@ func (a *App) handleSessionsCommand(args []string) (tea.Model, tea.Cmd) {
 			currentID = cur.ID
 		}
 		a.conversation.AppendSystem(renderSessionsTable(summaries, currentID))
+		return a, nil
+	}
+
+	if sub == "rename" {
+		if err := a.deps.Sessions.Rename(name); err != nil {
+			a.conversation.AppendSystem("sessions: " + err.Error())
+			return a, nil
+		}
+		cur := a.deps.Sessions.Current()
+		if cur == nil {
+			a.conversation.AppendSystem("sessions: renamed")
+			return a, nil
+		}
+		a.conversation.AppendSystem(fmt.Sprintf("renamed session %s to %s", shortID(cur.ID), cur.Name))
 		return a, nil
 	}
 
@@ -197,7 +213,16 @@ func (a *App) showResumedSession(s *session.Session) {
 		"resumed session %s (%s) — %s/%s — %d messages",
 		s.Name, shortID(s.ID), s.Provider, s.Model, len(s.Messages),
 	))
-	a.appendSessionTranscript(s.Provider, s.Model, s.Messages)
+	messages := s.Messages
+	if len(messages) > resumeTranscriptLimit {
+		omitted := len(messages) - resumeTranscriptLimit
+		a.conversation.AppendSystem(fmt.Sprintf(
+			"showing last %d messages (%d older available with /transcript)",
+			resumeTranscriptLimit, omitted,
+		))
+		messages = messages[omitted:]
+	}
+	a.appendSessionTranscript(s.Provider, s.Model, messages)
 }
 
 func (a *App) appendSessionTranscript(providerSlug, modelID string, messages []provider.Message) {
@@ -256,42 +281,11 @@ func matchingToolResult(messages []provider.Message, start int, call provider.To
 // unique 8-character prefix. Returns an error when nothing matches or
 // when the prefix is ambiguous.
 func (a *App) resolveSessionID(prefix string) (string, error) {
-	if prefix == "" {
-		return "", fmt.Errorf("empty session id")
-	}
-	summaries, err := a.deps.Sessions.List()
-	if err != nil {
-		return "", fmt.Errorf("list failed: %w", err)
-	}
-	// Exact match first — full UUIDs are always unambiguous.
-	for _, s := range summaries {
-		if s.ID == prefix {
-			return s.ID, nil
-		}
-	}
-	if len(prefix) != 8 {
-		return "", fmt.Errorf("session id prefix %q must be exactly 8 characters or a full session id", prefix)
-	}
-	// Prefix match. The table shows 8 characters, so only that shortened
-	// form is accepted to avoid surprising partial matches.
-	var matches []string
-	for _, s := range summaries {
-		if strings.HasPrefix(s.ID, prefix) {
-			matches = append(matches, s.ID)
-		}
-	}
-	switch len(matches) {
-	case 0:
-		return "", fmt.Errorf("no session matches %q", prefix)
-	case 1:
-		return matches[0], nil
-	default:
-		return "", fmt.Errorf("ambiguous prefix %q — matches %d sessions", prefix, len(matches))
-	}
+	return a.deps.Sessions.ResolveID(prefix)
 }
 
 // renderSessionsTable formats bare /sessions output. Widths: id=8,
-// name=40, age=6, prov/model=22, active=5. The top 20 sessions render;
+// name=32, age=6, message/token/cost counts, prov/model=22, active=5. The top 20 sessions render;
 // any overflow is dropped silently (we only expose this list to guide
 // users to a specific id).
 func renderSessionsTable(summaries []session.Summary, currentID string) string {
@@ -302,7 +296,7 @@ func renderSessionsTable(summaries []session.Summary, currentID string) string {
 		summaries = summaries[:20]
 	}
 	var b strings.Builder
-	b.WriteString("  ID       NAME                                     AGE    PROV/MODEL             ACTIVE\n")
+	b.WriteString("  ID       NAME                             AGE    MSGS  TOKENS      COST      PROV/MODEL             ACTIVE\n")
 	now := time.Now()
 	for _, s := range summaries {
 		marker := "  "
@@ -312,8 +306,8 @@ func renderSessionsTable(summaries []session.Summary, currentID string) string {
 			active = "yes"
 		}
 		name := s.Name
-		if len(name) > 40 {
-			name = name[:37] + "..."
+		if len(name) > 32 {
+			name = name[:29] + "..."
 		}
 		provModel := s.Provider
 		if s.Model != "" {
@@ -327,16 +321,31 @@ func renderSessionsTable(summaries []session.Summary, currentID string) string {
 			provModel = "(none)"
 		}
 		age := roundedAge(s.UpdatedAt, now)
-		fmt.Fprintf(&b, "%s%s %s %s %s %s\n",
+		tokens := s.TokenUsage.TotalInput + s.TokenUsage.TotalOutput
+		fmt.Fprintf(&b, "%s%s %s %s %s %s %s %s %s\n",
 			marker,
 			padRight(shortID(s.ID), 8),
-			padRight(name, 40),
+			padRight(name, 32),
 			padRight(age, 6),
+			padRight(fmt.Sprintf("%d", s.MessageCount), 5),
+			padRight(humanCount(tokens), 11),
+			padRight(fmt.Sprintf("$%.4f", s.Cost.TotalUSD), 9),
 			padRight(trunc(provModel, 22), 22),
 			padRight(active, 5),
 		)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func humanCount(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%dK", n/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
 }
 
 // shortID returns the first 8 characters of a session UUID, suitable

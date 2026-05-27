@@ -13,10 +13,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	term "github.com/charmbracelet/x/term"
 
 	"github.com/packetcode/packetcode/internal/config"
 	"github.com/packetcode/packetcode/internal/provider"
@@ -39,6 +42,8 @@ type ProviderFactory func(apiKey string) provider.Provider
 // FactoryMap covers every provider packetcode knows about.
 type FactoryMap map[string]ProviderFactory
 
+const setupModelListLimit = 20
+
 func RunSetup(in io.Reader, out io.Writer, cfg *config.Config, factories FactoryMap) (*SetupResult, error) {
 	reader := bufio.NewReader(in)
 
@@ -46,7 +51,7 @@ func RunSetup(in io.Reader, out io.Writer, cfg *config.Config, factories Factory
 	fmt.Fprintln(out, "  ⚡ Welcome to packetcode")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "  No providers configured yet. Let's set one up.")
-	fmt.Fprintln(out, "  (Configure additional providers later with Ctrl+P, then Ctrl+A on a provider row)")
+	fmt.Fprintln(out, "  (Configure additional providers later with Ctrl+P, Ctrl+A, or /provider add <slug>)")
 	fmt.Fprintln(out, "")
 
 	for {
@@ -55,7 +60,7 @@ func RunSetup(in io.Reader, out io.Writer, cfg *config.Config, factories Factory
 			return nil, err
 		}
 
-		key, err := promptKey(reader, out, cfg, slug)
+		key, err := promptKey(reader, out, cfg, slug, in)
 		if err != nil {
 			return nil, err
 		}
@@ -118,14 +123,7 @@ func RunSetup(in io.Reader, out io.Writer, cfg *config.Config, factories Factory
 }
 
 func promptProvider(r *bufio.Reader, out io.Writer, factories FactoryMap) (string, error) {
-	slugs := make([]string, 0, len(factories))
-	for s, factory := range factories {
-		if factory == nil {
-			continue
-		}
-		slugs = append(slugs, s)
-	}
-	sort.Strings(slugs)
+	slugs := setupProviderSlugs(factories)
 	if len(slugs) == 0 {
 		return "", errors.New("no providers available")
 	}
@@ -153,21 +151,63 @@ func promptProvider(r *bufio.Reader, out io.Writer, factories FactoryMap) (strin
 	}
 }
 
-func promptKey(r *bufio.Reader, out io.Writer, cfg *config.Config, slug string) (string, error) {
+func setupProviderSlugs(factories FactoryMap) []string {
+	slugs := make([]string, 0, len(factories))
+	seen := make(map[string]struct{}, len(factories))
+	for _, slug := range provider.DisplayOrder() {
+		factory := factories[slug]
+		if factory == nil {
+			continue
+		}
+		slugs = append(slugs, slug)
+		seen[slug] = struct{}{}
+	}
+	var extras []string
+	for slug, factory := range factories {
+		if factory == nil {
+			continue
+		}
+		if _, ok := seen[slug]; ok {
+			continue
+		}
+		extras = append(extras, slug)
+	}
+	sort.Strings(extras)
+	return append(slugs, extras...)
+}
+
+func promptKey(r *bufio.Reader, out io.Writer, cfg *config.Config, slug string, rawIn ...io.Reader) (string, error) {
 	if !setupProviderRequiresKey(cfg, slug) {
 		fmt.Fprintf(out, "  %s is keyless — no API key needed.\n", slug)
 		return "", nil
 	}
-	fmt.Fprintf(out, "  %s API key: ", slug)
-	raw, err := r.ReadString('\n')
-	if err != nil {
-		return "", err
+	for {
+		fmt.Fprintf(out, "  %s API key: ", slug)
+		raw, err := readSetupSecret(r, out, rawIn...)
+		if err != nil {
+			return "", err
+		}
+		key := strings.TrimSpace(raw)
+		if key == "" {
+			fmt.Fprintln(out, "  API key cannot be empty.")
+			continue
+		}
+		return key, nil
 	}
-	key := strings.TrimSpace(raw)
-	if key == "" {
-		return "", errors.New("empty API key")
+}
+
+func readSetupSecret(r *bufio.Reader, out io.Writer, rawIn ...io.Reader) (string, error) {
+	if len(rawIn) > 0 {
+		if f, ok := rawIn[0].(*os.File); ok && term.IsTerminal(f.Fd()) {
+			data, err := term.ReadPassword(f.Fd())
+			fmt.Fprintln(out, "")
+			if err != nil {
+				return "", err
+			}
+			return string(data), nil
+		}
 	}
-	return key, nil
+	return r.ReadString('\n')
 }
 
 func setupProviderRequiresKey(cfg *config.Config, slug string) bool {
@@ -181,29 +221,81 @@ func setupProviderRequiresKey(cfg *config.Config, slug string) bool {
 }
 
 func promptModel(r *bufio.Reader, out io.Writer, models []provider.Model) (string, error) {
-	fmt.Fprintf(out, "  Available models (%d):\n", len(models))
-	for i, m := range models {
-		fmt.Fprintf(out, "    %d) %s", i+1, m.ID)
-		if m.ContextWindow > 0 {
-			fmt.Fprintf(out, "  (%d ctx)", m.ContextWindow)
-		}
-		fmt.Fprintln(out, "")
-	}
+	shown := models
 	for {
-		fmt.Fprint(out, "  Choice [1]: ")
+		renderSetupModels(out, shown, len(models))
+		fmt.Fprint(out, "  Choice, model id, or filter [1]: ")
 		raw, err := r.ReadString('\n')
 		if err != nil {
 			return "", err
 		}
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
-			return models[0].ID, nil
+			return shown[0].ID, nil
 		}
 		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > len(models) {
-			fmt.Fprintln(out, "  Please enter a number from the list.")
+		if err == nil {
+			if n >= 1 && n <= visibleSetupModelCount(shown) {
+				return shown[n-1].ID, nil
+			}
+			fmt.Fprintln(out, "  Please enter a number from the visible list.")
 			continue
 		}
-		return models[n-1].ID, nil
+		for _, m := range models {
+			if m.ID == raw {
+				return m.ID, nil
+			}
+		}
+		filtered := filterSetupModels(models, raw)
+		if len(filtered) == 0 {
+			fmt.Fprintf(out, "  No models match %q.\n", raw)
+			continue
+		}
+		shown = filtered
 	}
+}
+
+func visibleSetupModelCount(models []provider.Model) int {
+	if len(models) > setupModelListLimit {
+		return setupModelListLimit
+	}
+	return len(models)
+}
+
+func renderSetupModels(out io.Writer, models []provider.Model, total int) {
+	limit := len(models)
+	if limit > setupModelListLimit {
+		limit = setupModelListLimit
+	}
+	fmt.Fprintf(out, "  Available models (%d", len(models))
+	if len(models) != total {
+		fmt.Fprintf(out, " of %d", total)
+	}
+	fmt.Fprintln(out, "):")
+	for i := 0; i < limit; i++ {
+		m := models[i]
+		fmt.Fprintf(out, "    %d) %s", i+1, m.ID)
+		if m.ContextWindow > 0 {
+			fmt.Fprintf(out, "  (%d ctx)", m.ContextWindow)
+		}
+		fmt.Fprintln(out, "")
+	}
+	if len(models) > limit {
+		fmt.Fprintf(out, "    ... %d more; type a model id or filter text\n", len(models)-limit)
+	}
+}
+
+func filterSetupModels(models []provider.Model, query string) []provider.Model {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return models
+	}
+	out := make([]provider.Model, 0)
+	for _, m := range models {
+		if strings.Contains(strings.ToLower(m.ID), query) ||
+			strings.Contains(strings.ToLower(m.DisplayName), query) {
+			out = append(out, m)
+		}
+	}
+	return out
 }

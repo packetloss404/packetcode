@@ -444,7 +444,7 @@ func TestApp_Autocomplete_EntriesDedupedFromKeymap(t *testing.T) {
 	// And every known verb is present.
 	for _, want := range []string{
 		"spawn", "agents", "jobs", "cancel", "provider", "model", "sessions",
-		"undo", "compact", "cost", "trust", "help", "clear", "mcp",
+		"queue", "undo", "compact", "cost", "trust", "help", "clear", "mcp",
 		"statusline",
 	} {
 		if seen[want] != 1 {

@@ -128,21 +128,29 @@ func parseCompactFlags(args []string) (keep int, err error) {
 //
 //	<nothing>
 //	resume <id>
+//	rename <name>
 //	delete <id>
 //	delete <id> --yes
 //
 // The handler resolves <id> to a full session ID; this parser only cares
 // about shape.
-func parseSessionsArgs(args []string) (sub, id string, yes bool, err error) {
+func parseSessionsArgs(args []string) (sub, id, name string, yes bool, err error) {
 	if len(args) == 0 {
-		return "", "", false, nil
+		return "", "", "", false, nil
 	}
 	sub = args[0]
-	if sub != "resume" && sub != "delete" {
-		return "", "", false, fmt.Errorf("unknown subcommand %q (want \"resume\" or \"delete\")", sub)
+	if sub != "resume" && sub != "rename" && sub != "delete" {
+		return "", "", "", false, fmt.Errorf("unknown subcommand %q (want \"resume\", \"rename\", or \"delete\")", sub)
+	}
+	if sub == "rename" {
+		name = strings.TrimSpace(strings.Join(args[1:], " "))
+		if name == "" {
+			return "", "", "", false, fmt.Errorf("rename: missing session name")
+		}
+		return sub, "", name, false, nil
 	}
 	if len(args) < 2 {
-		return "", "", false, fmt.Errorf("%s: missing session id", sub)
+		return "", "", "", false, fmt.Errorf("%s: missing session id", sub)
 	}
 	id = args[1]
 	for _, a := range args[2:] {
@@ -150,10 +158,37 @@ func parseSessionsArgs(args []string) (sub, id string, yes bool, err error) {
 		case "--yes":
 			yes = true
 		default:
-			return "", "", false, fmt.Errorf("unexpected argument %q", a)
+			return "", "", "", false, fmt.Errorf("unexpected argument %q", a)
 		}
 	}
-	return sub, id, yes, nil
+	return sub, id, "", yes, nil
+}
+
+func parseQueueArgs(args []string) (sub string, index int, err error) {
+	if len(args) == 0 {
+		return "", 0, nil
+	}
+	switch args[0] {
+	case "clear":
+		if len(args) > 1 {
+			return "", 0, fmt.Errorf("unexpected argument %q", args[1])
+		}
+		return "clear", 0, nil
+	case "drop":
+		if len(args) < 2 {
+			return "", 0, fmt.Errorf("drop: missing queue index")
+		}
+		if len(args) > 2 {
+			return "", 0, fmt.Errorf("unexpected argument %q", args[2])
+		}
+		n, convErr := strconv.Atoi(args[1])
+		if convErr != nil || n <= 0 {
+			return "", 0, fmt.Errorf("drop index must be a positive integer")
+		}
+		return "drop", n, nil
+	default:
+		return "", 0, fmt.Errorf("unknown subcommand %q (want \"clear\" or \"drop\")", args[0])
+	}
 }
 
 // parseCostArgs parses the /cost argument tail. Accepted shapes:

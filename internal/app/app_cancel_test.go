@@ -244,6 +244,9 @@ func TestApp_CtrlC_DuringStream_CancelsTurn(t *testing.T) {
 	if a.cancelTurn != nil {
 		t.Fatalf("expected cancelTurn to be nil after Ctrl+C")
 	}
+	if snap := a.statusLineSnapshot(); snap.Operation.Label != "cancelling" {
+		t.Fatalf("operation label = %q, want cancelling", snap.Operation.Label)
+	}
 
 	// Continue draining; eventually agentDoneMsg arrives and flips
 	// streaming to false.
@@ -269,6 +272,21 @@ func TestApp_CtrlC_WhenIdle_Quits(t *testing.T) {
 	msg := cmd()
 	if _, ok := msg.(tea.QuitMsg); !ok {
 		t.Fatalf("expected tea.QuitMsg, got %T", msg)
+	}
+}
+
+func TestApp_CtrlC_WhenApprovalVisibleRejectsWithoutQuit(t *testing.T) {
+	r := newTestApp(t)
+	r.app.approval.Show(fakeWriteTool{}, provider.ToolCall{ID: "c1", Name: "fake_write", Arguments: "{}"})
+
+	_, cmd := r.app.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd != nil {
+		if _, ok := cmd().(tea.QuitMsg); ok {
+			t.Fatalf("Ctrl+C with approval visible must not quit")
+		}
+	}
+	if r.app.approval.Visible() {
+		t.Fatalf("approval modal should be hidden")
 	}
 }
 
@@ -418,6 +436,48 @@ func TestApp_SubmitWhileStreamingQueuesAndRunsNext(t *testing.T) {
 	}
 	if !strings.Contains(convText(a), "second done") {
 		t.Fatalf("queued turn did not run:\n%s", convText(a))
+	}
+}
+
+func TestApp_CtrlC_ClearsMultipleQueuedPromptsAndDoesNotRunThem(t *testing.T) {
+	r := newTestApp(t)
+	prov := &releaseProvider{release: make(chan struct{})}
+	wireAgent(r, prov)
+
+	_, cmd := r.app.Update(input.SubmitMsg{Text: "first prompt"})
+	a := r.app
+	pump := newDrainPump(t, a, cmd)
+	pump.RunUntil(500*time.Millisecond, func() bool {
+		return atomic.LoadInt32(&prov.started) == 1
+	})
+	if !a.streaming {
+		t.Fatalf("expected first turn to be streaming")
+	}
+
+	_, follow := a.Update(input.SubmitMsg{Text: "second prompt"})
+	if follow != nil {
+		pump.cmds = append(pump.cmds, follow)
+	}
+	_, follow = a.Update(input.SubmitMsg{Text: "third prompt"})
+	if follow != nil {
+		pump.cmds = append(pump.cmds, follow)
+	}
+	if got := len(a.queuedInputs); got != 2 {
+		t.Fatalf("queuedInputs = %d, want 2", got)
+	}
+
+	_, _ = a.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if got := len(a.queuedInputs); got != 0 {
+		t.Fatalf("queuedInputs after Ctrl+C = %d, want 0", got)
+	}
+	convContains(t, a, "cleared 2 queued prompts")
+
+	pump.RunUntil(2*time.Second, func() bool { return !a.streaming })
+	if atomic.LoadInt32(&prov.started) != 1 {
+		t.Fatalf("queued turn started after cancellation; started=%d", atomic.LoadInt32(&prov.started))
+	}
+	if strings.Contains(convText(a), "second done") {
+		t.Fatalf("queued turn output rendered after cancellation:\n%s", convText(a))
 	}
 }
 

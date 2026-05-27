@@ -46,11 +46,14 @@ type CostInfo struct {
 
 // Summary is a lightweight projection of Session for list views.
 type Summary struct {
-	ID        string
-	Name      string
-	UpdatedAt time.Time
-	Provider  string
-	Model     string
+	ID           string
+	Name         string
+	UpdatedAt    time.Time
+	Provider     string
+	Model        string
+	MessageCount int
+	TokenUsage   TokenUsage
+	Cost         CostInfo
 }
 
 // Manager owns the active session and reads/writes session files.
@@ -232,17 +235,55 @@ func (m *Manager) List() ([]Summary, error) {
 			continue
 		}
 		out = append(out, Summary{
-			ID:        s.ID,
-			Name:      s.Name,
-			UpdatedAt: s.UpdatedAt,
-			Provider:  s.Provider,
-			Model:     s.Model,
+			ID:           s.ID,
+			Name:         s.Name,
+			UpdatedAt:    s.UpdatedAt,
+			Provider:     s.Provider,
+			Model:        s.Model,
+			MessageCount: len(s.Messages),
+			TokenUsage:   s.TokenUsage,
+			Cost:         s.Cost,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
 	return out, nil
+}
+
+// ResolveID accepts either a full session ID (exact match) or a unique
+// 8-character prefix.
+func (m *Manager) ResolveID(ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", fmt.Errorf("empty session id")
+	}
+	summaries, err := m.List()
+	if err != nil {
+		return "", fmt.Errorf("list failed: %w", err)
+	}
+	for _, s := range summaries {
+		if s.ID == ref {
+			return s.ID, nil
+		}
+	}
+	if len(ref) != 8 {
+		return "", fmt.Errorf("session id prefix %q must be exactly 8 characters or a full session id", ref)
+	}
+	var matches []string
+	for _, s := range summaries {
+		if strings.HasPrefix(s.ID, ref) {
+			matches = append(matches, s.ID)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("no session matches %q", ref)
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("ambiguous prefix %q — matches %d sessions", ref, len(matches))
+	}
 }
 
 // Delete removes a session file. Backups are the caller's responsibility

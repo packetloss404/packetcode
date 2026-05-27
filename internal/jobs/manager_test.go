@@ -266,9 +266,27 @@ func TestManager_CancelAll(t *testing.T) {
 		require.Nil(t, perr)
 		ids = append(ids, s.ID)
 	}
+	cancelling := make(chan Snapshot, N)
+	mgr.Subscribe(func(s Snapshot) {
+		if s.LastActivity == "cancelling" {
+			select {
+			case cancelling <- s:
+			default:
+			}
+		}
+	})
 
 	count := mgr.CancelAll()
 	assert.Equal(t, N, count)
+	seenCancelling := map[string]bool{}
+	for len(seenCancelling) < N {
+		select {
+		case snap := <-cancelling:
+			seenCancelling[snap.ID] = true
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for cancelling snapshots; seen=%v", seenCancelling)
+		}
+	}
 
 	waitFor(t, 2*time.Second, "all jobs cancelled", func() bool {
 		for _, id := range ids {

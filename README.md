@@ -153,7 +153,10 @@ Built-in commands:
 | `/model [id]` / `/models` | Open the model picker or switch model. |
 | `/sessions` | List recent sessions. |
 | `/sessions resume <id>` | Resume by full ID or unique prefix. |
+| `/sessions rename <name>` | Rename the current session. |
 | `/sessions delete <id> --yes` | Delete a saved session. |
+| `/queue` | List queued foreground prompts. |
+| `/queue clear` | Clear queued foreground prompts. |
 | `/undo` | Restore the most recent file snapshot. |
 | `/compact [--keep N]` | Summarize older conversation messages. |
 | `/cost` / `/cost reset --yes` | Show or reset cost totals. |

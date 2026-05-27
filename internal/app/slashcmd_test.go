@@ -277,6 +277,19 @@ func TestParseSlashCommand_Sessions(t *testing.T) {
 			t.Fatalf("args = %v", args)
 		}
 	})
+	t.Run("rename", func(t *testing.T) {
+		cmd, args, ok := ParseSlashCommand("/sessions rename release notes")
+		if !ok || cmd != "sessions" || !reflect.DeepEqual(args, []string{"rename", "release", "notes"}) {
+			t.Fatalf("parse = %q %v %v", cmd, args, ok)
+		}
+	})
+}
+
+func TestParseSlashCommand_Queue(t *testing.T) {
+	cmd, args, ok := ParseSlashCommand("/queue drop 2")
+	if !ok || cmd != "queue" || !reflect.DeepEqual(args, []string{"drop", "2"}) {
+		t.Fatalf("parse = %q %v %v", cmd, args, ok)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -472,39 +485,71 @@ func TestParseCompactFlags(t *testing.T) {
 
 func TestParseSessionsArgs(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
-		sub, id, yes, err := parseSessionsArgs(nil)
-		if err != nil || sub != "" || id != "" || yes {
-			t.Fatalf("parseSessionsArgs(nil) = %q %q %v %v", sub, id, yes, err)
+		sub, id, name, yes, err := parseSessionsArgs(nil)
+		if err != nil || sub != "" || id != "" || name != "" || yes {
+			t.Fatalf("parseSessionsArgs(nil) = %q %q %q %v %v", sub, id, name, yes, err)
 		}
 	})
 	t.Run("resume with id", func(t *testing.T) {
-		sub, id, yes, err := parseSessionsArgs([]string{"resume", "7f3a"})
-		if err != nil || sub != "resume" || id != "7f3a" || yes {
-			t.Fatalf("got %q %q %v %v", sub, id, yes, err)
+		sub, id, name, yes, err := parseSessionsArgs([]string{"resume", "7f3a"})
+		if err != nil || sub != "resume" || id != "7f3a" || name != "" || yes {
+			t.Fatalf("got %q %q %q %v %v", sub, id, name, yes, err)
+		}
+	})
+	t.Run("rename", func(t *testing.T) {
+		sub, id, name, yes, err := parseSessionsArgs([]string{"rename", "Important", "thread"})
+		if err != nil || sub != "rename" || id != "" || name != "Important thread" || yes {
+			t.Fatalf("got %q %q %q %v %v", sub, id, name, yes, err)
 		}
 	})
 	t.Run("delete without yes", func(t *testing.T) {
-		sub, id, yes, err := parseSessionsArgs([]string{"delete", "7f3a"})
-		if err != nil || sub != "delete" || id != "7f3a" || yes {
-			t.Fatalf("got %q %q %v %v", sub, id, yes, err)
+		sub, id, name, yes, err := parseSessionsArgs([]string{"delete", "7f3a"})
+		if err != nil || sub != "delete" || id != "7f3a" || name != "" || yes {
+			t.Fatalf("got %q %q %q %v %v", sub, id, name, yes, err)
 		}
 	})
 	t.Run("delete with yes", func(t *testing.T) {
-		sub, id, yes, err := parseSessionsArgs([]string{"delete", "7f3a", "--yes"})
-		if err != nil || sub != "delete" || id != "7f3a" || !yes {
-			t.Fatalf("got %q %q %v %v", sub, id, yes, err)
+		sub, id, name, yes, err := parseSessionsArgs([]string{"delete", "7f3a", "--yes"})
+		if err != nil || sub != "delete" || id != "7f3a" || name != "" || !yes {
+			t.Fatalf("got %q %q %q %v %v", sub, id, name, yes, err)
 		}
 	})
 	t.Run("missing id", func(t *testing.T) {
-		_, _, _, err := parseSessionsArgs([]string{"resume"})
+		_, _, _, _, err := parseSessionsArgs([]string{"resume"})
 		if err == nil {
 			t.Fatalf("expected error for missing id")
 		}
 	})
 	t.Run("unknown sub", func(t *testing.T) {
-		_, _, _, err := parseSessionsArgs([]string{"purge"})
+		_, _, _, _, err := parseSessionsArgs([]string{"purge"})
 		if err == nil {
 			t.Fatalf("expected error for unknown subcommand")
+		}
+	})
+}
+
+func TestParseQueueArgs(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		sub, index, err := parseQueueArgs(nil)
+		if err != nil || sub != "" || index != 0 {
+			t.Fatalf("got %q %d %v", sub, index, err)
+		}
+	})
+	t.Run("clear", func(t *testing.T) {
+		sub, index, err := parseQueueArgs([]string{"clear"})
+		if err != nil || sub != "clear" || index != 0 {
+			t.Fatalf("got %q %d %v", sub, index, err)
+		}
+	})
+	t.Run("drop", func(t *testing.T) {
+		sub, index, err := parseQueueArgs([]string{"drop", "2"})
+		if err != nil || sub != "drop" || index != 2 {
+			t.Fatalf("got %q %d %v", sub, index, err)
+		}
+	})
+	t.Run("bad drop", func(t *testing.T) {
+		if _, _, err := parseQueueArgs([]string{"drop", "0"}); err == nil {
+			t.Fatalf("expected error")
 		}
 	})
 }

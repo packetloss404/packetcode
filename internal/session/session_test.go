@@ -69,6 +69,43 @@ func TestManager_ListSortsNewestFirst(t *testing.T) {
 	// Most recently updated session should be first.
 	assert.Equal(t, s2.ID, listings[0].ID)
 	assert.Equal(t, s1.ID, listings[1].ID)
+	assert.Equal(t, 1, listings[0].MessageCount)
+}
+
+func TestManager_ListIncludesUsageSummary(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	s, err := m.New("openai", "gpt-4.1")
+	require.NoError(t, err)
+	require.NoError(t, m.AddMessage(provider.Message{Role: provider.RoleUser, Content: "hello"}))
+	require.NoError(t, m.UpdateUsage(provider.Usage{InputTokens: 1000, OutputTokens: 500}, 2, 8))
+
+	listings, err := m.List()
+	require.NoError(t, err)
+	require.Len(t, listings, 1)
+	assert.Equal(t, s.ID, listings[0].ID)
+	assert.Equal(t, 1, listings[0].MessageCount)
+	assert.Equal(t, 1000, listings[0].TokenUsage.TotalInput)
+	assert.Equal(t, 500, listings[0].TokenUsage.TotalOutput)
+	assert.InDelta(t, 0.006, listings[0].Cost.TotalUSD, 1e-9)
+}
+
+func TestManager_ResolveID(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir)
+	s, err := m.New("openai", "gpt-4.1")
+	require.NoError(t, err)
+
+	got, err := m.ResolveID(s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, s.ID, got)
+
+	got, err = m.ResolveID(s.ID[:8])
+	require.NoError(t, err)
+	assert.Equal(t, s.ID, got)
+
+	_, err = m.ResolveID(s.ID[:7])
+	require.Error(t, err)
 }
 
 func TestManager_Delete(t *testing.T) {

@@ -86,14 +86,17 @@ func TestAgentView_RendersStatusBadges(t *testing.T) {
 	done := snap("done1111", StateCompleted, now.Add(-time.Minute), "summarise")
 	done.ResultStatus = "seen"
 	done.CostUSD = 0.0123
+	consumed := snap("used1111", StateCompleted, now.Add(-2*time.Minute), "waited")
+	consumed.ResultStatus = "consumed"
 
 	m := New()
 	m.Resize(120, 20)
-	m.Show([]Job{waiting, done})
+	m.Show([]Job{waiting, done, consumed})
 
 	out := m.View()
 	assert.Contains(t, out, "approval")
 	assert.Contains(t, out, "seen")
+	assert.Contains(t, out, "consumed")
 	assert.Contains(t, out, "$0.0123")
 }
 
@@ -161,26 +164,36 @@ func TestAgentView_CloseEmitsMessageAndHides(t *testing.T) {
 
 func TestAgentView_ActionMessagesUseSelectedJob(t *testing.T) {
 	now := time.Now()
+	done := snap("done1111", StateCompleted, now.Add(-2*time.Minute), "done")
+	done.ResultStatus = "seen"
 	m := New()
 	m.Resize(100, 20)
 	m.Show([]Job{
-		snap("done1111", StateCompleted, now.Add(-2*time.Minute), "done"),
+		done,
 		snap("run11111", StateRunning, now.Add(-1*time.Minute), "run"),
 	})
+	_, cmd := m.Update(key("c"))
+	assert.Equal(t, CancelMsg{JobID: "run11111"}, runCmd(t, cmd))
+	_, cmd = m.Update(key("i"))
+	assert.Nil(t, cmd, "running jobs cannot be injected")
+
 	next, _ := m.Update(key("down"))
 	require.Equal(t, "done1111", next.SelectedID())
 
-	_, cmd := next.Update(key("p"))
+	_, cmd = next.Update(key("p"))
 	assert.Equal(t, PeekMsg{JobID: "done1111"}, runCmd(t, cmd))
 
 	_, cmd = next.Update(key("enter"))
 	assert.Equal(t, OpenMsg{JobID: "done1111"}, runCmd(t, cmd))
 
 	_, cmd = next.Update(key("c"))
-	assert.Equal(t, CancelMsg{JobID: "done1111"}, runCmd(t, cmd))
+	assert.Nil(t, cmd, "terminal jobs cannot be cancelled from Agent View")
 
 	_, cmd = next.Update(key("i"))
 	assert.Equal(t, InjectMsg{JobID: "done1111"}, runCmd(t, cmd))
+
+	_, cmd = next.Update(key("x"))
+	assert.Equal(t, IgnoreMsg{JobID: "done1111"}, runCmd(t, cmd))
 }
 
 func TestAgentView_EmptyShowsPlaceholderAndNoAction(t *testing.T) {

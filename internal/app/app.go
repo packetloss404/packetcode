@@ -96,6 +96,7 @@ type Deps struct {
 	SystemPrompt     string
 	Hooks            *hooks.Runner
 	Version          string // shown on the welcome splash; e.g. "v1" or "v0.1.0"
+	ResumeHydrate    bool   // render the current session transcript at startup
 
 	// Factories maps provider slug → constructor. Used at runtime when
 	// the user sets or updates an API key through the provider picker,
@@ -174,6 +175,11 @@ type App struct {
 	jobSeqSeen         map[string]int64
 	jobTerminalSeen    map[string]bool
 	jobWorktreeSeen    map[string]bool
+
+	providerKeyValidationSeq    uint64
+	providerKeyValidationActive bool
+	providerKeyValidationSlug   string
+	providerKeyValidationKey    string
 }
 
 // isCancellation reports whether err is (or wraps) a context cancellation
@@ -288,6 +294,11 @@ func New(deps Deps) (*App, error) {
 	}
 
 	app.refreshTopBar()
+	if deps.ResumeHydrate {
+		if cur := deps.Sessions.Current(); cur != nil {
+			app.showResumedSession(cur)
+		}
+	}
 	return app, nil
 }
 
@@ -439,13 +450,14 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case prompt.CancelMsg:
 		a.prompt.Hide()
+		a.providerKeyValidationSeq++
+		a.providerKeyValidationActive = false
 		return a, nil
 
 	case agentview.CloseMsg:
 		return a, nil
 
 	case agentview.OpenMsg:
-		a.agentView.Hide()
 		return a.openJobTranscript(msg.JobID, "agent")
 
 	case agentview.PeekMsg:
@@ -456,6 +468,9 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentview.InjectMsg:
 		return a.handleAgentInject(msg.JobID)
+
+	case agentview.IgnoreMsg:
+		return a.handleAgentIgnore(msg.JobID)
 
 	case providerKeyValidatedMsg:
 		return a.handleProviderKeyValidated(msg)
@@ -607,10 +622,21 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.cancelTurn = nil
 			}
 			a.spinner.Stop()
+			a.markOperationCancelling()
 			if a.approval.Visible() {
 				a.approval.Hide()
+				a.approver.Resolve(agent.ApprovalDecision{Approved: false, Reason: "cancelled"})
 			}
 			a.clearQueuedInputs()
+			return a, nil
+		}
+		if a.prompt.Visible() {
+			a.prompt.Hide()
+			return a, nil
+		}
+		if a.approval.Visible() {
+			a.approval.Hide()
+			a.approver.Resolve(agent.ApprovalDecision{Approved: false, Reason: "cancelled"})
 			return a, nil
 		}
 		return a, tea.Quit
@@ -925,13 +951,15 @@ func (a *App) queueInput(text string) {
 	a.refreshTopBar()
 }
 
-func (a *App) clearQueuedInputs() {
+func (a *App) clearQueuedInputs() int {
 	if len(a.queuedInputs) == 0 {
-		return
+		return 0
 	}
+	n := len(a.queuedInputs)
 	a.queuedInputs = nil
 	a.refreshTopBar()
-	a.conversation.AppendSystem("cleared queued prompts")
+	a.conversation.AppendSystem(fmt.Sprintf("cleared %d queued %s", n, plural(n, "prompt", "prompts")))
+	return n
 }
 
 func (a *App) startNextQueuedInput() (tea.Model, tea.Cmd) {
@@ -948,6 +976,14 @@ func (a *App) startNextQueuedInput() (tea.Model, tea.Cmd) {
 func (a *App) setOperation(label string) {
 	a.operationLabel = label
 	a.operationStarted = time.Now()
+	a.refreshTopBar()
+}
+
+func (a *App) markOperationCancelling() {
+	a.operationLabel = "cancelling"
+	if a.operationStarted.IsZero() {
+		a.operationStarted = time.Now()
+	}
 	a.refreshTopBar()
 }
 
@@ -1070,17 +1106,8 @@ func (a *App) injectJobResultForAgent(id string) bool {
 	if a.jobs == nil {
 		return false
 	}
-	result, ok := a.jobs.Result(id)
-	if !ok {
-		return false
-	}
-	if err := a.addJobResultToSession(result); err != nil {
-		return false
-	}
-	if _, ok := a.jobs.MarkResultInjected(id); !ok {
-		return false
-	}
-	return true
+	_, ok, err := a.jobs.InjectResult(id, a.addJobResultToSession)
+	return ok && err == nil
 }
 
 func (a *App) addJobResultToSession(r jobs.Result) error {
@@ -1317,6 +1344,8 @@ func (a *App) handleSlashCommand(cmd string, args []string, original string) (te
 		return a.handleModelCommand(args)
 	case "sessions":
 		return a.handleSessionsCommand(args)
+	case "queue":
+		return a.handleQueueCommand(args)
 	case "undo":
 		return a.handleUndoCommand(args)
 	case "compact":
@@ -1488,7 +1517,31 @@ func (a *App) handleAgentInject(id string) (tea.Model, tea.Cmd) {
 		a.conversation.AppendSystem(fmt.Sprintf("[agent:%s result not available]", id))
 		return a, nil
 	}
+	a.agentView.SetJobs(a.jobs.List())
 	a.conversation.AppendSystem(fmt.Sprintf("[agent:%s injected into next turn]", id))
+	return a, nil
+}
+
+func (a *App) handleAgentIgnore(id string) (tea.Model, tea.Cmd) {
+	if a.jobs == nil {
+		a.conversation.AppendSystem("agents: background agents are disabled (no jobs.Manager wired)")
+		return a, nil
+	}
+	snap, ok := a.jobs.Get(id)
+	if !ok {
+		a.conversation.AppendSystem(fmt.Sprintf("[agent:%s not found]", id))
+		return a, nil
+	}
+	if !snap.State.IsTerminal() {
+		a.conversation.AppendSystem(fmt.Sprintf("[agent:%s is %s; wait for completion before ignoring]", id, snap.State.String()))
+		return a, nil
+	}
+	if _, ok := a.jobs.MarkResultIgnored(id); !ok {
+		a.conversation.AppendSystem(fmt.Sprintf("[agent:%s result not available]", id))
+		return a, nil
+	}
+	a.agentView.SetJobs(a.jobs.List())
+	a.conversation.AppendSystem(fmt.Sprintf("[agent:%s ignored]", id))
 	return a, nil
 }
 
@@ -1548,6 +1601,9 @@ func (a *App) handleCancelCommand(args []string) (tea.Model, tea.Cmd) {
 		n := a.jobs.CancelAll()
 		a.conversation.AppendSystem(fmt.Sprintf("[cancelled %d jobs]", n))
 		a.refreshTopBar()
+		if a.agentView.Visible() {
+			a.agentView.SetJobs(a.jobs.List())
+		}
 		return a, nil
 	}
 	if a.jobs.Cancel(target) {
@@ -1625,6 +1681,13 @@ func trunc(s string, n int) string {
 		return s
 	}
 	return string(r[:n])
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // openProviderPicker constructs the provider picker synchronously

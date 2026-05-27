@@ -456,16 +456,24 @@ func (m *Manager) Cancel(id string) bool {
 // jobs whose workers haven't yet started.
 func (m *Manager) CancelAll() int {
 	m.mu.Lock()
+	now := time.Now().UTC()
 	cancellers := make([]context.CancelFunc, 0, len(m.cancel))
+	snaps := make([]Snapshot, 0, len(m.cancel))
 	for id, j := range m.jobs {
 		if j.State.IsTerminal() {
 			continue
 		}
 		if c, ok := m.cancel[id]; ok {
+			m.stampSnapshotLocked(j, now, "cancelling", "cancellation requested", false, false)
 			cancellers = append(cancellers, c)
+			snaps = append(snaps, snapshotOf(j))
 		}
 	}
+	subs := snapshotCallbacks(m.subscribers)
 	m.mu.Unlock()
+	for _, snap := range snaps {
+		m.fanOut(snap, subs)
+	}
 	for _, c := range cancellers {
 		c()
 	}
@@ -539,6 +547,43 @@ func (m *Manager) MarkResultIgnored(id string) (Result, bool) {
 // foreground session.
 func (m *Manager) MarkResultInjected(id string) (Result, bool) {
 	return m.markResultStatus(id, ResultStatusInjected)
+}
+
+// InjectResult atomically appends a terminal result through consume and marks
+// it injected. If consume fails, the result remains pending/seen so the user can
+// retry or ignore it later.
+func (m *Manager) InjectResult(id string, consume func(Result) error) (Result, bool, error) {
+	if consume == nil {
+		return Result{}, false, fmt.Errorf("nil result consumer")
+	}
+	m.mu.Lock()
+	j, ok := m.jobs[id]
+	if !ok || !j.State.IsTerminal() {
+		m.mu.Unlock()
+		return Result{}, false, nil
+	}
+	current := normalizeResultStatus(j.ResultStatus)
+	if resultStatusFinal(current) {
+		res := resultFromJob(j)
+		m.mu.Unlock()
+		return res, false, nil
+	}
+	res := resultFromJob(j)
+	if err := consume(res); err != nil {
+		m.mu.Unlock()
+		return res, false, err
+	}
+	j.ResultStatus = ResultStatusInjected
+	m.stampSnapshotLocked(j, time.Now().UTC(), "result injected", "", false, false)
+	m.removeQueuedResultLocked(id)
+	subs := snapshotCallbacks(m.subscribers)
+	snap := snapshotOf(j)
+	persisted := toPersisted(j)
+	m.mu.Unlock()
+
+	_ = m.savePersistedSnapshot(persisted)
+	m.fanOut(snap, subs)
+	return res, true, nil
 }
 
 // Result returns the current terminal result payload without changing
@@ -653,8 +698,11 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 	if j.State.IsTerminal() {
 		out := m.consumeResultLocked(j, ResultStatusConsumed)
 		persisted := toPersisted(j)
+		snap := snapshotOf(j)
+		subs := snapshotCallbacks(m.subscribers)
 		m.mu.Unlock()
 		_ = m.savePersistedSnapshot(persisted)
+		m.fanOut(snap, subs)
 		return out, true
 	}
 	ch, ok := m.terminalCh[id]
@@ -687,8 +735,11 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 					}
 					out := m.consumeResultLocked(j3, ResultStatusConsumed)
 					persisted := toPersisted(j3)
+					snap := snapshotOf(j3)
+					subs := snapshotCallbacks(m.subscribers)
 					m.mu.Unlock()
 					_ = m.savePersistedSnapshot(persisted)
+					m.fanOut(snap, subs)
 					return out, true
 				}
 				m.mu.RUnlock()
@@ -707,8 +758,11 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 		}
 		out := m.consumeResultLocked(j2, ResultStatusConsumed)
 		persisted := toPersisted(j2)
+		snap := snapshotOf(j2)
+		subs := snapshotCallbacks(m.subscribers)
 		m.mu.Unlock()
 		_ = m.savePersistedSnapshot(persisted)
+		m.fanOut(snap, subs)
 		return out, true
 	case <-time.After(timeout):
 		return Result{}, false

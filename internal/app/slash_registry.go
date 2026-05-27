@@ -109,6 +109,7 @@ func (r *SlashCommandRegistry) add(cmd SlashCommand) {
 		r.byName = make(map[string]int)
 	}
 	if _, exists := r.byName[cmd.Name]; exists {
+		r.ordered = append(r.ordered, cmd)
 		return
 	}
 	r.byName[cmd.Name] = len(r.ordered)
