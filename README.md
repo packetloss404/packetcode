@@ -43,10 +43,13 @@ Common launch flags:
 packetcode --provider gemini --model gemini-2.5-pro
 packetcode --resume <session-id>
 packetcode --trust
+packetcode doctor
+packetcode doctor --json
 packetcode --version
 ```
 
 `--provider` and `--model` override the saved default for the current run. The provider must already be configured, except for Ollama.
+`packetcode doctor` checks local config, providers, state directories, git, native tools, and MCP setup without starting the TUI.
 
 ## Docs
 

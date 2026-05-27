@@ -8,12 +8,14 @@
 //	packetcode --provider gemini --model gemini-2.5-pro
 //	packetcode --resume <session-id>        resume a saved session
 //	packetcode --trust                      auto-approve all tool actions
+//	packetcode doctor                       diagnose local setup
 package main
 
 import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -62,10 +64,25 @@ func main() {
 		fmt.Printf("packetcode %s (%s)\n", version, commit)
 		return
 	}
+	if code, ok := dispatchSubcommand(flag.Args(), os.Stdout, os.Stderr); ok {
+		os.Exit(code)
+	}
 
 	if err := run(*providerFlag, *modelFlag, *resumeFlag, *trustFlag); err != nil {
 		fmt.Fprintf(os.Stderr, "packetcode: %s\n", err)
 		os.Exit(1)
+	}
+}
+
+func dispatchSubcommand(args []string, stdout, stderr io.Writer) (int, bool) {
+	if len(args) == 0 {
+		return 0, false
+	}
+	switch args[0] {
+	case "doctor":
+		return runDoctorCommand(args[1:], stdout, stderr), true
+	default:
+		return 0, false
 	}
 }
 

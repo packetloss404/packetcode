@@ -27,9 +27,11 @@ packetcode
 packetcode --provider gemini --model gemini-2.5-pro
 packetcode --resume <session-id>
 packetcode --trust
+packetcode doctor
 ```
 
 `--provider` only works for providers already configured in `~/.packetcode/config.toml` or available without a key. Use the provider picker to add missing keys.
+Use `packetcode doctor` before starting the TUI when setup, permissions, git, provider config, or MCP startup looks suspect. Add `--json` for machine-readable output.
 
 ## Everyday Keys
 
