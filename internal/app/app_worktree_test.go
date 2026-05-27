@@ -52,17 +52,28 @@ func TestRenderJobsTable_WorktreeStates(t *testing.T) {
 
 func TestAgentResultBodyIncludesWorktreeBranchAndBase(t *testing.T) {
 	body := agentResultBody(jobs.Result{
-		JobID:          "abc12345",
-		Summary:        "updated files",
+		JobID:   "abc12345",
+		State:   jobs.StateCompleted,
+		Summary: "updated files",
+		Artifacts: []jobs.Artifact{{
+			ID:      "A1",
+			Kind:    "file_change",
+			Summary: "wrote main.go",
+			Path:    "main.go",
+		}},
 		WorktreePath:   "wt/abc12345",
 		WorktreeBranch: "packetcode-job-abc12345",
 		WorktreeBase:   "deadbeef",
 	})
 
+	assert.Contains(t, body, "[Background job abc12345 handoff]")
+	assert.Contains(t, body, "Outcome: completed")
 	assert.Contains(t, body, "updated files")
 	assert.Contains(t, body, "worktree: wt/abc12345")
 	assert.Contains(t, body, "branch packetcode-job-abc12345")
 	assert.Contains(t, body, "base deadbeef")
+	assert.Contains(t, body, "Artifacts:")
+	assert.Contains(t, body, "A1 file_change: wrote main.go")
 }
 
 func TestWorktreeNotificationsOnlyEmitOnce(t *testing.T) {

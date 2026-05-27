@@ -58,7 +58,7 @@ func (s State) IsTerminal() bool {
 
 // ResultStatus records how a terminal job result has been handled after
 // completion. Pending/seen results remain available for an explicit
-// Agent View decision; ignored/injected results are final.
+// Agent View decision; ignored/injected/consumed results are final.
 type ResultStatus string
 
 const (
@@ -66,6 +66,7 @@ const (
 	ResultStatusSeen     ResultStatus = "seen"
 	ResultStatusIgnored  ResultStatus = "ignored"
 	ResultStatusInjected ResultStatus = "injected"
+	ResultStatusConsumed ResultStatus = "consumed"
 )
 
 func (s ResultStatus) String() string {
@@ -77,7 +78,7 @@ func (s ResultStatus) String() string {
 
 func normalizeResultStatus(s ResultStatus) ResultStatus {
 	switch s {
-	case ResultStatusPending, ResultStatusSeen, ResultStatusIgnored, ResultStatusInjected:
+	case ResultStatusPending, ResultStatusSeen, ResultStatusIgnored, ResultStatusInjected, ResultStatusConsumed:
 		return s
 	default:
 		return ResultStatusPending
@@ -113,7 +114,8 @@ type Job struct {
 	Depth          int                // 0 for main-spawned, parent.Depth+1 otherwise
 	Transcript     []provider.Message // snapshot taken when state becomes terminal
 	AllowWrite     bool               // tracks whether destructive tools were enabled
-	ResultStatus   ResultStatus       // pending/seen/ignored/injected after terminal result exists
+	ResultStatus   ResultStatus       // pending/seen/ignored/injected/consumed after terminal result exists
+	Artifacts      []Artifact         // bounded structured refs captured from tool execution
 	WorktreePath   string             // per-job git worktree root when write isolation is active
 	WorktreeBranch string             // branch checked out by the worktree
 	WorktreeBase   string             // base ref/SHA used to create the worktree
@@ -134,6 +136,7 @@ type Snapshot struct {
 	Depth                                                    int
 	NeedsInput, NeedsApproval, AllowWrite                    bool
 	Seq                                                      int64
+	Artifacts                                                []Artifact
 	WorktreePath, WorktreeBranch, WorktreeBase, WorktreeNote string
 }
 
@@ -162,6 +165,7 @@ func snapshotOf(j *Job) Snapshot {
 		NeedsApproval:  j.NeedsApproval,
 		AllowWrite:     j.AllowWrite,
 		Seq:            j.Seq,
+		Artifacts:      cloneArtifacts(j.Artifacts),
 		WorktreePath:   j.WorktreePath,
 		WorktreeBranch: j.WorktreeBranch,
 		WorktreeBase:   j.WorktreeBase,

@@ -50,6 +50,7 @@ type Job struct {
     CostUSD       float64
     Depth         int           // 0 for main-spawned, parent.Depth+1 otherwise
     Transcript    []provider.Message // snapshot taken when state becomes terminal
+    Artifacts     []Artifact    // bounded structured refs captured from tool execution
     WorktreePath   string       // write-job git worktree root, when active
     WorktreeBranch string
     WorktreeBase   string
@@ -142,6 +143,7 @@ type Result struct {
     DurationMS         int64
     InputTokens, OutputTokens int
     CostUSD            float64
+    Artifacts          []Artifact
 }
 func (m *Manager) DrainResults(n int) []Result
 
@@ -185,7 +187,7 @@ Valid transitions: `Queued → Running | Cancelled`; `Running → Completed | Fa
 - `runJob` blocks on `m.sem <- struct{}{}` to honour `MaxConcurrent`. While blocked the job is `StateQueued`. Acquisition flips to `StateRunning`.
 - For write-capable jobs, the worker creates a git worktree under `~/.packetcode/worktrees/<repo-key>/<job-id>` on branch `packetcode-job-<job-id>` from the current `HEAD`. If worktree isolation cannot be created, the job fails before any agent tools run.
 - The worker creates a private `session.Manager` (one-shot, in-memory + persisted under `sessions/<sub-uuid>.json`), a private `session.BackupManager` keyed by the sub-session id, and a per-job `tools.Registry` cloned from the main one but rooted at the job worktree for write jobs (see Isolation).
-- It builds an `agent.Agent` with the per-job dependencies, calls `agent.Run(jobCtx, prompt)`, and consumes the event channel. Each `EventTextDelta` is appended to an in-memory transcript; tool events feed the live transcript surfaced by `/jobs <id>`. `EventUsageUpdate` updates `Job.InputTokens/OutputTokens` and reports to the shared `cost.Tracker` keyed by the sub-session id (so totals naturally aggregate).
+- It builds an `agent.Agent` with the per-job dependencies, calls `agent.Run(jobCtx, prompt)`, and consumes the event channel. Each `EventTextDelta` is appended to an in-memory transcript; tool execution events also populate compact structured artifacts before `ToolResult.Metadata` is lost to plain transcript persistence. `EventUsageUpdate` updates `Job.InputTokens/OutputTokens` and reports to the shared `cost.Tracker` keyed by the sub-session id (so totals naturally aggregate).
 - On `EventDone` → `StateCompleted`. On `EventError` → `StateFailed`. The worker computes a `Summary` (last assistant text trimmed to ~280 chars) and pushes a `Result` to an internal results queue.
 - On any terminal state the worker releases the semaphore (`<-m.sem`), persists the final snapshot to `~/.packetcode/jobs/<short-id>.json`, and fires the final `OnUpdate`.
 - `Manager` holds a `context.CancelFunc` per running job (derived from a manager-level base context). `Cancel(id)` calls that func, which propagates to the agent's HTTP request and any in-flight `execute_command` (since `agent.Run` already plumbs ctx through).
@@ -230,8 +232,9 @@ Semantics:
 - `RequiresApproval()` returns **true**. Spawning is a meaningful action — the user should consent to a parallel agent at least the first time. Trust mode auto-approves.
 - The tool's `Execute` calls `JobManager.Spawn(...)` and:
   - **wait=false** (default): returns immediately. `ToolResult.Content = "Spawned job 7f3a (gemini/gemini-2.5-flash). Result will appear when the job completes."`. Metadata carries `job_id`.
-  - **wait=true**: calls `JobManager.WaitForJob(id, timeout)` and blocks (default 5 min). Returns the spawned agent's final summary as the tool result content. Waiting does not grant write access; callers must request `allow_write=true`, and read-only parent jobs cannot escalate.
-- Constructor: `tools.NewSpawnAgentTool(spawner JobSpawner, parentJobID string, parentDepth int) tools.Tool`. `JobSpawner` is a tiny interface defined in `internal/tools` to avoid an import cycle: `Spawn(SpawnRequest) (Snapshot, *SpawnError)`, `WaitForJob(id, timeout) (Result, bool)`. `*jobs.Manager` satisfies it.
+  - **wait=true**: calls `JobManager.WaitForJob(id, timeout)` and blocks (default 5 min). Returns the spawned agent's final summary plus compact artifact manifest as tool content. Waiting does not grant write access; callers must request `allow_write=true`, and read-only parent jobs cannot escalate.
+  - **collect_agent_results**: collects one or more async children later by job id, or collects child/descendant scope from the current agent. Foreground use is approval-gated because it hands model context back to the main session; background parents can collect their own children without interrupting the user.
+- Constructor: `tools.NewSpawnAgentTool(spawner JobSpawner, parentJobID string, parentDepth int) tools.Tool`. `JobSpawner` is a tiny interface defined in `internal/tools` to avoid an import cycle: `Spawn`, `WaitForJob`, `Cancel`, and `CollectResults`. `*jobs.Manager` satisfies it through `AsToolsSpawner()`.
 - The tool is **registered conditionally** in the per-job tool registry only when the new job's depth is less than `MaxDepth-1`.
 
 Example LLM-issued call:
@@ -351,7 +354,7 @@ When `Manager.OnUpdate` fires with a job entering a terminal state, the App appe
 For `StateFailed`: `[job:7f3a — failed · 8s] error: rate limited (429); retry in 30s`.
 For `StateCancelled`: `[job:7f3a — cancelled · 4s]`.
 
-**Result delivery decision:** Inline system message plus explicit injection from Agent View. Terminal updates mark results as `seen`; pressing `i` in `/agents` marks the result `injected` and appends a `provider.Message{Role: RoleUser, Content: "[Background job 7f3a result]\n<summary>"}` to the foreground session. We use `RoleUser` because (a) some providers don't allow multi-system, (b) the existing system prompt is already in slot 0, (c) this content is conversational input the user is explicitly handing the model.
+**Result delivery decision:** Inline system message plus explicit injection from Agent View. Terminal updates mark results as `seen`; pressing `i` in `/agents` marks the result `injected` and appends a bounded handoff packet to the foreground session. Parent-agent `wait=true` and `collect_agent_results` mark delivered child results as `consumed`, which is final but distinct from foreground injection. We use `RoleUser` for explicit injection because (a) some providers don't allow multi-system, (b) the existing system prompt is already in slot 0, (c) this content is conversational input the user is explicitly handing the model.
 
 ## Persistence
 
@@ -360,7 +363,10 @@ For `StateCancelled`: `[job:7f3a — cancelled · 4s]`.
 - During a job's lifetime: the underlying `session.Session` is auto-saved by the existing `session.Manager.AddMessage` flow. So the *transcript* is always on disk under `~/.packetcode/sessions/<sub-uuid>.json`.
 - Job *metadata* (state, prompt, summary, timing, parent linkage) is written to `~/.packetcode/jobs/<short-id>.json` on every state transition. Atomic temp-file rename.
 - Write-job worktree metadata is persisted in the job snapshot and in a separate sentinel under `~/.packetcode/worktrees/metadata/<repo-key>/<short-id>.json`. Packetcode does not use persisted worktree paths as cleanup authority.
+- Compact artifact metadata is persisted in the job snapshot. Artifacts carry IDs, kinds, titles, summaries, paths, source tools, truncation flags, and small previews only; raw logs and full diffs are not injected automatically.
+- `spawn_agent wait=true` and `collect_agent_results` return artifact manifests and worktree base metadata so parent agents can fan in child work without pulling full transcripts into context.
 - On app start, `JobManager` reads `~/.packetcode/jobs/`, finds any files in `StateRunning` or `StateQueued` (orphans from a crash), and rewrites them to `StateCancelled` with reason `previous app exit`. They appear in `/jobs` history but are not resumed.
+- Terminal jobs are also loaded on startup so completed summaries, result status, worktree metadata, and artifact manifests remain available after restart.
 - On clean shutdown, in-flight jobs are cancelled and persisted with `StateCancelled` reason `app shutdown`.
 
 The `jobs/` dir uses 0700 perms via `config.EnsureDir`. New helper `config.JobsDir() (string, error)` mirrors `BackupsDir()`.
@@ -400,7 +406,7 @@ Background job tokens **aggregate into the same `cost.Tracker`** because the tra
 |---|---|
 | **NEW** `internal/tools/spawn_agent.go` | `SpawnAgentTool` struct holding `Spawner JobSpawner`, `ParentJobID string`, `ParentDepth int`. Schema per spec above. `RequiresApproval()` returns `true`. `Execute` parses params, calls `Spawner.Spawn`. If `wait=true`, blocks on `Spawner.WaitForJob(id, timeout)`. |
 | **NEW** `internal/tools/spawn_agent_test.go` | Tests 16-19. |
-| **NEW** `internal/tools/job_spawner.go` | Defines the `JobSpawner` interface with `Spawn` and `WaitForJob` methods. Avoids an import cycle. |
+| **NEW** `internal/tools/job_spawner.go` | Defines the `JobSpawner` interface with `Spawn`, `WaitForJob`, `Cancel`, and `CollectResults` methods. Avoids an import cycle. |
 | **NEW** `internal/app/slashcmd.go` | `func ParseSlashCommand(text string) (cmd string, args []string, ok bool)`. Recognises `/spawn`, `/jobs`, `/cancel`. `func parseSpawnFlags(args []string) (provider, model string, allowWrite bool, prompt string, err error)`. |
 | **NEW** `internal/app/slashcmd_test.go` | Tests 20-22. |
 | `internal/app/app.go` | Add `jobs *jobs.Manager` to `App` and `Jobs *jobs.Manager` to `Deps`. Wire `OnUpdate` callback through `tea.Program.Send`. In `Update`, handle job snapshots and Agent View messages. Terminal snapshots mark results as `seen`; `/agents` actions can peek, open, cancel, or explicitly inject a selected result. In the input.SubmitMsg path, intercept `/spawn`, `/agents`, `/jobs`, `/cancel` slash commands before agent.Run. |
@@ -442,7 +448,7 @@ Background job tokens **aggregate into the same `cost.Tracker`** because the tra
 ### Bucket B — tool + integration tests
 
 16. `TestSpawnAgentTool_NoWait` — `wait=false`; tool returns immediately with job id in metadata.
-17. `TestSpawnAgentTool_Wait_Completed` — `wait=true`; tool blocks until fake spawner's `WaitForJob` returns; result content is the summary.
+17. `TestSpawnAgentTool_Wait_Completed` — `wait=true`; tool blocks until fake spawner's `WaitForJob` returns; result content includes the summary and compact artifact manifest.
 18. `TestSpawnAgentTool_Wait_Cancelled` — parent ctx cancelled mid-wait; tool returns an `IsError` result.
 19. `TestSpawnAgentTool_Schema` — schema parses, required fields present.
 20. `TestParseSlashCommand_Spawn` — variants: `/spawn hello`, `/spawn --provider gemini --model g-flash hello there`, `/spawn --write hello`, malformed flags.

@@ -89,7 +89,10 @@ func TestWaitForJob_HappyPath(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, StateCompleted, res.State)
 	assert.Equal(t, snap.ID, res.JobID)
+	assert.Equal(t, ResultStatusConsumed, res.Status)
 	assert.Empty(t, mgr.DrainResults(0), "waited result should not be delivered again through DrainResults")
+	got, _ := mgr.Get(snap.ID)
+	assert.Equal(t, ResultStatusConsumed, got.ResultStatus)
 }
 
 // TestWaitForJob_Timeout returns ok=false when the job does not

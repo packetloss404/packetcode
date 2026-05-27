@@ -26,6 +26,10 @@ packetcode doctor --check project,state.worktrees
 
 Then resolve the git issue directly. For dubious-ownership failures, run `git status` in the project and only add a `safe.directory` entry if you trust that checkout. For completed write jobs, `/jobs` and `/agents <id>` show the worktree path; inspect it with `git -C <path> status` and `git -C <path> diff`.
 
+## Missing Or Truncated Job Artifacts
+
+Background job artifacts are compact metadata captured from tool execution. Large diffs, command output, and file contents are intentionally truncated or omitted from fan-in text. Inspect the job transcript with `/jobs <id>` and, for write jobs, inspect the worktree directly when you need full detail.
+
 ## `active provider "..." is not configured`
 
 The provider has no usable key in config or environment. Run packetcode without `--provider`, or open `Ctrl+P` / `/provider`, focus the provider, and press `Ctrl+A` to save a key. `/provider add` opens the same picker, and `/provider add <slug>` opens the same key prompt directly.

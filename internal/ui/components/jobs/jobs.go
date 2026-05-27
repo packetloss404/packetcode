@@ -254,6 +254,16 @@ func (m *Model) refresh() {
 	}
 	var b strings.Builder
 	contentW := m.vp.Width
+	if m.mode == "job" {
+		if manifest := jobs.ArtifactManifest(m.snap.Artifacts, 12); manifest != "" {
+			b.WriteString(theme.StyleSecondary.Bold(true).Render("artifacts"))
+			b.WriteByte('\n')
+			b.WriteString(theme.StyleDim.Render(manifest))
+			if len(m.msgs) > 0 {
+				b.WriteString("\n\n")
+			}
+		}
+	}
 	for i, msg := range m.msgs {
 		if i > 0 {
 			b.WriteString("\n")

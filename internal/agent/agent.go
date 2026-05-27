@@ -375,6 +375,8 @@ func (a *Agent) handleToolCall(ctx context.Context, call provider.ToolCall, even
 		}
 	}
 
+	executedCall := call
+	executedCall.Arguments = string(params)
 	res, err := tool.Execute(ctx, params)
 	if err != nil {
 		if isContextCancellation(err) {
@@ -401,7 +403,7 @@ func (a *Agent) handleToolCall(ctx context.Context, call provider.ToolCall, even
 			res.Content = appendHookOutput(res.Content, hookOut, hookErr)
 		}
 	}
-	events <- AgentEvent{Type: EventToolCallExecuted, ToolCall: call, ToolResult: res}
+	events <- AgentEvent{Type: EventToolCallExecuted, ToolCall: executedCall, ToolResult: res}
 	return a.session.AddMessage(provider.Message{
 		Role:       provider.RoleTool,
 		ToolCallID: call.ID,

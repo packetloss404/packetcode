@@ -93,3 +93,5 @@ Unknown slash commands show an error. Use `//text` when you want to send a promp
 Agent View keys: `p` peeks, `Enter` or `o` opens a transcript, `c` cancels, `i` injects a completed result into the next foreground turn, and `Esc` or `q` closes the dashboard.
 
 Write-capable background agents require git worktree isolation. They create `~/.packetcode/worktrees/<repo-key>/<job-id>` on branch `packetcode-job-<job-id>` from the current `HEAD`; uncommitted foreground changes are not copied. Packetcode leaves the worktree for review after completion.
+
+Completed jobs include a bounded artifact manifest for changed files, commands, tests, searches, spawned children, and worktree changes. Use `/agents` or `/jobs <id>` to inspect the manifest, then inject a compact handoff into the foreground conversation only when you choose. Model-initiated `collect_agent_results` is approval-gated in the foreground and only returns compact summaries/manifests.

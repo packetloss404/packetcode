@@ -27,12 +27,17 @@ type fakeSpawner struct {
 	// external signal (e.g. a close on a test-owned channel) — but for our
 	// purposes the delay suffices.
 
-	spawned    atomic.Int32
-	waited     atomic.Int32
-	cancelled  atomic.Int32
-	lastReq    JobSpawnRequest
-	lastWait   string
-	lastCancel string
+	spawned     atomic.Int32
+	waited      atomic.Int32
+	collected   atomic.Int32
+	cancelled   atomic.Int32
+	lastReq     JobSpawnRequest
+	lastWait    string
+	lastCollect JobCollectRequest
+	lastCancel  string
+
+	collectResults []JobWaitResult
+	collectOK      bool
 }
 
 func (f *fakeSpawner) Cancel(id string) bool {
@@ -63,6 +68,12 @@ func (f *fakeSpawner) WaitForJob(id string, timeout time.Duration) (JobWaitResul
 		}
 	}
 	return f.waitResult, f.waitOK
+}
+
+func (f *fakeSpawner) CollectResults(req JobCollectRequest) ([]JobWaitResult, bool) {
+	f.collected.Add(1)
+	f.lastCollect = req
+	return f.collectResults, f.collectOK
 }
 
 // TestSpawnAgentTool_NoWait verifies wait=false returns the job id and
@@ -125,6 +136,12 @@ func TestSpawnAgentTool_Wait_Completed(t *testing.T) {
 			JobID: "deadbeef", Provider: "gemini", Model: "flash",
 			Summary: "found 3 call sites", State: "completed",
 			DurationMS: 1234, InputTokens: 100, OutputTokens: 50, CostUSD: 0.001,
+			Artifacts: []JobArtifact{{
+				ID:      "A1",
+				Kind:    "search",
+				Summary: "3 match(es) for Authenticate",
+			}},
+			WorktreeBase: "deadbeefbase",
 		},
 		waitOK:    true,
 		waitDelay: 50 * time.Millisecond,
@@ -142,11 +159,20 @@ func TestSpawnAgentTool_Wait_Completed(t *testing.T) {
 	if !strings.Contains(res.Content, "found 3 call sites") {
 		t.Fatalf("Content %q missing summary", res.Content)
 	}
+	if !strings.Contains(res.Content, "Artifacts:") || !strings.Contains(res.Content, "A1 search") {
+		t.Fatalf("Content %q missing artifact manifest", res.Content)
+	}
 	if got, _ := res.Metadata["state"].(string); got != "completed" {
 		t.Fatalf("metadata state = %v, want completed", res.Metadata["state"])
 	}
 	if got, _ := res.Metadata["waited"].(bool); !got {
 		t.Fatalf("metadata waited = false, want true")
+	}
+	if got, _ := res.Metadata["artifact_count"].(int); got != 1 {
+		t.Fatalf("metadata artifact_count = %v, want 1", res.Metadata["artifact_count"])
+	}
+	if got, _ := res.Metadata["worktree_base"].(string); got != "deadbeefbase" {
+		t.Fatalf("metadata worktree_base = %v, want deadbeefbase", res.Metadata["worktree_base"])
 	}
 	if f.spawned.Load() != 1 || f.waited.Load() != 1 {
 		t.Fatalf("spawn=%d wait=%d, want 1 / 1", f.spawned.Load(), f.waited.Load())
@@ -159,6 +185,32 @@ func TestSpawnAgentTool_Wait_Completed(t *testing.T) {
 	// Parent context propagated into the SpawnRequest.
 	if f.lastReq.ParentJobID != "parent-01" || f.lastReq.ParentDepth != 1 {
 		t.Fatalf("parent info not propagated: %+v", f.lastReq)
+	}
+}
+
+func TestSpawnAgentTool_Wait_FailedIncludesError(t *testing.T) {
+	f := &fakeSpawner{
+		spawnResult: JobSpawnResult{ID: "badc0de1", Provider: "openai", Model: "gpt"},
+		waitResult: JobWaitResult{
+			JobID: "badc0de1", Provider: "openai", Model: "gpt",
+			State: "failed", Error: "prepare worktree: git rejected repository ownership",
+		},
+		waitOK: true,
+	}
+	tool := NewSpawnAgentTool(f, "", 0)
+
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"prompt":"edit","wait":true}`))
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected failed child to return IsError")
+	}
+	if !strings.Contains(res.Content, "git rejected repository ownership") {
+		t.Fatalf("Content %q missing child error", res.Content)
+	}
+	if got, _ := res.Metadata["error"].(string); got == "" {
+		t.Fatalf("metadata error should be present: %#v", res.Metadata)
 	}
 }
 
@@ -302,5 +354,108 @@ func TestSpawnAgentTool_SpawnError(t *testing.T) {
 	}
 	if !strings.Contains(res.Content, "limit_reached") {
 		t.Fatalf("Content %q should mention error code", res.Content)
+	}
+}
+
+func TestCollectAgentResultsTool_ScopeAndManifest(t *testing.T) {
+	f := &fakeSpawner{
+		collectOK: true,
+		collectResults: []JobWaitResult{{
+			JobID:       "child-1",
+			ParentJobID: "parent-1",
+			State:       "completed",
+			Summary:     "updated parser",
+			Artifacts: []JobArtifact{{
+				ID:      "A1",
+				Kind:    "file_change",
+				Summary: "wrote internal/parser.go",
+				Path:    "internal/parser.go",
+			}},
+			WorktreePath:   "C:/tmp/wt",
+			WorktreeBranch: "packetcode-job-child-1",
+			WorktreeBase:   "abc123",
+		}},
+	}
+	tool := NewCollectAgentResultsTool(f, "parent-1", 1)
+	if tool.RequiresApproval() {
+		t.Fatalf("background collect_agent_results should not require approval")
+	}
+
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"scope":"descendants","timeout_sec":1}`))
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("IsError=true unexpected: %+v", res)
+	}
+	if !strings.Contains(res.Content, "updated parser") || !strings.Contains(res.Content, "A1 file_change") {
+		t.Fatalf("Content %q missing result or artifact manifest", res.Content)
+	}
+	if !strings.Contains(res.Content, "worktree: C:/tmp/wt") {
+		t.Fatalf("Content %q missing worktree summary", res.Content)
+	}
+	if f.lastCollect.ParentJobID != "parent-1" || f.lastCollect.ParentDepth != 1 {
+		t.Fatalf("parent context not propagated: %+v", f.lastCollect)
+	}
+	if f.lastCollect.Scope != "descendants" {
+		t.Fatalf("scope = %q, want descendants", f.lastCollect.Scope)
+	}
+	if f.lastCollect.Timeout != time.Second {
+		t.Fatalf("timeout = %s, want 1s", f.lastCollect.Timeout)
+	}
+	if got, _ := res.Metadata["count"].(int); got != 1 {
+		t.Fatalf("metadata count = %v, want 1", res.Metadata["count"])
+	}
+}
+
+func TestCollectAgentResultsTool_ForegroundRequiresApproval(t *testing.T) {
+	tool := NewCollectAgentResultsTool(&fakeSpawner{}, "", 0)
+	if !tool.RequiresApproval() {
+		t.Fatalf("foreground collect_agent_results should require approval")
+	}
+}
+
+func TestCollectAgentResultsTool_FailedResultIsError(t *testing.T) {
+	f := &fakeSpawner{
+		collectOK:      true,
+		collectResults: []JobWaitResult{{JobID: "child-2", State: "failed", Error: "tests failed"}},
+	}
+	tool := NewCollectAgentResultsTool(f, "", 0)
+
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"job_ids":["child-2"]}`))
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("failed child should make collection IsError")
+	}
+	if !strings.Contains(res.Content, "tests failed") {
+		t.Fatalf("Content %q missing child error", res.Content)
+	}
+	if len(f.lastCollect.JobIDs) != 1 || f.lastCollect.JobIDs[0] != "child-2" {
+		t.Fatalf("job_ids not propagated: %+v", f.lastCollect.JobIDs)
+	}
+}
+
+func TestCollectAgentResultsTool_PartialExplicitCollectionReportsMissing(t *testing.T) {
+	f := &fakeSpawner{
+		collectOK:      true,
+		collectResults: []JobWaitResult{{JobID: "child-1", State: "completed", Summary: "done"}},
+	}
+	tool := NewCollectAgentResultsTool(f, "", 0)
+
+	res, err := tool.Execute(context.Background(), json.RawMessage(`{"job_ids":["child-1","child-2"]}`))
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("partial explicit collection should be IsError")
+	}
+	if !strings.Contains(res.Content, "Missing jobs: child-2") {
+		t.Fatalf("Content %q missing partial collection warning", res.Content)
+	}
+	missing, _ := res.Metadata["missing_job_ids"].([]string)
+	if len(missing) != 1 || missing[0] != "child-2" {
+		t.Fatalf("missing_job_ids = %#v, want child-2", res.Metadata["missing_job_ids"])
 	}
 }

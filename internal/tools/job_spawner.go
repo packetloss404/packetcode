@@ -31,6 +31,12 @@ type JobSpawner interface {
 	// cascade parent-context cancellation down to the sub-agent so a
 	// cancelled wait doesn't leave an orphan worker running.
 	Cancel(id string) bool
+
+	// CollectResults waits for explicit jobs or, when no job ids are
+	// supplied, jobs in the caller's allowed scope. Background callers
+	// may collect their descendants; foreground callers may collect any
+	// explicit job id or top-level jobs by default.
+	CollectResults(req JobCollectRequest) ([]JobWaitResult, bool)
 }
 
 // JobSpawnRequest mirrors jobs.SpawnRequest.
@@ -44,6 +50,14 @@ type JobSpawnRequest struct {
 	AllowWrite   bool
 }
 
+type JobCollectRequest struct {
+	ParentJobID string
+	ParentDepth int
+	JobIDs      []string
+	Scope       string
+	Timeout     time.Duration
+}
+
 // JobSpawnResult mirrors jobs.Snapshot (the success return of Spawn).
 // Only the fields the spawn_agent tool actually consumes are mirrored;
 // callers that need more can extend this struct alongside the adapter.
@@ -55,6 +69,20 @@ type JobSpawnResult struct {
 	Depth          int
 	WorktreePath   string
 	WorktreeBranch string
+}
+
+type JobArtifact struct {
+	ID         string         `json:"id"`
+	Kind       string         `json:"kind"`
+	Title      string         `json:"title"`
+	Summary    string         `json:"summary,omitempty"`
+	Path       string         `json:"path,omitempty"`
+	SourceTool string         `json:"source_tool,omitempty"`
+	IsError    bool           `json:"is_error,omitempty"`
+	Truncated  bool           `json:"truncated,omitempty"`
+	SizeBytes  int            `json:"size_bytes,omitempty"`
+	Preview    string         `json:"preview,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 // JobSpawnError mirrors jobs.SpawnError.
@@ -78,14 +106,21 @@ func (e *JobSpawnError) Error() string {
 // have to re-declare the State enum.
 type JobWaitResult struct {
 	JobID          string
+	ParentJobID    string
 	Provider       string
 	Model          string
+	Prompt         string
 	Summary        string
+	Error          string
+	Reason         string
 	State          string
+	Depth          int
 	DurationMS     int64
 	InputTokens    int
 	OutputTokens   int
 	CostUSD        float64
+	Artifacts      []JobArtifact
 	WorktreePath   string
 	WorktreeBranch string
+	WorktreeBase   string
 }

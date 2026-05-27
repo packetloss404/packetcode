@@ -1175,6 +1175,9 @@ func formatTerminalJobLine(snap jobs.Snapshot) string {
 	} else if wt := worktreeSummary(snap); wt != "" {
 		body += "\n" + wt
 	}
+	if digest := jobs.ArtifactDigest(snap.Artifacts); digest != "" {
+		body += "\nartifacts: " + digest + " · /agents " + snap.ID
+	}
 	return head + "\n" + body
 }
 
@@ -1202,6 +1205,12 @@ func formatAgentPeek(snap jobs.Snapshot) string {
 			body += "\n"
 		}
 		body += wt
+	}
+	if manifest := jobs.ArtifactManifest(snap.Artifacts, 8); manifest != "" {
+		if body != "" {
+			body += "\n"
+		}
+		body += "Artifacts:\n" + manifest
 	}
 	head := fmt.Sprintf("[agent:%s — %s · %s]", snap.ID, snap.State.String(), prov)
 	if body == "" {
@@ -1238,10 +1247,19 @@ func agentResultBody(r jobs.Result) string {
 	if summary == "" {
 		summary = "(no summary)"
 	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[Background job %s handoff]\n", r.JobID)
+	fmt.Fprintf(&b, "Outcome: %s\n", r.State.String())
+	fmt.Fprintf(&b, "Summary: %s", summary)
 	if r.WorktreePath != "" {
-		summary += "\n" + resultWorktreeSummary(r)
+		b.WriteString("\n")
+		b.WriteString(resultWorktreeSummary(r))
 	}
-	return fmt.Sprintf("[Background job %s result]\n%s", r.JobID, summary)
+	if manifest := jobs.ArtifactManifest(r.Artifacts, 10); manifest != "" {
+		b.WriteString("\nArtifacts:\n")
+		b.WriteString(manifest)
+	}
+	return b.String()
 }
 
 func resultWorktreeSummary(r jobs.Result) string {
@@ -1588,6 +1606,9 @@ func renderJobsTable(snaps []jobs.Snapshot) string {
 			trunc(s.ID, 5), trunc(s.State.String(), 10), trunc(rootMode, 9), trunc(prov, 23), age, trunc(tok, 12), prompt)
 		if wt := worktreeSummary(s); wt != "" {
 			fmt.Fprintf(&b, "      %s\n", wt)
+		}
+		if digest := jobs.ArtifactDigest(s.Artifacts); digest != "" {
+			fmt.Fprintf(&b, "      artifacts: %s\n", digest)
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")

@@ -297,3 +297,52 @@ func nonEmptyString(v, fallback string) string {
 	}
 	return fallback
 }
+
+func appendWorktreeArtifacts(ctx context.Context, artifacts []Artifact, j *Job) []Artifact {
+	if j == nil || j.WorktreePath == "" || len(artifacts) >= maxArtifactsPerJob {
+		return artifacts
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return artifacts
+	}
+	status, _, err := gitOutput(ctx, gitPath, j.WorktreePath, "status", "--porcelain")
+	if err != nil || strings.TrimSpace(status) == "" {
+		return artifacts
+	}
+	files := parsePorcelainFiles(status)
+	summary := fmt.Sprintf("%d changed %s in worktree", len(files), plural("file", len(files)))
+	preview, truncated := cappedPreview(status, maxArtifactPreview)
+	return append(artifacts, Artifact{
+		ID:         artifactID(len(artifacts) + 1),
+		Kind:       "worktree_diff",
+		Title:      "worktree changes",
+		Summary:    summary,
+		SourceTool: "git",
+		Truncated:  truncated,
+		Preview:    preview,
+		Metadata: map[string]any{
+			"file_count": len(files),
+			"files":      capStringSlice(files, 200),
+		},
+		CreatedAt: time.Now().UTC(),
+	})
+}
+
+func parsePorcelainFiles(status string) []string {
+	lines := strings.Split(strings.TrimSpace(status), "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if len(line) < 4 {
+			continue
+		}
+		path := strings.TrimSpace(line[3:])
+		if idx := strings.LastIndex(path, " -> "); idx >= 0 {
+			path = path[idx+4:]
+		}
+		if path != "" {
+			out = append(out, path)
+		}
+	}
+	return out
+}

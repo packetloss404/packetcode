@@ -102,6 +102,12 @@ type Config struct {
 	// strictly less than MaxDepth-1, since deeper spawns would breach
 	// the recursion cap.
 	SpawnTool func(parentJobID string, parentDepth int, parentAllowWrite bool) tools.Tool
+
+	// CollectTool is the optional factory used to plug a
+	// collect_agent_results tool into each per-job tool registry. Unlike
+	// SpawnTool it is not depth-gated: even leaf jobs may collect
+	// results from children they spawned earlier.
+	CollectTool func(parentJobID string, parentDepth int) tools.Tool
 }
 
 // SpawnRequest is the input to Manager.Spawn. ParentJobID/ParentDepth
@@ -155,6 +161,11 @@ type Result struct {
 	InputTokens    int
 	OutputTokens   int
 	CostUSD        float64
+	ParentJobID    string
+	Prompt         string
+	Depth          int
+	SessionID      string
+	Artifacts      []Artifact
 	WorktreePath   string
 	WorktreeBranch string
 	WorktreeBase   string
@@ -226,19 +237,30 @@ func NewManager(cfg Config) (*Manager, int, error) {
 	if cfg.OnUpdate != nil {
 		m.subscribers = append(m.subscribers, cfg.OnUpdate)
 	}
-	recovered, err := loadOrphaned(cfg.JobsDir)
+	loaded, recoveredJobs, err := loadPersistedJobs(cfg.JobsDir)
 	if err != nil {
 		// Non-fatal: caller may continue with an empty job list.
 		return m, 0, err
 	}
-	for _, j := range recovered {
+	for _, j := range loaded {
 		m.jobs[j.ID] = j
 		m.persistSeq[j.ID] = j.Seq
 		if j.Seq > m.seq {
 			m.seq = j.Seq
 		}
+		if j.State.IsTerminal() {
+			status := normalizeResultStatus(j.ResultStatus)
+			if status == ResultStatusPending || status == ResultStatusSeen {
+				m.results = append(m.results, resultFromJob(j))
+			}
+		}
 	}
-	return m, len(recovered), nil
+	sort.SliceStable(m.results, func(i, j int) bool {
+		left := jobResultSortTime(m.jobs[m.results[i].JobID])
+		right := jobResultSortTime(m.jobs[m.results[j].JobID])
+		return left.Before(right)
+	})
+	return m, len(recoveredJobs), nil
 }
 
 // Subscribe registers an additional snapshot callback. Used by the App
@@ -262,6 +284,15 @@ func (m *Manager) Subscribe(fn func(Snapshot)) {
 func (m *Manager) SetSpawnToolFactory(fn func(parentJobID string, parentDepth int, parentAllowWrite bool) tools.Tool) {
 	m.mu.Lock()
 	m.cfg.SpawnTool = fn
+	m.mu.Unlock()
+}
+
+// SetCollectToolFactory installs (or replaces) the CollectTool factory
+// after Manager construction. Safe to call before any jobs have been
+// spawned; subsequent job boots see the latest factory.
+func (m *Manager) SetCollectToolFactory(fn func(parentJobID string, parentDepth int) tools.Tool) {
+	m.mu.Lock()
+	m.cfg.CollectTool = fn
 	m.mu.Unlock()
 }
 
@@ -511,8 +542,8 @@ func (m *Manager) MarkResultInjected(id string) (Result, bool) {
 }
 
 // Result returns the current terminal result payload without changing
-// its lifecycle status. Ignored and injected results are considered
-// final and are not returned for another user decision.
+// its lifecycle status. Finalized results are not returned for another
+// user decision.
 func (m *Manager) Result(id string) (Result, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -521,7 +552,7 @@ func (m *Manager) Result(id string) (Result, bool) {
 		return Result{}, false
 	}
 	current := normalizeResultStatus(j.ResultStatus)
-	if current == ResultStatusIgnored || current == ResultStatusInjected {
+	if resultStatusFinal(current) {
 		return Result{}, false
 	}
 	return resultFromJob(j), true
@@ -541,7 +572,7 @@ func (m *Manager) markResultStatus(id string, status ResultStatus) (Result, bool
 		m.mu.Unlock()
 		return res, true
 	}
-	if current == ResultStatusIgnored || current == ResultStatusInjected {
+	if resultStatusFinal(current) {
 		res := resultFromJob(j)
 		m.mu.Unlock()
 		return res, false
@@ -549,7 +580,7 @@ func (m *Manager) markResultStatus(id string, status ResultStatus) (Result, bool
 	j.ResultStatus = status
 	m.stampSnapshotLocked(j, time.Now().UTC(), "result "+status.String(), "", false, false)
 	res := resultFromJob(j)
-	if status == ResultStatusIgnored || status == ResultStatusInjected {
+	if resultStatusFinal(status) {
 		m.removeQueuedResultLocked(id)
 	} else {
 		m.upsertQueuedResultLocked(res)
@@ -611,7 +642,7 @@ func (m *Manager) DrainResults(n int) []Result {
 // timeout elapses. Returns ok=false if the id is unknown or the timeout
 // fires before the job completes. The returned Result is consumed from
 // the pending results queue so a waited child is not delivered again by
-// DrainResults.
+// DrainResults or Agent View injection.
 func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 	m.mu.Lock()
 	j, exists := m.jobs[id]
@@ -620,7 +651,7 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 		return Result{}, false
 	}
 	if j.State.IsTerminal() {
-		out := m.consumeResultLocked(j, ResultStatusInjected)
+		out := m.consumeResultLocked(j, ResultStatusConsumed)
 		persisted := toPersisted(j)
 		m.mu.Unlock()
 		_ = m.savePersistedSnapshot(persisted)
@@ -654,7 +685,7 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 						m.mu.Unlock()
 						return Result{}, false
 					}
-					out := m.consumeResultLocked(j3, ResultStatusInjected)
+					out := m.consumeResultLocked(j3, ResultStatusConsumed)
 					persisted := toPersisted(j3)
 					m.mu.Unlock()
 					_ = m.savePersistedSnapshot(persisted)
@@ -674,7 +705,7 @@ func (m *Manager) WaitForJob(id string, timeout time.Duration) (Result, bool) {
 			m.mu.Unlock()
 			return Result{}, false
 		}
-		out := m.consumeResultLocked(j2, ResultStatusInjected)
+		out := m.consumeResultLocked(j2, ResultStatusConsumed)
 		persisted := toPersisted(j2)
 		m.mu.Unlock()
 		_ = m.savePersistedSnapshot(persisted)
@@ -700,6 +731,15 @@ func (m *Manager) consumeResultLocked(j *Job, status ResultStatus) Result {
 	return resultFromJob(j)
 }
 
+func resultStatusFinal(status ResultStatus) bool {
+	switch normalizeResultStatus(status) {
+	case ResultStatusIgnored, ResultStatusInjected, ResultStatusConsumed:
+		return true
+	default:
+		return false
+	}
+}
+
 func copyResults(src []Result, n int) []Result {
 	if len(src) == 0 {
 		return nil
@@ -710,6 +750,22 @@ func copyResults(src []Result, n int) []Result {
 	out := make([]Result, n)
 	copy(out, src[:n])
 	return out
+}
+
+func jobResultSortTime(j *Job) time.Time {
+	if j == nil {
+		return time.Time{}
+	}
+	if !j.FinishedAt.IsZero() {
+		return j.FinishedAt
+	}
+	if !j.UpdatedAt.IsZero() {
+		return j.UpdatedAt
+	}
+	if !j.CreatedAt.IsZero() {
+		return j.CreatedAt
+	}
+	return time.Time{}
 }
 
 func (m *Manager) removeQueuedResultLocked(id string) {
@@ -752,6 +808,11 @@ func resultFromJob(j *Job) Result {
 		InputTokens:    j.InputTokens,
 		OutputTokens:   j.OutputTokens,
 		CostUSD:        j.CostUSD,
+		ParentJobID:    j.ParentJobID,
+		Prompt:         j.Prompt,
+		Depth:          j.Depth,
+		SessionID:      j.SessionID,
+		Artifacts:      cloneArtifacts(j.Artifacts),
 		WorktreePath:   j.WorktreePath,
 		WorktreeBranch: j.WorktreeBranch,
 		WorktreeBase:   j.WorktreeBase,
@@ -1015,7 +1076,7 @@ func (m *Manager) stampSnapshotLocked(j *Job, at time.Time, activity, message st
 // markTerminal flips the job's state to a terminal value, persists,
 // signals the terminalCh, and fans out the final snapshot. It must be
 // called while NOT holding m.mu.
-func (m *Manager) markTerminal(j *Job, newState State, summary, errMsg, reason string, finalUsageInput, finalUsageOutput int, finalCost float64, transcript []provider.Message) {
+func (m *Manager) markTerminal(j *Job, newState State, summary, errMsg, reason string, finalUsageInput, finalUsageOutput int, finalCost float64, transcript []provider.Message, artifacts []Artifact) {
 	m.mu.Lock()
 	if j.State.IsTerminal() {
 		m.mu.Unlock()
@@ -1051,6 +1112,9 @@ func (m *Manager) markTerminal(j *Job, newState State, summary, errMsg, reason s
 	}
 	if len(transcript) > 0 {
 		j.Transcript = transcript
+	}
+	if len(artifacts) > 0 {
+		j.Artifacts = cloneArtifacts(artifacts)
 	}
 	now := time.Now().UTC()
 	j.FinishedAt = now

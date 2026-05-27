@@ -223,9 +223,21 @@ func (t *SpawnAgentTool) waitAndReport(ctx context.Context, snap JobSpawnResult,
 		res := out.res
 		summary := strings.TrimSpace(res.Summary)
 		if summary == "" {
+			summary = strings.TrimSpace(res.Error)
+		}
+		if summary == "" {
+			summary = strings.TrimSpace(res.Reason)
+		}
+		if summary == "" {
 			summary = "(no summary)"
 		}
 		content := fmt.Sprintf("[job:%s — %s] %s", res.JobID, res.State, summary)
+		if manifest := jobArtifactManifest(res.Artifacts, 8); manifest != "" {
+			content += "\n\nArtifacts:\n" + manifest
+		}
+		if wt := waitWorktreeSummary(res); wt != "" {
+			content += "\n" + wt
+		}
 		isError := res.State == "failed" || res.State == "cancelled"
 		return ToolResult{
 			Content: content,
@@ -241,8 +253,13 @@ func (t *SpawnAgentTool) waitAndReport(ctx context.Context, snap JobSpawnResult,
 				"cost_usd":        res.CostUSD,
 				"summary":         summary,
 				"waited":          true,
+				"error":           res.Error,
+				"reason":          res.Reason,
+				"artifact_count":  len(res.Artifacts),
+				"artifacts":       jobArtifactMetadata(res.Artifacts, 16),
 				"worktree_path":   res.WorktreePath,
 				"worktree_branch": res.WorktreeBranch,
+				"worktree_base":   res.WorktreeBase,
 			},
 		}, nil
 	}
@@ -260,4 +277,82 @@ func nonEmpty(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func jobArtifactManifest(artifacts []JobArtifact, limit int) string {
+	if len(artifacts) == 0 {
+		return ""
+	}
+	if limit <= 0 || limit > len(artifacts) {
+		limit = len(artifacts)
+	}
+	lines := make([]string, 0, limit+1)
+	for i := 0; i < limit; i++ {
+		a := artifacts[i]
+		kind := nonEmpty(a.Kind, "artifact")
+		body := strings.TrimSpace(a.Summary)
+		if body == "" {
+			body = a.Title
+		}
+		if a.Path != "" && !strings.Contains(body, a.Path) {
+			body += " (" + a.Path + ")"
+		}
+		if a.Truncated {
+			body += " [truncated]"
+		}
+		lines = append(lines, fmt.Sprintf("- %s %s: %s", nonEmpty(a.ID, fmt.Sprintf("A%d", i+1)), kind, truncateToolRunes(body, 140)))
+	}
+	if len(artifacts) > limit {
+		lines = append(lines, fmt.Sprintf("- ... %d more", len(artifacts)-limit))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func jobArtifactMetadata(artifacts []JobArtifact, limit int) []map[string]any {
+	if len(artifacts) == 0 {
+		return nil
+	}
+	if limit <= 0 || limit > len(artifacts) {
+		limit = len(artifacts)
+	}
+	out := make([]map[string]any, 0, limit)
+	for i := 0; i < limit; i++ {
+		a := artifacts[i]
+		item := map[string]any{
+			"id":        nonEmpty(a.ID, fmt.Sprintf("A%d", i+1)),
+			"kind":      nonEmpty(a.Kind, "artifact"),
+			"title":     truncateToolRunes(a.Title, 140),
+			"summary":   truncateToolRunes(a.Summary, 280),
+			"path":      truncateToolRunes(a.Path, 280),
+			"truncated": a.Truncated,
+			"is_error":  a.IsError,
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func waitWorktreeSummary(res JobWaitResult) string {
+	if res.WorktreePath == "" {
+		return ""
+	}
+	parts := []string{"worktree: " + res.WorktreePath}
+	if res.WorktreeBranch != "" {
+		parts = append(parts, "branch "+res.WorktreeBranch)
+	}
+	if res.WorktreeBase != "" {
+		parts = append(parts, "base "+res.WorktreeBase)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func truncateToolRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	rs := []rune(s)
+	if len(rs) <= max {
+		return s
+	}
+	return string(rs[:max])
 }

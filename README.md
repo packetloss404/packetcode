@@ -114,6 +114,8 @@ Environment variables take precedence over `~/.packetcode/config.toml`.
 
 packetcode leaves write-job worktrees in place for inspection. Use `/jobs` or `/agents <id>` to find the path, then inspect with `git -C <path> status` or `git -C <path> diff` before merging or copying changes. To clean one up, run `git worktree remove <path>` from the source repository, then delete the `packetcode-job-<job-id>` branch if you no longer need it.
 
+Completed background jobs keep a compact artifact manifest alongside their summary: changed files, commands or test runs, searches, child jobs, and worktree changes. Packetcode surfaces those artifacts in `/jobs`, Agent View, transcript headers, explicit result injection, `spawn_agent` wait results, and the approval-gated `collect_agent_results` tool for async fan-in. It does not inject raw diffs, command logs, or file contents automatically.
+
 See [Agent View](docs/feature-agent-view.md) for the full workflow.
 
 ## MCP Servers

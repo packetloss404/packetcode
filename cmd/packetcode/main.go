@@ -342,12 +342,16 @@ func run(providerOverride, modelOverride, resumeID string, trust bool, permissio
 	jobsMgr.SetSpawnToolFactory(func(parentJobID string, parentDepth int, parentAllowWrite bool) tools.Tool {
 		return tools.NewBackgroundSpawnAgentTool(jobsMgr.AsToolsSpawner(), parentJobID, parentDepth, parentAllowWrite)
 	})
+	jobsMgr.SetCollectToolFactory(func(parentJobID string, parentDepth int) tools.Tool {
+		return tools.NewCollectAgentResultsTool(jobsMgr.AsToolsSpawner(), parentJobID, parentDepth)
+	})
 	defer jobsMgr.Shutdown(5 * time.Second)
 
 	// Register spawn_agent into the main tool registry so the foreground
 	// LLM can call it too. ParentJobID="" / ParentDepth=0 for main-
 	// session spawns.
 	toolReg.Register(tools.NewSpawnAgentTool(jobsMgr.AsToolsSpawner(), "", 0))
+	toolReg.Register(tools.NewCollectAgentResultsTool(jobsMgr.AsToolsSpawner(), "", 0))
 
 	// Register MCP tools AFTER every native tool + spawn_agent so the
 	// Agent's initial tool enumeration (on its first turn) sees them.

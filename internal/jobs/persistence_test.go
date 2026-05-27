@@ -28,6 +28,16 @@ func TestSaveSnapshot_AtomicWrite(t *testing.T) {
 		WorktreeBranch: "packetcode-job-abcd1234",
 		WorktreeBase:   "0123456789abcdef",
 		WorktreeNote:   "ready",
+		Artifacts: []Artifact{{
+			ID:         "A1",
+			Kind:       "file_change",
+			Title:      "hello.txt",
+			Summary:    "wrote hello.txt",
+			Path:       "hello.txt",
+			SourceTool: "write_file",
+			Metadata:   map[string]any{"bytes": 2},
+			CreatedAt:  time.Now().UTC(),
+		}},
 	}
 	require.NoError(t, saveSnapshot(dir, j))
 
@@ -48,12 +58,16 @@ func TestSaveSnapshot_AtomicWrite(t *testing.T) {
 	assert.Equal(t, j.WorktreeBranch, p.WorktreeBranch)
 	assert.Equal(t, j.WorktreeBase, p.WorktreeBase)
 	assert.Equal(t, j.WorktreeNote, p.WorktreeNote)
+	require.Len(t, p.Artifacts, 1)
+	assert.Equal(t, "file_change", p.Artifacts[0].Kind)
 
 	roundTripped := fromPersisted(p)
 	assert.Equal(t, j.WorktreePath, roundTripped.WorktreePath)
 	assert.Equal(t, j.WorktreeBranch, roundTripped.WorktreeBranch)
 	assert.Equal(t, j.WorktreeBase, roundTripped.WorktreeBase)
 	assert.Equal(t, j.WorktreeNote, roundTripped.WorktreeNote)
+	require.Len(t, roundTripped.Artifacts, 1)
+	assert.Equal(t, "hello.txt", roundTripped.Artifacts[0].Path)
 }
 
 func TestPersistedResultStatusDefaultsToPending(t *testing.T) {
@@ -66,6 +80,94 @@ func TestPersistedResultStatusDefaultsToPending(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	})
 	assert.Equal(t, ResultStatusPending, j.ResultStatus)
+}
+
+func TestPersistedResultStatusParsesConsumed(t *testing.T) {
+	j := fromPersisted(persistedJob{
+		ID:           "consume1",
+		SessionID:    "main-job-consume1",
+		Provider:     "p",
+		Model:        "m",
+		State:        "completed",
+		ResultStatus: "consumed",
+		CreatedAt:    time.Now().UTC(),
+	})
+	assert.Equal(t, ResultStatusConsumed, j.ResultStatus)
+}
+
+func TestLoadPersistedJobs_HydratesTerminalJobsAndRebuildsResults(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	completed := &Job{
+		ID:           "done1111",
+		SessionID:    "main-job-done1111",
+		Prompt:       "done",
+		Provider:     "p",
+		Model:        "m",
+		State:        StateCompleted,
+		CreatedAt:    now,
+		ResultStatus: ResultStatusSeen,
+		Artifacts: []Artifact{{
+			ID:      "A1",
+			Kind:    "test",
+			Title:   "go test ./...",
+			Summary: "go test ./... [exit 0]",
+		}},
+	}
+	require.NoError(t, saveSnapshot(dir, completed))
+
+	mgr, recovered, err := NewManager(Config{JobsDir: dir})
+	require.NoError(t, err)
+	assert.Equal(t, 0, recovered)
+
+	snap, ok := mgr.Get("done1111")
+	require.True(t, ok)
+	assert.Equal(t, StateCompleted, snap.State)
+	require.Len(t, snap.Artifacts, 1)
+	assert.Equal(t, "test", snap.Artifacts[0].Kind)
+
+	pending := mgr.PendingResults(0)
+	require.Len(t, pending, 1)
+	assert.Equal(t, ResultStatusSeen, pending[0].Status)
+	require.Len(t, pending[0].Artifacts, 1)
+}
+
+func TestNewManager_HydratedResultsAreOldestFirst(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC()
+	newer := &Job{
+		ID:           "aaaa1111",
+		SessionID:    "main-job-aaaa1111",
+		Prompt:       "new",
+		Provider:     "p",
+		Model:        "m",
+		State:        StateCompleted,
+		CreatedAt:    now,
+		FinishedAt:   now.Add(2 * time.Minute),
+		ResultStatus: ResultStatusPending,
+	}
+	older := &Job{
+		ID:           "zzzz9999",
+		SessionID:    "main-job-zzzz9999",
+		Prompt:       "old",
+		Provider:     "p",
+		Model:        "m",
+		State:        StateCompleted,
+		CreatedAt:    now,
+		FinishedAt:   now.Add(time.Minute),
+		ResultStatus: ResultStatusPending,
+	}
+	require.NoError(t, saveSnapshot(dir, newer))
+	require.NoError(t, saveSnapshot(dir, older))
+
+	mgr, recovered, err := NewManager(Config{JobsDir: dir})
+	require.NoError(t, err)
+	assert.Equal(t, 0, recovered)
+
+	pending := mgr.PendingResults(0)
+	require.Len(t, pending, 2)
+	assert.Equal(t, "zzzz9999", pending[0].JobID)
+	assert.Equal(t, "aaaa1111", pending[1].JobID)
 }
 
 func TestSavePersistedSnapshotSkipsStaleSeq(t *testing.T) {

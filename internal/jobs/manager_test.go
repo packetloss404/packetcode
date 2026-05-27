@@ -451,6 +451,88 @@ func TestManager_ResultLifecycleControls(t *testing.T) {
 	assert.Empty(t, mgr.PendingResults(0))
 }
 
+func TestSpawnerAdapter_CollectResultsScopesToChildrenAndDescendants(t *testing.T) {
+	mgr, recovered, err := NewManager(Config{JobsDir: t.TempDir()})
+	require.NoError(t, err)
+	require.Equal(t, 0, recovered)
+
+	now := time.Now().UTC()
+	mgr.mu.Lock()
+	mgr.jobs["parent1"] = &Job{ID: "parent1", SessionID: "main-job-parent1", Provider: "p", Model: "m", State: StateCompleted, CreatedAt: now}
+	mgr.jobs["child1"] = &Job{
+		ID:          "child1",
+		SessionID:   "main-job-child1",
+		ParentJobID: "parent1",
+		Provider:    "p",
+		Model:       "m",
+		State:       StateCompleted,
+		CreatedAt:   now,
+		Summary:     "child done",
+		Artifacts:   []Artifact{{ID: "A1", Kind: "test", Summary: "go test ./... [exit 0]"}},
+	}
+	mgr.jobs["grand1"] = &Job{
+		ID:          "grand1",
+		SessionID:   "main-job-grand1",
+		ParentJobID: "child1",
+		Provider:    "p",
+		Model:       "m",
+		State:       StateCompleted,
+		CreatedAt:   now,
+		Summary:     "grandchild done",
+	}
+	mgr.jobs["other1"] = &Job{
+		ID:          "other1",
+		SessionID:   "main-job-other1",
+		ParentJobID: "other-parent",
+		Provider:    "p",
+		Model:       "m",
+		State:       StateCompleted,
+		CreatedAt:   now,
+		Summary:     "other done",
+	}
+	mgr.mu.Unlock()
+
+	spawner := mgr.AsToolsSpawner()
+	children, ok := spawner.CollectResults(tools.JobCollectRequest{
+		ParentJobID: "parent1",
+		Scope:       "children",
+		Timeout:     time.Second,
+	})
+	require.True(t, ok)
+	require.Len(t, children, 1)
+	assert.Equal(t, "child1", children[0].JobID)
+	assert.Equal(t, "completed", children[0].State)
+	require.Len(t, children[0].Artifacts, 1)
+	assert.Equal(t, "test", children[0].Artifacts[0].Kind)
+	if snap, ok := mgr.Get("child1"); assert.True(t, ok) {
+		assert.Equal(t, ResultStatusConsumed, snap.ResultStatus)
+	}
+
+	descendants, ok := spawner.CollectResults(tools.JobCollectRequest{
+		ParentJobID: "parent1",
+		Scope:       "descendants",
+		Timeout:     time.Second,
+	})
+	require.True(t, ok)
+	require.Len(t, descendants, 2)
+	got := map[string]bool{}
+	for _, res := range descendants {
+		got[res.JobID] = true
+	}
+	assert.True(t, got["child1"])
+	assert.True(t, got["grand1"])
+	assert.False(t, got["other1"])
+
+	explicit, ok := spawner.CollectResults(tools.JobCollectRequest{
+		ParentJobID: "parent1",
+		JobIDs:      []string{"other1"},
+		Scope:       "descendants",
+		Timeout:     time.Second,
+	})
+	assert.False(t, ok)
+	assert.Empty(t, explicit)
+}
+
 func TestManager_ResultStatusPersistenceRaceFree(t *testing.T) {
 	turns := make([][]provider.StreamEvent, 16)
 	for i := range turns {

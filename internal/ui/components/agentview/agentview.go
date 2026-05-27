@@ -36,6 +36,7 @@ type Job struct {
 	LastActivity, LastMessage                string
 	WorktreePath, WorktreeBranch             string
 	WorktreeBase, WorktreeNote               string
+	Artifacts                                []jobspkg.Artifact
 	CreatedAt, UpdatedAt, FinishedAt         time.Time
 	Tokens                                   struct{ Input, Output int }
 	CostUSD                                  float64
@@ -170,6 +171,7 @@ func fromSnapshot(s jobspkg.Snapshot) Job {
 		WorktreeBranch: s.WorktreeBranch,
 		WorktreeBase:   s.WorktreeBase,
 		WorktreeNote:   s.WorktreeNote,
+		Artifacts:      s.Artifacts,
 		CreatedAt:      s.CreatedAt,
 		UpdatedAt:      s.UpdatedAt,
 		FinishedAt:     s.FinishedAt,
@@ -538,6 +540,9 @@ func (m Model) renderJobRow(j Job, selected bool, w int) string {
 	}
 	if wt := worktreeMessage(j); wt != "" {
 		line += "\n" + theme.StyleDim.Render("  "+truncate(wt, max(0, w-2)))
+	}
+	if digest := jobspkg.ArtifactDigest(j.Artifacts); digest != "" {
+		line += "\n" + theme.StyleDim.Render("  artifacts: "+truncate(digest, max(0, w-13)))
 	}
 	return line
 }

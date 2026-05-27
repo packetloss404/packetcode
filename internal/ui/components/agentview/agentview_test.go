@@ -112,6 +112,11 @@ func TestAgentView_RendersWorktreeDetailsFromSnapshot(t *testing.T) {
 		WorktreePath:   "wt/wt111111",
 		WorktreeBranch: "packetcode-job-wt111111",
 		WorktreeBase:   "deadbeef",
+		Artifacts: []jobspkg.Artifact{{
+			ID:      "A1",
+			Kind:    "test",
+			Summary: "go test ./... [exit 0]",
+		}},
 	}
 
 	m := New()
@@ -122,6 +127,8 @@ func TestAgentView_RendersWorktreeDetailsFromSnapshot(t *testing.T) {
 	assert.Contains(t, out, "worktree: wt/wt111111")
 	assert.Contains(t, out, "packetcode-job-wt111111")
 	assert.Contains(t, out, "deadbeef")
+	assert.Contains(t, out, "artifacts:")
+	assert.Contains(t, out, "test")
 }
 
 func TestAgentView_SelectionMovesAcrossGroups(t *testing.T) {

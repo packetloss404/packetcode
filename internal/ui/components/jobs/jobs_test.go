@@ -82,6 +82,29 @@ func TestJobsPanel_RendersWorktreeHeaderLine(t *testing.T) {
 	assert.Contains(t, out, "base deadbeef")
 }
 
+func TestJobsPanel_RendersArtifactIndex(t *testing.T) {
+	m := New()
+	m.Resize(120, 24)
+	snap := fakeSnap()
+	snap.Artifacts = []jobspkg.Artifact{{
+		ID:      "A1",
+		Kind:    "test",
+		Summary: "go test ./... [exit 0]",
+	}, {
+		ID:      "A2",
+		Kind:    "file_change",
+		Summary: "wrote main.go",
+		Path:    "main.go",
+	}}
+	m.Show(snap, []provider.Message{{Role: provider.RoleAssistant, Content: "done"}})
+
+	out := m.View()
+	assert.Contains(t, out, "artifacts")
+	assert.Contains(t, out, "A1 test")
+	assert.Contains(t, out, "A2 file_change")
+	assert.Contains(t, out, "assistant")
+}
+
 func TestJobsPanel_RendersWorktreeUnavailableHeaderLine(t *testing.T) {
 	m := New()
 	m.Resize(120, 24)

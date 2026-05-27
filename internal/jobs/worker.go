@@ -34,7 +34,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 			stack := string(debug.Stack())
 			m.markTerminal(j, StateFailed,
 				"", fmt.Sprintf("worker panic: %v\n%s", r, stack), "panic",
-				j.InputTokens, j.OutputTokens, j.CostUSD, j.Transcript)
+				j.InputTokens, j.OutputTokens, j.CostUSD, j.Transcript, nil)
 		}
 	}()
 
@@ -45,12 +45,12 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	case <-jobCtx.Done():
 		// Cancelled while queued.
 		m.markTerminal(j, StateCancelled, "", "", "cancelled while queued",
-			j.InputTokens, j.OutputTokens, j.CostUSD, nil)
+			j.InputTokens, j.OutputTokens, j.CostUSD, nil, nil)
 		return
 	case <-m.baseCtx.Done():
 		// Manager shut down before we got a slot.
 		m.markTerminal(j, StateCancelled, "", "", "manager shutdown before start",
-			j.InputTokens, j.OutputTokens, j.CostUSD, nil)
+			j.InputTokens, j.OutputTokens, j.CostUSD, nil, nil)
 		return
 	}
 	defer func() { <-m.sem }()
@@ -60,7 +60,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	// we were waiting.
 	if jobCtx.Err() != nil {
 		m.markTerminal(j, StateCancelled, "", "", "cancelled before start",
-			j.InputTokens, j.OutputTokens, j.CostUSD, nil)
+			j.InputTokens, j.OutputTokens, j.CostUSD, nil, nil)
 		return
 	}
 
@@ -69,11 +69,11 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	if worktreeErr != nil {
 		if jobCtx.Err() != nil {
 			m.markTerminal(j, StateCancelled, "", "", jobCtx.Err().Error(),
-				j.InputTokens, j.OutputTokens, j.CostUSD, nil)
+				j.InputTokens, j.OutputTokens, j.CostUSD, nil, nil)
 			return
 		}
 		m.markTerminal(j, StateFailed, "", "prepare worktree: "+worktreeErr.Error(), "",
-			j.InputTokens, j.OutputTokens, j.CostUSD, nil)
+			j.InputTokens, j.OutputTokens, j.CostUSD, nil, nil)
 		return
 	}
 	jobRoot := worktree.Root
@@ -85,7 +85,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	subSession, sessErr := m.openSubSession(j)
 	if sessErr != nil {
 		m.markTerminal(j, StateFailed, "", "open sub-session: "+sessErr.Error(), "",
-			j.InputTokens, j.OutputTokens, j.CostUSD, nil)
+			j.InputTokens, j.OutputTokens, j.CostUSD, nil, nil)
 		return
 	}
 	m.attachLiveSession(j.ID, subSession)
@@ -95,7 +95,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	subRegistry, regErr := m.buildJobProviderRegistry(j)
 	if regErr != nil {
 		m.markTerminal(j, StateFailed, "", "build provider registry: "+regErr.Error(), "",
-			j.InputTokens, j.OutputTokens, j.CostUSD, nil)
+			j.InputTokens, j.OutputTokens, j.CostUSD, nil, nil)
 		return
 	}
 
@@ -104,6 +104,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	// race with our reads here.
 	m.mu.RLock()
 	spawnToolFactory := m.cfg.SpawnTool
+	collectToolFactory := m.cfg.CollectTool
 	systemPromptFor := m.cfg.SystemPromptFor
 	parentApprover := m.cfg.Approver
 	hookRunner := m.cfg.Hooks
@@ -117,6 +118,11 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 	var extraTools []tools.Tool
 	if spawnToolFactory != nil && j.Depth < maxDepth-1 {
 		if t := spawnToolFactory(j.ID, j.Depth, j.AllowWrite); t != nil {
+			extraTools = append(extraTools, t)
+		}
+	}
+	if collectToolFactory != nil {
+		if t := collectToolFactory(j.ID, j.Depth); t != nil {
 			extraTools = append(extraTools, t)
 		}
 	}
@@ -152,6 +158,7 @@ func (m *Manager) runJob(j *Job, req SpawnRequest, jobCtx context.Context) {
 func (m *Manager) consumeEvents(j *Job, ctx context.Context, events <-chan agent.AgentEvent, sess *session.Manager) {
 	var lastAssistantText strings.Builder
 	var inflightAssistant strings.Builder
+	var artifacts []Artifact
 	var lastErr error
 	var sawDone bool
 
@@ -171,6 +178,7 @@ func (m *Manager) consumeEvents(j *Job, ctx context.Context, events <-chan agent
 			m.updateActivity(j, "tool approved", ev.ToolCall.Name, false, false)
 		case agent.EventToolCallRejected:
 			m.updateActivity(j, "tool rejected", ev.Text, false, false)
+			artifacts = appendTextArtifact(artifacts, "tool_rejection", ev.ToolCall.Name, ev.Text, ev.ToolCall.Name, true, time.Now().UTC())
 		case agent.EventToolCallExecuted:
 			// A tool call ends the current "assistant turn"; reset the
 			// inflight buffer so we capture only the FINAL assistant
@@ -180,6 +188,7 @@ func (m *Manager) consumeEvents(j *Job, ctx context.Context, events <-chan agent
 				msg = ev.ToolCall.Name
 			}
 			m.updateActivity(j, "tool executed", msg, false, false)
+			artifacts = appendToolArtifact(artifacts, ev.ToolCall, ev.ToolResult, time.Now().UTC())
 			inflightAssistant.Reset()
 		case agent.EventUsageUpdate:
 			m.applyUsage(j, ev.Usage)
@@ -198,6 +207,7 @@ func (m *Manager) consumeEvents(j *Job, ctx context.Context, events <-chan agent
 	}
 
 	transcript := snapshotTranscript(sess)
+	artifacts = appendWorktreeArtifacts(ctx, artifacts, j)
 
 	// Order of precedence for terminal state:
 	//   1. ctx cancelled (Cancel/CancelAll/Shutdown) → Cancelled
@@ -206,22 +216,24 @@ func (m *Manager) consumeEvents(j *Job, ctx context.Context, events <-chan agent
 	//   4. Channel closed without Done → Failed (treat as silent error)
 	if ctx.Err() != nil {
 		m.markTerminal(j, StateCancelled, summarise(lastAssistantText.String()), "", "",
-			j.InputTokens, j.OutputTokens, j.CostUSD, transcript)
+			j.InputTokens, j.OutputTokens, j.CostUSD, transcript, artifacts)
 		return
 	}
 	if lastErr != nil {
+		artifacts = appendTextArtifact(artifacts, "error", "agent error", lastErr.Error(), "", true, time.Now().UTC())
 		m.markTerminal(j, StateFailed, summarise(lastAssistantText.String()), lastErr.Error(), "",
-			j.InputTokens, j.OutputTokens, j.CostUSD, transcript)
+			j.InputTokens, j.OutputTokens, j.CostUSD, transcript, artifacts)
 		return
 	}
 	if sawDone {
 		m.markTerminal(j, StateCompleted, summarise(lastAssistantText.String()), "", "",
-			j.InputTokens, j.OutputTokens, j.CostUSD, transcript)
+			j.InputTokens, j.OutputTokens, j.CostUSD, transcript, artifacts)
 		return
 	}
+	artifacts = appendTextArtifact(artifacts, "error", "agent stream closed", "agent stream closed without Done event", "", true, time.Now().UTC())
 	m.markTerminal(j, StateFailed, summarise(lastAssistantText.String()),
 		"agent stream closed without Done event", "",
-		j.InputTokens, j.OutputTokens, j.CostUSD, transcript)
+		j.InputTokens, j.OutputTokens, j.CostUSD, transcript, artifacts)
 }
 
 // applyUsage records a usage delta from a stream completion against the

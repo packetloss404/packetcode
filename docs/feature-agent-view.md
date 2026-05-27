@@ -12,7 +12,7 @@ Agent View is the foreground dashboard for background agents. It is inspired by 
 | `/spawn --write <prompt>` | Starts a background agent in an isolated git worktree that may request approval for writes, patches, and commands. |
 | `/cancel <id\|all>` | Cancels one background agent or every active one. |
 
-Agent View groups jobs by state, keeps the current selection stable as live updates arrive, and shows per-agent telemetry: provider/model, age, input/output tokens, estimated cost, and a compact status badge such as `approval`, `ready`, `seen`, or `injected`. The final column shows the most recent useful activity: prompt, assistant text, tool activity, approval wait, summary, or error. Keyboard controls are local to the dashboard:
+Agent View groups jobs by state, keeps the current selection stable as live updates arrive, and shows per-agent telemetry: provider/model, age, input/output tokens, estimated cost, and a compact status badge such as `approval`, `ready`, `seen`, `injected`, or `consumed`. The final column shows the most recent useful activity: prompt, assistant text, tool activity, approval wait, summary, or error. Keyboard controls are local to the dashboard:
 
 | Key | Action |
 |---|---|
@@ -28,19 +28,24 @@ Agent View groups jobs by state, keeps the current selection stable as live upda
 Completed background results are no longer silently injected into the next foreground turn. Terminal updates mark results as `seen`, which keeps them available in Agent View. The user explicitly decides whether to inject with `i`; injected results are appended to the foreground session as a user-role message:
 
 ```text
-[Background job <id> result]
-<summary>
+[Background job <id> handoff]
+Outcome: completed
+Summary: <summary>
+Artifacts:
+- A1 test: go test ./... [exit 0]
 ```
 
 This keeps the foreground model context truthful and avoids surprise context changes after long-running background work.
 
-`DrainResults` is retained for older callers and marks drained results as `injected`. New UI flows should use `PendingResults`, `MarkResultSeen`, `MarkResultIgnored`, and `MarkResultInjected`.
+`DrainResults` is retained for older callers and marks drained results as `injected`. New UI flows should use `PendingResults`, `MarkResultSeen`, `MarkResultIgnored`, and `MarkResultInjected`. Parent-agent `wait=true` and `collect_agent_results` fan-in marks delivered child results as `consumed` so they are not also offered for foreground injection.
 
 ## Live State
 
 Job snapshots include monotonic `Seq` and `UpdatedAt` fields so the TUI can ignore stale asynchronous updates. Snapshots also carry `LastActivity`, `LastMessage`, `NeedsInput`, `NeedsApproval`, `AllowWrite`, and `ResultStatus`. Running job transcripts are read from the live sub-session when available, then from the persisted job session after completion.
 
 Write-capable jobs also carry worktree metadata. `/agents`, `/jobs`, peek output, transcript headers, terminal notifications, and injected results expose the worktree path and branch so the user can inspect or merge the job's edits deliberately.
+
+Jobs also carry compact artifact metadata captured from tool execution: file changes, command and test runs, searches, spawned children, and worktree diffs. Agent View and transcript headers show artifact manifests; explicit injection adds a bounded handoff packet, not raw diffs, logs, or file contents.
 
 ## Current Scope
 
@@ -52,6 +57,7 @@ Implemented in this v1:
 - Peek, cancel, and explicit result injection actions.
 - Persisted snapshot metadata and result status.
 - Worktree metadata for write-capable background jobs.
+- Compact artifact manifests for richer fan-in.
 
 Deferred:
 
