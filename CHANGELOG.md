@@ -6,6 +6,8 @@ packetcode has not cut a stable 1.0 release yet. Entries under `Unreleased` desc
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-29
+
 ### Added
 
 - Multi-provider chat through one provider interface: OpenAI, Google Gemini, MiniMax, OpenRouter, and local Ollama.
