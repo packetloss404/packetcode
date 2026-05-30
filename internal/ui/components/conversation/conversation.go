@@ -52,7 +52,27 @@ type Message struct {
 	ToolArgs   string
 	ToolResult string
 	IsError    bool
+
+	// ToolCallID is the provider-assigned call id for the in-flight tool
+	// call. Used to route incremental output chunks (EventToolOutputChunk)
+	// to the correct pending block when a long-running command streams its
+	// stdout/stderr before the final result lands.
+	ToolCallID string
+	// LiveOutput accumulates streamed stdout/stderr for a running command
+	// while it executes. It is a *preview only*: it is shown in the live
+	// region until CompleteToolCall commits the authoritative ToolResult,
+	// at which point LiveOutput is discarded so the committed result is the
+	// single rendered copy (no duplication).
+	LiveOutput string
 }
+
+// maxLiveOutput bounds the streamed-preview buffer held in the pending
+// slot. The producer (Part 1) keeps the bounded buffer for the final
+// result; here we only need enough to show recent progress in the live
+// region, so we cap and keep the tail. Generous enough for a screenful of
+// build/test output, small enough that re-rendering the live region every
+// throttle tick stays cheap.
+const maxLiveOutput = 8192
 
 // Model is the conversation state: a pending in-flight message (if any)
 // and a queue of rendered emits awaiting DrainEmits.
@@ -161,16 +181,57 @@ func (m *Model) FinaliseAgent() {
 // AppendToolCall starts a pending tool call. Awaits CompleteToolCall.
 // If another message is pending, it is flushed first.
 func (m *Model) AppendToolCall(toolName, args string) {
+	m.AppendToolCallWithID(toolName, args, "")
+}
+
+// AppendToolCallWithID is AppendToolCall plus the provider call id, so
+// later EventToolOutputChunk events can be routed to this exact pending
+// block via AppendToolOutput. The plain AppendToolCall is retained for
+// callers (and tests) that do not have a call id.
+func (m *Model) AppendToolCallWithID(toolName, args, callID string) {
 	if m.pending != nil && m.pending.Kind == KindAgent {
 		m.pending = nil
 	} else {
 		m.flushPending()
 	}
 	m.pending = &Message{
-		Kind:     KindToolCall,
-		ToolName: toolName,
-		ToolArgs: args,
+		Kind:       KindToolCall,
+		ToolName:   toolName,
+		ToolArgs:   args,
+		ToolCallID: callID,
 	}
+}
+
+// AppendToolOutput appends a streamed stdout/stderr chunk to the pending
+// tool-call block identified by callID, for live display while a
+// long-running command runs. It is a no-op unless a tool call is pending
+// and either its id matches callID or it has no id recorded yet (the
+// latter tolerates producers that omit the id, or a call proposed before
+// the id was known). Returns true if the chunk was applied — the App uses
+// this to decide whether a re-render is worth scheduling.
+//
+// The accumulated preview is tail-bounded by maxLiveOutput; the
+// authoritative, fully bounded result still arrives via CompleteToolCall.
+func (m *Model) AppendToolOutput(callID, chunk string) bool {
+	if chunk == "" {
+		return false
+	}
+	if m.pending == nil || m.pending.Kind != KindToolCall {
+		return false
+	}
+	if m.pending.ToolCallID != "" && callID != "" && m.pending.ToolCallID != callID {
+		return false
+	}
+	if m.pending.ToolCallID == "" && callID != "" {
+		// Adopt the id from the first chunk so subsequent chunks route
+		// strictly by id.
+		m.pending.ToolCallID = callID
+	}
+	m.pending.LiveOutput += chunk
+	if len(m.pending.LiveOutput) > maxLiveOutput {
+		m.pending.LiveOutput = m.pending.LiveOutput[len(m.pending.LiveOutput)-maxLiveOutput:]
+	}
+	return true
 }
 
 // CompleteToolCall fills in the tool result and commits the tool-call
@@ -182,6 +243,10 @@ func (m *Model) CompleteToolCall(toolName string, res tools.ToolResult) {
 	}
 	m.pending.ToolResult = res.Content
 	m.pending.IsError = res.IsError
+	// Drop the streamed preview: the committed ToolResult is the single
+	// authoritative copy. renderToolCall prefers ToolResult over
+	// LiveOutput anyway, but clearing keeps the committed Message clean.
+	m.pending.LiveOutput = ""
 	m.emit(renderMessage(*m.pending, m.contentWidth()))
 	m.pending = nil
 }
@@ -300,9 +365,16 @@ func renderToolCall(msg Message, width int) string {
 	args := truncate(msg.ToolArgs, 200)
 	parts := []string{header + theme.StyleDim.Render("  "+args)}
 
-	if msg.ToolResult != "" {
+	switch {
+	case msg.ToolResult != "":
 		divider := theme.StyleDim.Render(strings.Repeat("─", 24))
 		parts = append(parts, divider, renderToolResultBody(msg, width-4))
+	case msg.LiveOutput != "":
+		// Live streaming preview shown only while the command runs and no
+		// committed result exists yet. Dimmed so it reads as in-progress;
+		// replaced wholesale by the result block on CompleteToolCall.
+		divider := theme.StyleDim.Render(strings.Repeat("─", 24))
+		parts = append(parts, divider, theme.StyleDim.Render(strings.TrimRight(msg.LiveOutput, "\n")))
 	}
 	return theme.StyleToolCall.Width(width - 2).Render(strings.Join(parts, "\n"))
 }

@@ -37,6 +37,7 @@ const (
 	EventToolCallProposed           // LLM emitted a complete tool call (pre-approval)
 	EventToolCallApproved           // user approved (or trust mode auto-approved)
 	EventToolCallRejected           // user rejected
+	EventToolOutputChunk            // incremental, live stdout/stderr from a running tool
 	EventToolCallExecuted           // tool finished, result available
 	EventUsageUpdate                // usage tokens recorded
 	EventDone                       // turn complete (no more tool calls)
@@ -44,6 +45,16 @@ const (
 )
 
 // AgentEvent is the unified message the agent emits to the TUI.
+//
+// EventToolOutputChunk uses CallID + Chunk to carry one incremental piece of a
+// running tool's combined stdout/stderr, tagged with the tool call it belongs
+// to. Zero or more chunks are emitted on this same channel between the tool's
+// EventToolCallProposed/Approved and its EventToolCallExecuted, all sharing the
+// same CallID (== provider.ToolCall.ID). These chunks are for live display
+// ONLY: they are not persisted and are not the model-facing result. The bounded
+// final output still arrives exactly once as EventToolCallExecuted's
+// ToolResult. The UI buffers chunks per CallID and, on EventToolCallExecuted,
+// drops the live preview in favor of the authoritative result.
 type AgentEvent struct {
 	Type       EventType
 	Text       string            // EventTextDelta
@@ -51,6 +62,8 @@ type AgentEvent struct {
 	ToolResult tools.ToolResult  // EventToolCallExecuted
 	Usage      provider.Usage    // EventUsageUpdate
 	Error      error             // EventError
+	CallID     string            // EventToolOutputChunk: provider.ToolCall.ID of the running tool
+	Chunk      string            // EventToolOutputChunk: raw output bytes (may span partial/multiple lines)
 }
 
 // Agent owns the long-lived dependencies required to run a turn.
@@ -377,7 +390,7 @@ func (a *Agent) handleToolCall(ctx context.Context, call provider.ToolCall, even
 
 	executedCall := call
 	executedCall.Arguments = string(params)
-	res, err := tool.Execute(ctx, params)
+	res, err := a.executeTool(ctx, tool, call.ID, params, events)
 	if err != nil {
 		if isContextCancellation(err) {
 			return err
@@ -410,6 +423,48 @@ func (a *Agent) handleToolCall(ctx context.Context, call provider.ToolCall, even
 		Name:       call.Name,
 		Content:    res.Content,
 	})
+}
+
+// executeTool runs a tool, preferring its streaming path so live output can be
+// surfaced to the UI as EventToolOutputChunk events. Tools that do not
+// implement tools.StreamingTool fall through to the plain Execute path with
+// identical behavior. The returned ToolResult is the bounded, model-facing
+// result in both cases.
+func (a *Agent) executeTool(ctx context.Context, tool tools.Tool, callID string, params json.RawMessage, events chan<- AgentEvent) (tools.ToolResult, error) {
+	if st, ok := tool.(tools.StreamingTool); ok {
+		sink := &chunkSink{events: events, callID: callID}
+		return st.ExecuteStreaming(ctx, params, sink)
+	}
+	return tool.Execute(ctx, params)
+}
+
+// chunkSink adapts a running tool's incremental output to the agent's event
+// channel. It implements tools.OutputSink. Each chunk is published as an
+// EventToolOutputChunk tagged with the originating tool call ID.
+//
+// The send is best-effort and non-blocking: if the event channel is momentarily
+// full the chunk is dropped rather than stalling the tool's output-draining
+// goroutine (which would risk back-pressuring, and ultimately blocking, the
+// child process). Dropping a live-display chunk is safe — the complete, bounded
+// output is still delivered once via EventToolCallExecuted.
+type chunkSink struct {
+	events chan<- AgentEvent
+	callID string
+}
+
+func (s *chunkSink) WriteChunk(chunk string) {
+	if chunk == "" {
+		return
+	}
+	select {
+	case s.events <- AgentEvent{
+		Type:   EventToolOutputChunk,
+		CallID: s.callID,
+		Chunk:  chunk,
+	}:
+	default:
+		// Channel full; drop this live chunk (final result still delivered).
+	}
 }
 
 func isContextCancellation(err error) bool {

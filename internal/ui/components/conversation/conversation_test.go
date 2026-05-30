@@ -94,6 +94,81 @@ func TestToolResultBody_NonPatchFileUnchanged(t *testing.T) {
 	assert.Equal(t, body, out)
 }
 
+// TestAppendToolOutput_RendersInPendingView verifies streamed command
+// output shows in the live region while the tool call is still pending.
+func TestAppendToolOutput_RendersInPendingView(t *testing.T) {
+	m := New()
+	m.Resize(100, 40)
+
+	m.AppendToolCallWithID("execute_command", `{"command":"go test ./..."}`, "call-1")
+	ok := m.AppendToolOutput("call-1", "ok  pkg/foo\n")
+	assert.True(t, ok, "chunk routed to matching pending call")
+	ok = m.AppendToolOutput("call-1", "ok  pkg/bar\n")
+	assert.True(t, ok)
+
+	out := stripANSI(m.PendingView())
+	assert.Contains(t, out, "execute_command")
+	assert.Contains(t, out, "ok  pkg/foo")
+	assert.Contains(t, out, "ok  pkg/bar")
+}
+
+// TestAppendToolOutput_DiscardedOnComplete verifies the committed tool
+// result is the single rendered copy — the streamed preview must not
+// survive into the committed block (no duplication).
+func TestAppendToolOutput_DiscardedOnComplete(t *testing.T) {
+	m := New()
+	m.Resize(100, 40)
+
+	m.AppendToolCallWithID("execute_command", `{"command":"run"}`, "call-1")
+	m.AppendToolOutput("call-1", "ZZRESULTZZ\n")
+	m.CompleteToolCall("execute_command", tools.ToolResult{Content: "ZZRESULTZZ\n"})
+
+	// Nothing pending after completion.
+	assert.Equal(t, "", m.PendingView())
+
+	// The committed transcript contains the result exactly once — the
+	// streamed preview that carried the same text was discarded.
+	out := stripANSI(m.View())
+	assert.Equal(t, 1, strings.Count(out, "ZZRESULTZZ"), "result rendered once, preview discarded")
+}
+
+// TestAppendToolOutput_IgnoresMismatchedCallID verifies a chunk tagged
+// for a different running call is not applied to the current pending
+// block.
+func TestAppendToolOutput_IgnoresMismatchedCallID(t *testing.T) {
+	m := New()
+	m.Resize(100, 40)
+
+	m.AppendToolCallWithID("execute_command", `{"command":"x"}`, "call-1")
+	ok := m.AppendToolOutput("call-2", "stray output\n")
+	assert.False(t, ok, "chunk for a different call id is dropped")
+	assert.NotContains(t, stripANSI(m.PendingView()), "stray output")
+}
+
+// TestAppendToolOutput_NoPendingCallIsNoop verifies chunks arriving with
+// no pending tool call (e.g. after completion) are safely ignored.
+func TestAppendToolOutput_NoPendingCallIsNoop(t *testing.T) {
+	m := New()
+	m.Resize(100, 40)
+	assert.False(t, m.AppendToolOutput("call-1", "late chunk\n"))
+}
+
+// TestAppendToolOutput_TailBounded verifies the live preview buffer is
+// tail-capped so a high-output command cannot grow the pending block
+// without bound.
+func TestAppendToolOutput_TailBounded(t *testing.T) {
+	m := New()
+	m.Resize(100, 40)
+	m.AppendToolCallWithID("execute_command", `{"command":"yes"}`, "call-1")
+	big := strings.Repeat("A", maxLiveOutput)
+	m.AppendToolOutput("call-1", big)
+	m.AppendToolOutput("call-1", "TAILMARKER")
+	assert.NotNil(t, m.pending)
+	assert.LessOrEqual(t, len(m.pending.LiveOutput), maxLiveOutput)
+	// Most-recent output is retained (tail), oldest dropped.
+	assert.Contains(t, m.pending.LiveOutput, "TAILMARKER")
+}
+
 // TestTryRenderDiff_NoMarkerReturnsFalse covers the "result has no
 // diff header" fast path.
 func TestTryRenderDiff_NoMarkerReturnsFalse(t *testing.T) {

@@ -42,3 +42,28 @@ type ToolResult struct {
 	IsError  bool
 	Metadata map[string]any
 }
+
+// OutputSink receives incremental output chunks while a StreamingTool runs.
+// It is purely for live UI display: chunks are NOT the model-facing result and
+// do NOT participate in the bounded-buffer cap that produces ToolResult.Content.
+//
+// WriteChunk may be called many times from a background goroutine and must be
+// safe for concurrent use with the tool's own work. Implementations should
+// return promptly (e.g. a non-blocking channel send); a slow sink must never
+// stall the underlying process's output draining.
+type OutputSink interface {
+	WriteChunk(chunk string)
+}
+
+// StreamingTool is an optional interface a Tool may implement to surface partial
+// output as it runs. The agent loop calls ExecuteStreaming (passing a sink that
+// forwards chunks to the TUI) when a tool implements this interface; tools that
+// do not implement it are driven through the plain Execute path unchanged.
+//
+// ExecuteStreaming must still return the same bounded final ToolResult that
+// Execute would: the sink is an additive live feed, not a replacement for the
+// result. A nil sink must behave exactly like Execute.
+type StreamingTool interface {
+	Tool
+	ExecuteStreaming(ctx context.Context, params json.RawMessage, sink OutputSink) (ToolResult, error)
+}

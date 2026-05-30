@@ -62,6 +62,18 @@ type pollApproverMsg struct{}
 // tickTopbarMsg updates the duration counter in the top bar.
 type tickTopbarMsg struct{}
 
+// toolOutputFlushMsg fires on a throttle interval while a long-running
+// command is streaming. On receipt the App drains the coalesced
+// tool-output buffer into the conversation's live region, rebuilding the
+// pending tool block at most once per interval rather than once per chunk.
+type toolOutputFlushMsg struct{}
+
+// toolOutputThrottle is the minimum interval between live-region rebuilds
+// for streamed command output. High-output commands (test suites, builds)
+// can emit chunks far faster than a human reads; coalescing to ~10 fps
+// keeps the renderer idle without making progress feel laggy.
+const toolOutputThrottle = 100 * time.Millisecond
+
 type statusLineMsg struct {
 	seq    int
 	line   string
@@ -156,6 +168,16 @@ type App struct {
 	height    int
 	streaming bool
 	err       string
+
+	// Coalesced live tool-output streaming. Chunks (EventToolOutputChunk)
+	// land in toolOutputPending keyed by the running call id; a single
+	// flush timer (toolOutputFlushScheduled) drains them into the
+	// conversation's live region at most once per toolOutputThrottle, so a
+	// flood of chunks rebuilds the pending block ~10x/sec instead of per
+	// chunk. Single-writer from Update.
+	toolOutputCallID         string
+	toolOutputPending        strings.Builder
+	toolOutputFlushScheduled bool
 
 	// cancelTurn cancels the in-flight agent.Run context for the current
 	// streaming turn. Set in startTurn, cleared in agentDoneMsg / on
@@ -486,6 +508,9 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.approval.SetQueueDepth(a.approver.QueueDepth())
 		}
 		return a, pollApprover()
+
+	case toolOutputFlushMsg:
+		return a, a.flushToolOutput()
 
 	case tickTopbarMsg:
 		a.refreshTopBar()
@@ -1009,9 +1034,24 @@ func (a *App) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		a.conversation.AppendAgentText(modelID, providerSlug, ev.Text)
 
 	case agent.EventToolCallProposed:
-		a.conversation.AppendToolCall(ev.ToolCall.Name, ev.ToolCall.Arguments)
+		// Carry the provider call id so streamed output chunks
+		// (EventToolOutputChunk) can be routed to this exact pending block.
+		a.conversation.AppendToolCallWithID(ev.ToolCall.Name, ev.ToolCall.Arguments, ev.ToolCall.ID)
+
+	case agent.EventToolOutputChunk:
+		// Incremental stdout/stderr from a running command (Part 1
+		// producer). Coalesce into a buffer keyed by call id and schedule a
+		// single throttled flush rather than mutating the live region per
+		// chunk — this is the throttle that keeps high-output commands from
+		// flooding the renderer. Returns a flush cmd only when no flush is
+		// already pending.
+		return a, a.bufferToolOutput(ev.CallID, ev.Chunk)
 
 	case agent.EventToolCallExecuted:
+		// The authoritative result is about to commit. Drop any unflushed
+		// streamed preview for this call so it cannot render twice (the
+		// committed result is the single copy).
+		a.discardBufferedToolOutput()
 		a.conversation.CompleteToolCall(ev.ToolCall.Name, ev.ToolResult)
 
 	case agent.EventToolCallRejected:
@@ -1045,6 +1085,55 @@ func (a *App) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		}
 	}
 	return a, nil
+}
+
+// bufferToolOutput coalesces a streamed tool-output chunk. It appends to
+// the per-call buffer and, if no flush is already scheduled, returns a
+// throttled flush command. Chunks for a different call id (a new running
+// command) reset the buffer first. Returning the tick only when none is
+// in flight is what bounds rebuilds to one per toolOutputThrottle window.
+func (a *App) bufferToolOutput(callID, chunk string) tea.Cmd {
+	if chunk == "" {
+		return nil
+	}
+	if a.toolOutputCallID != "" && callID != "" && a.toolOutputCallID != callID {
+		// New running call — flush nothing stale, just start fresh. (The
+		// previous call's EventToolCallExecuted already discarded its
+		// buffer; this guards the rare interleave.)
+		a.toolOutputPending.Reset()
+	}
+	if callID != "" {
+		a.toolOutputCallID = callID
+	}
+	a.toolOutputPending.WriteString(chunk)
+	if a.toolOutputFlushScheduled {
+		return nil
+	}
+	a.toolOutputFlushScheduled = true
+	return scheduleToolOutputFlush()
+}
+
+// flushToolOutput drains the coalesced buffer into the conversation's live
+// region (rebuilding the pending tool block once). If more output has
+// accumulated by the next tick the timer re-arms; otherwise it goes idle.
+func (a *App) flushToolOutput() tea.Cmd {
+	a.toolOutputFlushScheduled = false
+	if a.toolOutputPending.Len() == 0 {
+		return nil
+	}
+	chunk := a.toolOutputPending.String()
+	a.toolOutputPending.Reset()
+	a.conversation.AppendToolOutput(a.toolOutputCallID, chunk)
+	return nil
+}
+
+// discardBufferedToolOutput drops any unflushed streamed preview, used
+// when the authoritative result commits so the preview cannot render in
+// addition to the result. The flush timer (if armed) becomes a cheap
+// no-op when it fires.
+func (a *App) discardBufferedToolOutput() {
+	a.toolOutputPending.Reset()
+	a.toolOutputCallID = ""
 }
 
 // readAgentEvent reads one event from the agent's channel and converts

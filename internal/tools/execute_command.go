@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/packetcode/packetcode/internal/procrun"
@@ -17,6 +19,12 @@ const (
 	defaultExecTimeout = 60 * time.Second
 	maxExecTimeout     = 10 * time.Minute
 	maxExecOutputBytes = 100 * 1024
+
+	// streamChunkFlushBytes bounds how large a single live chunk grows before
+	// it is flushed to the sink even without a newline. Keeps chunks reasonably
+	// sized (one screenful-ish) so the UI is not flooded by tiny writes nor
+	// starved by a command that never emits a newline.
+	streamChunkFlushBytes = 4 * 1024
 )
 
 type ExecuteCommandTool struct {
@@ -40,7 +48,21 @@ type executeCommandParams struct {
 	TimeoutSec int    `json:"timeout_sec,omitempty"`
 }
 
+// Execute runs the command and returns its bounded combined output. It is the
+// non-streaming entry point; it delegates to ExecuteStreaming with a nil sink.
 func (t *ExecuteCommandTool) Execute(ctx context.Context, raw json.RawMessage) (ToolResult, error) {
+	return t.ExecuteStreaming(ctx, raw, nil)
+}
+
+// ExecuteStreaming runs the command, teeing live stdout/stderr to sink as the
+// process produces output, and returns the same bounded ToolResult that Execute
+// would. A nil sink disables live streaming and is equivalent to Execute.
+//
+// The live feed is purely additive: the bounded-buffer cap (head-preserving,
+// 100KB) and the process-tree cancellation via cmdCtx are unchanged. The sink
+// observes the full uncapped byte stream for display only; the model-facing
+// result still comes solely from the BoundedBuffer.
+func (t *ExecuteCommandTool) ExecuteStreaming(ctx context.Context, raw json.RawMessage, sink OutputSink) (ToolResult, error) {
 	var p executeCommandParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return ToolResult{}, fmt.Errorf("execute_command: parse params: %w", err)
@@ -71,10 +93,24 @@ func (t *ExecuteCommandTool) Execute(ctx context.Context, raw json.RawMessage) (
 	cmd := buildShellCommand(cmdCtx, p.Command)
 	cmd.Dir = cwd
 
+	// The BoundedBuffer always backs the final result (capped, head-preserving).
+	// When a sink is supplied, fan output out to a live chunker as well via an
+	// io.MultiWriter — the sink sees the uncapped stream incrementally without
+	// affecting the cap. Both writers run on the same goroutine os/exec uses to
+	// copy the pipe, so ordering and the cap are preserved exactly as before.
 	out := procrun.NewBoundedBuffer(maxExecOutputBytes)
-	cmd.Stdout = out
-	cmd.Stderr = out
+	var dst io.Writer = out
+	var chunker *chunkWriter
+	if sink != nil {
+		chunker = newChunkWriter(sink)
+		dst = io.MultiWriter(out, chunker)
+	}
+	cmd.Stdout = dst
+	cmd.Stderr = dst
 	runErr := cmd.Run()
+	if chunker != nil {
+		chunker.flush()
+	}
 	exitCode := 0
 	if runErr != nil {
 		if exitErr, ok := runErr.(*exec.ExitError); ok {
@@ -126,6 +162,68 @@ func (t *ExecuteCommandTool) Execute(ctx context.Context, raw json.RawMessage) (
 			"cwd":       cwd,
 		},
 	}, nil
+}
+
+// chunkWriter is an io.Writer that batches a child process's output into
+// reasonably sized chunks and forwards each to an OutputSink for live display.
+// It flushes on newlines and whenever the pending buffer reaches
+// streamChunkFlushBytes, so the UI receives whole lines promptly without being
+// flooded by byte-at-a-time writes. It never returns an error and never blocks
+// the caller beyond the sink's own WriteChunk, so it cannot stall the os/exec
+// pipe-draining goroutine or interfere with the bounded result/cancellation.
+type chunkWriter struct {
+	sink OutputSink
+	mu   sync.Mutex
+	pend []byte
+}
+
+func newChunkWriter(sink OutputSink) *chunkWriter {
+	return &chunkWriter{sink: sink}
+}
+
+func (w *chunkWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pend = append(w.pend, p...)
+	// Emit everything up to and including the last newline as one chunk; keep
+	// any trailing partial line buffered until the next write or final flush.
+	if nl := lastIndexByte(w.pend, '\n'); nl >= 0 {
+		w.emitLocked(w.pend[:nl+1])
+		rest := w.pend[nl+1:]
+		w.pend = append(w.pend[:0], rest...)
+	}
+	// Guard against a command that emits a very long line with no newline.
+	if len(w.pend) >= streamChunkFlushBytes {
+		w.emitLocked(w.pend)
+		w.pend = w.pend[:0]
+	}
+	return len(p), nil
+}
+
+// flush emits any buffered trailing output (a final line with no newline).
+func (w *chunkWriter) flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.pend) > 0 {
+		w.emitLocked(w.pend)
+		w.pend = w.pend[:0]
+	}
+}
+
+func (w *chunkWriter) emitLocked(b []byte) {
+	if len(b) == 0 {
+		return
+	}
+	w.sink.WriteChunk(string(b))
+}
+
+func lastIndexByte(b []byte, c byte) int {
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] == c {
+			return i
+		}
+	}
+	return -1
 }
 
 // buildShellCommand picks the right invocation per OS. We deliberately use

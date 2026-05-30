@@ -99,6 +99,10 @@ whitespace / line endings applies cleanly; a normalized match that hits
 
 ## Round 4 — `execute_command` output streaming
 
+**Status: Landed.** `execute_command` now streams stdout/stderr to the
+conversation incrementally as the process runs, while preserving the 100KB
+bounded cap on the final result and the Ctrl+C / ctx cancellation path.
+
 **Problem.** `execute_command` buffers up to 100KB and returns only on
 exit (`tools/execute_command.go`). Long-running commands (builds, test
 suites) show nothing until completion — poor feedback and hard to tell
