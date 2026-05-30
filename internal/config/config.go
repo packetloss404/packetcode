@@ -110,6 +110,10 @@ type BehaviorConfig struct {
 	AutoCompactThreshold int  `toml:"auto_compact_threshold"`
 	MaxInputRows         int  `toml:"max_input_rows"`
 
+	// Provider request resilience. Total attempts (incl. the first) for a
+	// streaming request on transient errors; 0 means use the default of 3.
+	ProviderMaxRetries int `toml:"provider_max_retries"`
+
 	// Background agents (see docs/feature-background-agents.md).
 	BackgroundMaxConcurrent   int    `toml:"background_max_concurrent"`
 	BackgroundMaxDepth        int    `toml:"background_max_depth"`
