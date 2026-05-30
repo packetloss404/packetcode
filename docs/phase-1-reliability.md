@@ -75,6 +75,9 @@ timeout within the window; a slow-but-steady stream is unaffected.
 
 ## Round 3 — `patch_file` whitespace-tolerant matching
 
+**Status: Landed.** `patch_file` now falls back to a whitespace/line-ending
+tolerant unique match when the exact match misses, still erroring on ambiguity.
+
 **Problem.** `patch_file` requires an exact, unique string match
 (`tools/patch_file.go`). A single trailing-space or CRLF/LF difference
 fails the edit, which is a frequent agent failure mode.
