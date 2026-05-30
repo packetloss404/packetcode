@@ -175,6 +175,15 @@ func run(providerOverride, modelOverride, resumeID string, trust bool, permissio
 	}
 	provider.SetConfiguredRetry(provider.RetryConfigForAttempts(retryAttempts))
 
+	// Apply the configured per-call stall timeout. A provider stream that
+	// goes silent for longer than this is aborted as a retryable error.
+	// Default to 60s when unset.
+	stall := cfg.Behavior.ProviderStallTimeout
+	if stall <= 0 {
+		stall = 60
+	}
+	provider.SetConfiguredStallTimeout(time.Duration(stall) * time.Second)
+
 	for slug, factory := range factories {
 		key := cfg.GetProviderKey(slug)
 		if providerRequiresAPIKey(cfg, slug) && key == "" {

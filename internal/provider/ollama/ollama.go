@@ -260,26 +260,34 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 		return nil, fmt.Errorf("marshal ollama request: %w", err)
 	}
 
+	// Build the stall guard BEFORE issuing the request and bind the streaming
+	// request/body to the derived context (sctx) so a stall closes the
+	// connection and unblocks the parse loop. sctx derives from ctx, so Ctrl+C
+	// still propagates.
+	guard, sctx := provider.NewStallGuard(ctx, provider.ConfiguredStallTimeout())
+
 	newReq := func() (*http.Request, error) {
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(buf))
+		httpReq, err := http.NewRequestWithContext(sctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(buf))
 		if err != nil {
 			return nil, err
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		return httpReq, nil
 	}
-	resp, err := provider.DoWithRetry(ctx, p.httpClient, provider.ConfiguredRetry(), newReq)
+	resp, err := provider.DoWithRetry(sctx, p.httpClient, provider.ConfiguredRetry(), newReq)
 	if err != nil {
+		guard.Stop()
 		return nil, fmt.Errorf("ollama chat: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
 		errBody := provider.ReadErrorBody(resp.Body)
 		_ = resp.Body.Close()
+		guard.Stop()
 		return nil, fmt.Errorf("ollama chat: status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 
 	ch := make(chan provider.StreamEvent, 8)
-	go parseOllamaStream(ctx, resp.Body, ch)
+	go parseOllamaStream(ctx, sctx, guard, resp.Body, ch)
 	return ch, nil
 }
 
@@ -295,9 +303,10 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 // unblocks the parser promptly even when local daemon keep-alive hides
 // the body-close from Scanner. On cancel we emit EventError with
 // ctx.Err() so the agent surfaces the friendlier "turn cancelled" line.
-func parseOllamaStream(ctx context.Context, body io.ReadCloser, ch chan<- provider.StreamEvent) {
+func parseOllamaStream(ctx, sctx context.Context, guard *provider.StallGuard, body io.ReadCloser, ch chan<- provider.StreamEvent) {
 	defer close(ch)
 	defer body.Close()
+	defer guard.Stop()
 
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -306,7 +315,7 @@ func parseOllamaStream(ctx context.Context, body io.ReadCloser, ch chan<- provid
 	var lastUsage *provider.Usage
 
 	for scanner.Scan() {
-		if err := ctx.Err(); err != nil {
+		if err := provider.StreamHaltError(ctx, sctx); err != nil {
 			ch <- provider.StreamEvent{Type: provider.EventError, Error: err}
 			return
 		}
@@ -314,6 +323,7 @@ func parseOllamaStream(ctx context.Context, body io.ReadCloser, ch chan<- provid
 		if line == "" {
 			continue
 		}
+		guard.Tick()
 		var chunk chatChunk
 		if err := json.Unmarshal([]byte(line), &chunk); err != nil {
 			ch <- provider.StreamEvent{Type: provider.EventError, Error: fmt.Errorf("parse ollama chunk: %w", err)}
@@ -363,6 +373,10 @@ func parseOllamaStream(ctx context.Context, body io.ReadCloser, ch chan<- provid
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		if ctx.Err() == nil && sctx.Err() != nil {
+			ch <- provider.StreamEvent{Type: provider.EventError, Error: fmt.Errorf("provider stream stalled (no data received)")}
+			return
+		}
 		ch <- provider.StreamEvent{Type: provider.EventError, Error: err}
 		return
 	}

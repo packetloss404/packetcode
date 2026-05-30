@@ -144,8 +144,15 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
 
+	// Build the stall guard BEFORE issuing the request and bind the streaming
+	// request/body to the derived context (sctx). When the guard fires on a
+	// silent stall it cancels sctx, which closes the connection and unblocks
+	// the parse loop's blocked read. sctx derives from ctx, so Ctrl+C still
+	// propagates.
+	guard, sctx := provider.NewStallGuard(ctx, provider.ConfiguredStallTimeout())
+
 	newReq := func() (*http.Request, error) {
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/messages", bytes.NewReader(buf))
+		httpReq, err := http.NewRequestWithContext(sctx, http.MethodPost, p.baseURL+"/messages", bytes.NewReader(buf))
 		if err != nil {
 			return nil, err
 		}
@@ -154,18 +161,20 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 		httpReq.Header.Set("Accept", "text/event-stream")
 		return httpReq, nil
 	}
-	resp, err := provider.DoWithRetry(ctx, p.httpClient, provider.ConfiguredRetry(), newReq)
+	resp, err := provider.DoWithRetry(sctx, p.httpClient, provider.ConfiguredRetry(), newReq)
 	if err != nil {
+		guard.Stop()
 		return nil, fmt.Errorf("request: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
 		body := provider.ReadErrorBody(resp.Body)
 		_ = resp.Body.Close()
+		guard.Stop()
 		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, extractErrorMessage(body))
 	}
 
 	ch := make(chan provider.StreamEvent, 8)
-	go parseSSE(ctx, resp.Body, ch)
+	go parseSSE(ctx, sctx, guard, resp.Body, ch)
 	return ch, nil
 }
 
@@ -395,9 +404,10 @@ type activeToolBlock struct {
 	name string
 }
 
-func parseSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.StreamEvent) {
+func parseSSE(ctx, sctx context.Context, guard *provider.StallGuard, body io.ReadCloser, ch chan<- provider.StreamEvent) {
 	defer close(ch)
 	defer body.Close()
+	defer guard.Stop()
 
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -497,7 +507,7 @@ func parseSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.Stream
 	}
 
 	for scanner.Scan() {
-		if err := ctx.Err(); err != nil {
+		if err := provider.StreamHaltError(ctx, sctx); err != nil {
 			ch <- provider.StreamEvent{Type: provider.EventError, Error: err}
 			return
 		}
@@ -509,10 +519,15 @@ func parseSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.Stream
 			continue
 		}
 		if strings.HasPrefix(line, "data:") {
+			guard.Tick()
 			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		if haltErr := provider.StreamHaltError(ctx, sctx); haltErr != nil {
+			ch <- provider.StreamEvent{Type: provider.EventError, Error: haltErr}
+			return
+		}
 		ch <- provider.StreamEvent{Type: provider.EventError, Error: err}
 		return
 	}

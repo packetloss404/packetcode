@@ -222,6 +222,7 @@ background_max_concurrent = 4
 background_max_depth = 2
 background_max_total = 32
 provider_max_retries = 3
+provider_stall_timeout = 60
 
 [permissions]
 profile = "ask"
@@ -231,6 +232,11 @@ default = "ask"
 # Exact tool names, server__* prefixes, mcp:*, or *.
 execute_command = "ask"
 ```
+
+Provider resilience knobs under `[behavior]`:
+
+- `provider_max_retries` — how many times to retry a failed provider request (default 3).
+- `provider_stall_timeout` — abort a provider stream that goes silent for this many seconds (default 60).
 
 See [Configuration](docs/configuration.md) for the full schema.
 

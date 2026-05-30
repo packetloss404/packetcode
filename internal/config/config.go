@@ -114,6 +114,10 @@ type BehaviorConfig struct {
 	// streaming request on transient errors; 0 means use the default of 3.
 	ProviderMaxRetries int `toml:"provider_max_retries"`
 
+	// Abort a provider stream that goes silent for this many seconds; 0
+	// means use the default of 60.
+	ProviderStallTimeout int `toml:"provider_stall_timeout"`
+
 	// Background agents (see docs/feature-background-agents.md).
 	BackgroundMaxConcurrent   int    `toml:"background_max_concurrent"`
 	BackgroundMaxDepth        int    `toml:"background_max_depth"`

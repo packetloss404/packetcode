@@ -9,6 +9,7 @@ packetcode has not cut a stable 1.0 release yet. Entries under `Unreleased` desc
 ### Added
 
 - Automatic retry with exponential backoff and jitter for transient provider failures — HTTP 429/5xx and dropped connections that occur before the response stream begins — honoring `Retry-After` and turn cancellation. Applies to all providers; configurable via `provider_max_retries` (default 3 attempts, 1 disables).
+- Per-call stall timeout that aborts a provider stream which goes silent mid-response, surfaced as a retryable timeout. Configurable via `provider_stall_timeout` (default 60 seconds).
 
 ## [0.5.0] - 2026-05-29
 

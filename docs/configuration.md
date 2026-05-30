@@ -51,6 +51,7 @@ background_max_total = 32
 background_default_provider = ""
 background_default_model = ""
 provider_max_retries = 3
+provider_stall_timeout = 60
 
 [permissions]
 profile = "balanced"
@@ -101,6 +102,11 @@ Background-agent settings affect both `/spawn` and the `spawn_agent` tool:
 - `background_max_depth` limits nested `spawn_agent` calls.
 - `background_max_total` caps jobs created during one packetcode run.
 - `background_default_provider` and `background_default_model` override the foreground provider/model for jobs when set; empty values inherit the active provider/model.
+
+Provider resilience settings:
+
+- `provider_max_retries` — how many times to retry a failed provider request (default 3).
+- `provider_stall_timeout` — abort a provider stream that goes silent for this many seconds (default 60).
 
 Write-capable background agents create git worktrees under `~/.packetcode/worktrees/<repo-key>/<job-id>` using branch `packetcode-job-<job-id>` and the current `HEAD` commit as the base. This state directory is internal; there is no config key for it yet. Read-only jobs do not create worktrees.
 

@@ -347,8 +347,14 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 	endpoint := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse&key=%s",
 		p.baseURL, url.PathEscape(req.Model), url.QueryEscape(p.apiKey))
 
+	// Build the stall guard BEFORE issuing the request and bind the streaming
+	// request/body to the derived context (sctx) so a stall closes the
+	// connection and unblocks the parse loop. sctx derives from ctx, so Ctrl+C
+	// still propagates.
+	guard, sctx := provider.NewStallGuard(ctx, provider.ConfiguredStallTimeout())
+
 	newReq := func() (*http.Request, error) {
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
+		httpReq, err := http.NewRequestWithContext(sctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 		if err != nil {
 			return nil, err
 		}
@@ -356,18 +362,20 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 		httpReq.Header.Set("Accept", "text/event-stream")
 		return httpReq, nil
 	}
-	resp, err := provider.DoWithRetry(ctx, p.httpClient, provider.ConfiguredRetry(), newReq)
+	resp, err := provider.DoWithRetry(sctx, p.httpClient, provider.ConfiguredRetry(), newReq)
 	if err != nil {
+		guard.Stop()
 		return nil, fmt.Errorf("request: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
 		errBody := provider.ReadErrorBody(resp.Body)
 		_ = resp.Body.Close()
+		guard.Stop()
 		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, extractGeminiErrorMessage(errBody))
 	}
 
 	ch := make(chan provider.StreamEvent, 8)
-	go parseGeminiSSE(ctx, resp.Body, ch)
+	go parseGeminiSSE(ctx, sctx, guard, resp.Body, ch)
 	return ch, nil
 }
 
@@ -383,9 +391,10 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 // unblocks the parser promptly even when server keep-alive hides the
 // body-close from Scanner. On cancel we emit EventError with ctx.Err()
 // so the agent path surfaces the friendlier "turn cancelled" rendering.
-func parseGeminiSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.StreamEvent) {
+func parseGeminiSSE(ctx, sctx context.Context, guard *provider.StallGuard, body io.ReadCloser, ch chan<- provider.StreamEvent) {
 	defer close(ch)
 	defer body.Close()
+	defer guard.Stop()
 
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -394,7 +403,7 @@ func parseGeminiSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.
 	toolCallIdx := 0
 
 	for scanner.Scan() {
-		if err := ctx.Err(); err != nil {
+		if err := provider.StreamHaltError(ctx, sctx); err != nil {
 			ch <- provider.StreamEvent{Type: provider.EventError, Error: err}
 			return
 		}
@@ -406,6 +415,7 @@ func parseGeminiSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.
 		if data == "" {
 			continue
 		}
+		guard.Tick()
 
 		var chunk streamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
@@ -473,6 +483,10 @@ func parseGeminiSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		if ctx.Err() == nil && sctx.Err() != nil {
+			ch <- provider.StreamEvent{Type: provider.EventError, Error: fmt.Errorf("provider stream stalled (no data received)")}
+			return
+		}
 		ch <- provider.StreamEvent{Type: provider.EventError, Error: err}
 		return
 	}

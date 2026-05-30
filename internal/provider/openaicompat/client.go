@@ -252,8 +252,15 @@ func (c *Client) ChatCompletion(ctx context.Context, req provider.ChatRequest) (
 		return nil, fmt.Errorf("marshal chat request: %w", err)
 	}
 
+	// Build the stall guard BEFORE issuing the request and bind the streaming
+	// request/body to the derived context (sctx) so a stall closes the
+	// connection and unblocks the parse loop. sctx derives from ctx, so Ctrl+C
+	// still propagates. This is the only per-call deadline: the http.Client
+	// Timeout is deliberately left at 0 so healthy long streams are never cut.
+	guard, sctx := provider.NewStallGuard(ctx, provider.ConfiguredStallTimeout())
+
 	newReq := func() (*http.Request, error) {
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(buf))
+		httpReq, err := http.NewRequestWithContext(sctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(buf))
 		if err != nil {
 			return nil, err
 		}
@@ -261,19 +268,21 @@ func (c *Client) ChatCompletion(ctx context.Context, req provider.ChatRequest) (
 		httpReq.Header.Set("Accept", "text/event-stream")
 		return httpReq, nil
 	}
-	resp, err := provider.DoWithRetry(ctx, c.httpClient(), provider.ConfiguredRetry(), newReq)
+	resp, err := provider.DoWithRetry(sctx, c.httpClient(), provider.ConfiguredRetry(), newReq)
 	if err != nil {
+		guard.Stop()
 		return nil, fmt.Errorf("request: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
 		errBody := provider.ReadErrorBody(resp.Body)
 		_ = resp.Body.Close()
+		guard.Stop()
 		return nil, fmt.Errorf("status %d: %s",
 			resp.StatusCode, extractAPIErrorMessage(errBody))
 	}
 
 	ch := make(chan provider.StreamEvent, 8)
-	go parseSSE(ctx, resp.Body, ch)
+	go parseSSE(ctx, sctx, guard, resp.Body, ch)
 	return ch, nil
 }
 
@@ -351,9 +360,10 @@ type chatUsage struct {
 // body close from bufio.Scanner. On cancel we emit EventError with the
 // ctx.Err() cause (context.Canceled / DeadlineExceeded) so the agent
 // path surfaces the friendlier "turn cancelled" rendering.
-func parseSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.StreamEvent) {
+func parseSSE(ctx, sctx context.Context, guard *provider.StallGuard, body io.ReadCloser, ch chan<- provider.StreamEvent) {
 	defer close(ch)
 	defer body.Close()
+	defer guard.Stop()
 
 	// activeCalls tracks which indices we've already emitted Start for.
 	activeCalls := map[int]bool{}
@@ -362,7 +372,7 @@ func parseSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.Stream
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	for scanner.Scan() {
-		if err := ctx.Err(); err != nil {
+		if err := provider.StreamHaltError(ctx, sctx); err != nil {
 			ch <- provider.StreamEvent{Type: provider.EventError, Error: err}
 			return
 		}
@@ -374,6 +384,7 @@ func parseSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.Stream
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		guard.Tick()
 		if data == "[DONE]" {
 			// End any tool calls still open (defensive — most providers
 			// emit finish_reason before [DONE]).
@@ -457,6 +468,10 @@ func parseSSE(ctx context.Context, body io.ReadCloser, ch chan<- provider.Stream
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		if ctx.Err() == nil && sctx.Err() != nil {
+			ch <- provider.StreamEvent{Type: provider.EventError, Error: fmt.Errorf("provider stream stalled (no data received)")}
+			return
+		}
 		ch <- provider.StreamEvent{Type: provider.EventError, Error: err}
 		return
 	}
