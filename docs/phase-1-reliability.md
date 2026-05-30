@@ -52,15 +52,20 @@ after N attempts with a clear message; Ctrl+C during backoff cancels.
 provider that accepts the connection then stalls mid-stream hangs the
 turn with no recovery.
 
-**Design.** Add an idle/stall timeout in the SSE read loop
-(`internal/provider/streamutil.go`): reset a timer on each received
-event; if no event arrives within the window, surface a retryable
-timeout error (feeding Round 1's classifier when the stall is before
-first byte). Distinct from `http.Client.Timeout`, which would wrongly
-kill long but healthy streams.
+**Design.** Each adapter has its own SSE read loop today (`parseSSE` in
+`anthropic/anthropic.go`, `parseGeminiSSE` in `gemini/gemini.go`,
+`parseOllamaStream` in `ollama/ollama.go`, and the openaicompat reader).
+Add a shared stall-timeout helper (new `internal/provider/stream.go`)
+that wraps the per-event read: reset a timer on each received event; if
+no event arrives within the window, surface a retryable timeout error
+(feeding Round 1's classifier when the stall is before first byte).
+Distinct from `http.Client.Timeout` — note `openaicompat` deliberately
+sets `Timeout: 0` to "rely on context", so a stall timeout must not
+reintroduce a hard overall deadline.
 
 **Files.**
-- `internal/provider/streamutil.go` + test.
+- New `internal/provider/stream.go` + test; call it from each adapter's
+  parse loop (`anthropic`, `gemini`, `ollama`, `openaicompat`).
 - `internal/config`: `provider_stall_timeout` (default 60s).
 
 **Acceptance.** A server that opens then goes silent triggers the stall
