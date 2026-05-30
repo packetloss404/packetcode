@@ -221,6 +221,7 @@ max_input_rows = 10
 background_max_concurrent = 4
 background_max_depth = 2
 background_max_total = 32
+provider_max_retries = 3
 
 [permissions]
 profile = "ask"

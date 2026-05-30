@@ -50,6 +50,7 @@ background_max_depth = 2
 background_max_total = 32
 background_default_provider = ""
 background_default_model = ""
+provider_max_retries = 3
 
 [permissions]
 profile = "balanced"
