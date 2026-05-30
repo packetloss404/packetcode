@@ -166,6 +166,15 @@ func run(providerOverride, modelOverride, resumeID string, trust bool, permissio
 	// actually configured — listing every provider would clutter the
 	// switcher with non-functional options.
 	reg := provider.NewRegistry()
+
+	// Apply the configured retry policy before any provider streams a
+	// request. Default to 3 attempts when unset.
+	retryAttempts := cfg.Behavior.ProviderMaxRetries
+	if retryAttempts <= 0 {
+		retryAttempts = 3
+	}
+	provider.SetConfiguredRetry(provider.RetryConfigForAttempts(retryAttempts))
+
 	for slug, factory := range factories {
 		key := cfg.GetProviderKey(slug)
 		if providerRequiresAPIKey(cfg, slug) && key == "" {
