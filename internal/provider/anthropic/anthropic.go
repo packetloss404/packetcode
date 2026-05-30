@@ -144,15 +144,17 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/messages", bytes.NewReader(buf))
-	if err != nil {
-		return nil, err
+	newReq := func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/messages", bytes.NewReader(buf))
+		if err != nil {
+			return nil, err
+		}
+		p.setHeaders(httpReq, p.apiKey)
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "text/event-stream")
+		return httpReq, nil
 	}
-	p.setHeaders(httpReq, p.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := p.httpClient.Do(httpReq)
+	resp, err := provider.DoWithRetry(ctx, p.httpClient, provider.ConfiguredRetry(), newReq)
 	if err != nil {
 		return nil, fmt.Errorf("request: %w", err)
 	}
