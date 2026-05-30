@@ -1,8 +1,14 @@
-# Completed Deferred Roadmap
+# Completed Deferred Roadmap (historical)
 
-This is the execution plan for the items that were listed under
-**Deferred to a future release** in `CHANGELOG.md`. Each round was a
-cohesive, independently-shippable slice: a planning agent + 1–3
+> **Status: closed.** This is a historical record of the seven-round
+> "deferred roadmap" that has fully shipped. The live, forward-looking
+> backlog is [`../BACKLOG.md`](../BACKLOG.md) — use that for current
+> planning. This file is kept for the round-by-round history and the
+> workflow pattern at the bottom.
+
+This was the execution plan for the items originally listed under
+**Deferred to a future release** in an earlier `CHANGELOG.md`. Each round
+was a cohesive, independently-shippable slice: a planning agent + 1–3
 implementation agents + a commit, mirroring the pipeline used for the
 background-agents feature.
 
@@ -96,17 +102,24 @@ commands.
 
 ## Remaining Future Ideas
 
+Shipped since this roadmap closed (kept here for the record):
+
+- ~~**Per-job worktree isolation.**~~ **Shipped** — write-capable jobs run
+  in a git worktree under `~/.packetcode/worktrees/...` (see README §Background
+  Agents).
+- ~~**Structured fan-in for sub-agent results.**~~ **Shipped** — compact
+  artifact manifests plus the approval-gated `collect_agent_results` tool.
+- ~~**Per-tool trust setting** (always-allow `spawn_agent` etc.).~~
+  **Shipped** — per-tool policy via `/permissions rule <tool> <action>`.
+
+Still open (tracked in [`../BACKLOG.md`](../BACKLOG.md)):
+
 - **Resumable background jobs across restart.** The session JSONs are
   already persisted, so this is "feed them back into a fresh Agent".
-- **Per-job worktree isolation** (concurrent edit-to-different-branches
-  story). Genuinely hard; revisit with MCP in mind since MCP workflows
-  will push on it.
 - **Streaming sub-agent output into the main conversation in real time.**
-  Requires a concurrency model change; v1 delivers the summary on
-  completion.
+  Requires a concurrency model change; jobs currently deliver the summary
+  on completion.
 - **Cross-job dependencies / DAG scheduling.** Future.
-- **Per-tool trust setting** (always-allow `spawn_agent` etc.). Small
-  extension to the approval policy.
 - **Sub-agent → user questions.** Would require a notification channel
   orthogonal to the current approval modal. Future.
 

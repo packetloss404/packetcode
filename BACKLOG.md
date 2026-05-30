@@ -46,7 +46,7 @@ Deferred:
 
 - SSH-forwarded daemon transport.
 - Persistent job reconnect/reconcile.
-- Per-job worktrees.
+- Per-job worktrees on remote computers (local per-job worktree isolation already shipped).
 - Named terminals and dev-server process supervision.
 - Snapshots/checkpoints.
 - Managed cloud computers.
