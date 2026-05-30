@@ -63,6 +63,13 @@ type StallGuard struct {
 	mu      sync.Mutex
 	timer   *time.Timer
 	stopped bool
+	// gen is bumped on every Tick (and on Stop). The timer's AfterFunc captures
+	// the generation it was armed under and only cancels if that generation is
+	// still current. This makes the "timer fires concurrently with a Tick"
+	// window safe: a stale firing observes a bumped gen and does nothing, so a
+	// timely Tick can never be defeated by an in-flight expiry, and a fired
+	// timer can never be silently revived by Reset.
+	gen uint64
 }
 
 // NewStallGuard returns a StallGuard and a context derived from parent. If no
@@ -83,11 +90,25 @@ func NewStallGuard(parent context.Context, timeout time.Duration) (*StallGuard, 
 		timeout: timeout,
 		cancel:  cancel,
 	}
-	g.timer = time.AfterFunc(timeout, func() {
-		// Fired without a Tick within the window: cancel the derived context.
-		g.cancel()
-	})
+	g.arm(0)
 	return g, ctx
+}
+
+// arm starts the stall timer for the given generation. The caller must hold no
+// expectation about the lock here: arm is invoked from NewStallGuard (before the
+// guard is shared) and from Tick (which holds g.mu). The AfterFunc callback
+// re-acquires g.mu and only cancels if its generation is still current and the
+// guard has not been stopped.
+func (g *StallGuard) arm(gen uint64) {
+	g.timer = time.AfterFunc(g.timeout, func() {
+		g.mu.Lock()
+		fire := !g.stopped && g.gen == gen
+		g.mu.Unlock()
+		if fire {
+			// Expired without a newer Tick: cancel the derived context.
+			g.cancel()
+		}
+	})
 }
 
 // Tick resets the stall timer. It is safe to call concurrently. Calling Tick on
@@ -98,11 +119,13 @@ func (g *StallGuard) Tick() {
 	if g.timer == nil || g.stopped {
 		return
 	}
-	// Stop and reset. Even if the timer already fired (and cancelled the ctx),
-	// resetting is harmless: the context is already cancelled and a later reset
-	// will not "un-cancel" it.
+	// Bump the generation so any already-fired-but-not-yet-run callback from the
+	// previous arming becomes a no-op, then stop the old timer and arm a fresh
+	// one for the new generation. This guarantees a timely Tick is never
+	// defeated by a concurrently expiring timer.
+	g.gen++
 	g.timer.Stop()
-	g.timer.Reset(g.timeout)
+	g.arm(g.gen)
 }
 
 // Stop releases the timer and cancels the derived context cleanup. It is
@@ -116,6 +139,7 @@ func (g *StallGuard) Stop() {
 		return
 	}
 	g.stopped = true
+	g.gen++
 	if g.timer != nil {
 		g.timer.Stop()
 	}
