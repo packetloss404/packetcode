@@ -252,14 +252,16 @@ func (c *Client) ChatCompletion(ctx context.Context, req provider.ChatRequest) (
 		return nil, fmt.Errorf("marshal chat request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(buf))
-	if err != nil {
-		return nil, err
+	newReq := func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(buf))
+		if err != nil {
+			return nil, err
+		}
+		c.applyHeaders(httpReq, true)
+		httpReq.Header.Set("Accept", "text/event-stream")
+		return httpReq, nil
 	}
-	c.applyHeaders(httpReq, true)
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := c.httpClient().Do(httpReq)
+	resp, err := provider.DoWithRetry(ctx, c.httpClient(), provider.ConfiguredRetry(), newReq)
 	if err != nil {
 		return nil, fmt.Errorf("request: %w", err)
 	}

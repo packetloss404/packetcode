@@ -347,14 +347,16 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 	endpoint := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse&key=%s",
 		p.baseURL, url.PathEscape(req.Model), url.QueryEscape(p.apiKey))
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
-	if err != nil {
-		return nil, err
+	newReq := func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "text/event-stream")
+		return httpReq, nil
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := p.httpClient.Do(httpReq)
+	resp, err := provider.DoWithRetry(ctx, p.httpClient, provider.ConfiguredRetry(), newReq)
 	if err != nil {
 		return nil, fmt.Errorf("request: %w", err)
 	}

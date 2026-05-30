@@ -260,13 +260,15 @@ func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest)
 		return nil, fmt.Errorf("marshal ollama request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(buf))
-	if err != nil {
-		return nil, err
+	newReq := func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(buf))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		return httpReq, nil
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.httpClient.Do(httpReq)
+	resp, err := provider.DoWithRetry(ctx, p.httpClient, provider.ConfiguredRetry(), newReq)
 	if err != nil {
 		return nil, fmt.Errorf("ollama chat: %w", err)
 	}
