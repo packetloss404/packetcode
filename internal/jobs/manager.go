@@ -216,6 +216,7 @@ type Manager struct {
 
 	mu           sync.RWMutex
 	jobs         map[string]*Job
+	resubmitting map[string]bool // guarded by mu; prevents duplicate manual recovery runs
 	cancel       map[string]context.CancelFunc
 	results      []Result
 	subscribers  []func(Snapshot)
