@@ -27,8 +27,9 @@ Permission-aware tool execution and the full background Agent workspace:
   <a href="docs/images/packetcode-agents.png"><img src="docs/images/packetcode-agents.png" alt="Packetcode background Agent View" width="49%"></a>
 </p>
 
-These screenshots are rendered from the deterministic TUI fixtures used by
-the release-gating terminal test suite.
+These screenshots illustrate the layout and may precede the latest labels.
+Current approval wording is described below; reviewed text-and-style snapshots
+live in `testdata/tui/golden/packetcode/` and are checked by CI.
 
 ## Install
 
@@ -194,6 +195,10 @@ closed with exit 3; cancellation exits 130. Plain stdout contains only the
 sanitized final response. `--json` emits one `schema_version: 1` object with
 `ok`, `session_id`, `provider`, `model`, `output`, `elapsed_ms`, `usage`, and an
 `error` on failure.
+When a failed run has a session, stderr gives its ID and an interactive
+`packetcode --resume ID` recovery command. Open saved history from the same
+directory before continuing; completed tool actions are not rolled back.
+Opening the session does not repeat the failed prompt.
 
 To connect the built-in Sugar provider and pull its live Conduit/direct-model catalog:
 
@@ -298,7 +303,10 @@ Type a prompt and press `Enter`; use `Ctrl+J` or `\` then `Enter` for a portable
 | `Ctrl+D` | Quit from an empty prompt. |
 | `Ctrl+L` | Clear the visible transcript without deleting the session. |
 
-If a prompt is submitted during an active turn or compaction, packetcode queues it and runs it afterward. `/queue` lists queued prompts; `/queue drop <n>` and `/queue clear` manage them.
+Prompts submitted during an active turn or compaction queue in order. A failed
+turn or compaction pauses pending prompts, and new prompts join that paused
+queue. Use `/queue` to review, `/queue drop <n>` to remove an entry,
+`/queue resume` while idle to continue, or `/queue clear` to start fresh.
 
 Typing `@` at a token boundary opens project-file completion. The selected `@path` is expanded into bounded, root-scoped file context when the prompt is sent. `@file` expansion is disabled for SSH Packet Computer sessions; use `read_file` there. Typing `/` opens slash-command completion.
 
@@ -316,9 +324,13 @@ Shift+Tab can change mode while a turn is running. The new policy applies to sub
 
 The approval menu supports arrow keys and numbers:
 
-1. Yes
-2. Yes, and do not ask again for this tool/session rule
-3. No
+1. Allow once
+2. Allow exact command this session (shell), or allow this tool this session
+3. Reject this request
+
+Shell rules match the exact command text in any working directory. Other
+tool rules cover all arguments and paths for that tool. Running jobs keep
+their existing policy, and explicit denies still apply.
 
 Use `/permissions` to inspect or change the session policy. `/permissions reset`
 revokes remembered/session rules and restores the startup policy. See
@@ -331,6 +343,13 @@ revokes remembered/session rules and restores the startup policy. See
 `/agents` opens the full-screen Agent workspace. It groups agents by needs-input, working, and completed states; supports task entry directly from the bottom prompt; and exposes peek, transcript, cancel, inject, and ignore actions. Results are not silently added to foreground context.
 Each job owns a bounded `todo_write` plan; Agent View shows its completed/total
 count and current item, and the plan persists with abandoned-job evidence.
+
+After an app exit, running jobs are recorded as abandoned and jobs that never
+started as cancelled. `/jobs resubmit` lists eligible saved prompts with full
+IDs. Inspect `/jobs <id>` before `/jobs resubmit <id>` starts a new run;
+previous work may already have changed files or external services. The old
+record is preserved, and concurrent resubmit requests cannot create duplicate
+successors.
 
 `/workflows` orchestrates sequential phases and parallel fan-out over the same bounded jobs manager. A built-in review is available immediately:
 
@@ -359,8 +378,10 @@ the same agent and token budgets. See [Workflows](docs/workflows.md).
 
 Self-paced loops stop on a versioned `packetcode-loop-decision` block or the
 legacy `LOOP_DONE` sentinel, and always stop after 25 iterations. Interval
-loops run immediately, then on the requested interval; they queue rather than
-overlap an active foreground turn.
+loops run immediately, then on the requested interval; later ticks skip while
+foreground work is active or the queue is paused. `/loop stop` removes queued
+iterations too. Ctrl+C stops self-paced continuation, including when a success
+response was already buffered.
 
 Separately, every agent run has a bounded no-progress detector for repeated
 tool calls with identical executed arguments and identical results. It stops
@@ -388,7 +409,7 @@ See [Background agents](docs/feature-background-agents.md) and [Agent View](docs
 | `/workflows [run [--computer <name>] <name>\|validate <name>\|list\|stop [id\|all]\|<id>]` | Validate, run, and inspect local or remote workflows. |
 | `/loop [interval] <prompt\|/command>` | Repeat work; use `list` or `stop`. |
 | `/plan [on\|off]` | Toggle read-only planning mode. |
-| `/queue [drop <n>\|clear]` | Inspect or manage queued prompts. |
+| `/queue [drop <n>\|resume\|clear]` | Inspect, resume, or clear queued prompts. |
 | `/sessions` | List, resume, rename, or delete sessions. |
 | `/compact [--keep N]` | Summarize older context. |
 | `/undo` | Restore the latest file backup. |
@@ -690,6 +711,9 @@ See [MCP servers](docs/mcp.md), [Hooks and statusline](docs/hooks-and-statusline
 ## Documentation
 
 - [Maintainer handoff](HANDOFF.md)
+- [Developer guide](docs/development.md)
+- [Maintenance and recovery](docs/maintenance.md)
+- [Audit handoff and remaining decisions](docs/handoff.md)
 - [User manual](docs/manual.md)
 - [Advanced guide](docs/advanced-guide.md)
 - [Terminal cheat sheet](docs/cheat-sheet.md)
@@ -717,20 +741,28 @@ See [MCP servers](docs/mcp.md), [Hooks and statusline](docs/hooks-and-statusline
 
 ## Development
 
-Before resuming a maintenance session, read [HANDOFF.md](HANDOFF.md) for the
-current architecture map, verification baseline, interaction caveats, and
-recommended next work.
+Start with [the developer guide](docs/development.md) for code ownership,
+lifecycle contracts, focused tests, and documentation upkeep. Read
+[HANDOFF.md](HANDOFF.md) for the current baseline and remaining work. Run
+process-heavy checks sequentially so compilation and lint do not compete with
+timer-sensitive tests.
 
 ```bash
 make verify
-go test ./...
 go vet ./...
+go test ./...
 go test -race -count=1 ./...
+make lint
 make build
 make smoke
 make tui-snapshots
 make tui-golden-check
 ```
+
+The PTY commands require Linux, macOS, or WSL and the dependencies in
+`scripts/requirements-tui.txt`. Documentation-only edits need link, command,
+and consistency checks; changes to runtime behavior also need the relevant
+tests and CI checks.
 
 The credential-free `--tui-fixture=<state>` development flag renders deterministic lifecycle states for PTY snapshots without loading config, providers, credentials, sessions, hooks, MCP, or project files.
 

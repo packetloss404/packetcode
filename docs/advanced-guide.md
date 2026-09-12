@@ -444,8 +444,9 @@ Loops repeat a foreground prompt or slash command:
 Self-paced loops ask for a versioned `packetcode-loop-decision` JSON block and
 also accept the legacy `LOOP_DONE` sentinel. They stop after 25 iterations even
 when the model never returns a valid stop decision. Interval loops run
-immediately and then on the interval. A tick during foreground activity is
-queued; loops do not overlap the active foreground turn.
+immediately and then on the interval. Later ticks skip during foreground
+activity or while the prompt queue is paused. `/loop stop` removes the loop's
+queued iterations, and Ctrl+C stops self-paced continuation.
 
 The 25-turn scheduler ceiling is not the only loop guard. Foreground,
 background, and ACP runs also share a bounded no-progress detector that stops

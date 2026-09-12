@@ -17,11 +17,22 @@ The same parser/renderer is used after a patch completes, keeping proposed and c
 
 The flat numbered approval menu displays the specialized diff body, then:
 
-1. Yes
-2. Yes, and do not ask again
-3. No
+1. Allow once
+2. Allow this tool this session (or allow exact command this session for shell)
+3. Reject this request
+
+The scope note explains all arguments/paths for a tool or exact command text
+in any working directory. `/permissions` reviews rules and `/permissions reset`
+revokes session rules. Existing background jobs retain their captured policy;
+explicit denies remain effective.
 
 Arrow keys, Enter, number keys, and legacy `Y`/`A`/`N` shortcuts work. Large previews wrap inside the body width and do not shift selector indentation.
+
+Escape decoded strings for display after JSON parsing. Never sanitize or
+rewrite the arguments passed to a preview helper or returned with the approval
+decision. Control bytes must appear as escaped text rather than changing the
+terminal or hiding the proposed action. `clarity_test.go` covers this boundary
+and narrow widths; reviewed PTY goldens cover 72×24 and 100×30 layouts.
 
 ## Limits
 

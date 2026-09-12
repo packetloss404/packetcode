@@ -12,10 +12,20 @@ For user configuration and diagnostics, see [MCP servers](mcp.md). This file rec
 - Failure isolation: one missing/crashed server does not prevent packetcode or other servers from running.
 - Recovery: `/mcp restart <name>` replaces one process and its tool adapters
   without disturbing other configured servers.
+- Failed/exited status and tools views show logs and manual reconnection
+  instructions. Disabled servers must be enabled in config, followed by an
+  app restart. Reconnection never repeats a failed tool call.
 
 Server processes inherit a small launch-environment allowlist plus explicit `env` and named `env_from` variables. This limits accidental secret inheritance; it is not a sandbox.
 
 The client handles responses, notifications, out-of-order request IDs, cancellation, timeouts, EOF, process exit, and every signed `int64` request ID. Unsupported server-initiated requests receive JSON-RPC `-32601` where applicable.
+
+Start/restart operations participate in manager shutdown. A server admits only
+one restart at a time, and no replacement may be published after shutdown.
+Cancellation also bounds blocked stdin writes and aborts partial transports.
+Construct test wrappers before client goroutines start; live pipe fields are
+immutable. See `internal/mcp/manager_lifecycle_test.go`,
+`write_cancellation_test.go`, and `internal/app/recovery_guidance_test.go`.
 
 ## Supported Surface
 

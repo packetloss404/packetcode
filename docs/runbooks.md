@@ -1,9 +1,9 @@
 # Operational runbooks
 
-Written 2026-09-05 from the code as it stands at the security-audit merge
-(`e0ce868`). Every command here was read out of the implementation rather than
-recalled; the file and line each behaviour comes from is cited so a runbook can
-be checked against the code when the code moves.
+Started at the 2026-09-05 security-audit merge (`e0ce868`); recovery and approval
+guidance updated 2026-09-11. Original line references identify the audit's
+evidence and may have moved. Check the current implementation and
+[developer guide](development.md) before changing behavior.
 
 packetcode runs as your user on your machine. There is no server to restart, no
 service to fail over, and no shared state: every runbook below is something one
@@ -425,8 +425,10 @@ python -c "import json,sys;[print(json.loads(l)['msg']) for l in open(sys.argv[1
 /trust off              leave bypass, keep session rules
 ```
 
-**Note.** "Yes, and don't ask again" remembers the **exact command string** for
-`execute_command`, never a command family (`internal/app/approval_remember.go`).
+**Note.** "Allow exact command this session" matches the **exact command
+string** in any working directory, never a command family. Other tools offer
+"Allow this tool this session", covering all its arguments and paths
+(`internal/app/approval_remember.go`). Running jobs keep their captured policy.
 
 ---
 
@@ -586,25 +588,30 @@ go test ./internal/hooks/ -count=1 -run TestRunUserPromptSubmit_CollectsStdout -
 
 ---
 
-## R17. Reset to a known-good state
+## R17. Recover without discarding evidence
 
-Least destructive first.
+Start with the failed operation and its saved history. Use
+[the troubleshooting guide](troubleshooting.md) for specific symptoms.
 
 ```text
 /clear                      clear the screen, keep the session
+/queue                      inspect pending prompts after a failure
+/queue resume               continue the reviewed queue while idle
+/queue clear                discard pending prompts and start fresh
 /permissions reset          drop session rules, restore startup policy
-/cost reset --yes           clear the cost tally
+/jobs resubmit              list eligible recovered jobs with full IDs
 ```
 
 ```bash
-mv "$PC/config.toml" "$PC/config.toml.bak"    # next start runs first-run setup
+packetcode --resume ID       # review saved headless-run history in the same directory
 ```
 
-Full wipe of local state, keeping credentials:
+Resubmitting a job starts a new run and does not undo earlier effects. Inspect
+its transcript and worktree first. A storage error needs a writable data
+directory; it does not justify removing job or session records.
 
-```bash
-cp "$PC/config.toml" /tmp/packetcode-config.toml
-rm -rf "$PC/sessions" "$PC/jobs" "$PC/backups" "$PC/tool-output" "$PC/cost-tally.json"
-```
-
-Check `$PC/worktrees` for unmerged work before deleting it (R8).
+If configuration repair is necessary, back up `config.toml` and fix the named
+setting using R1. Keep sessions, jobs, backups, and worktrees available for
+inspection. Check `$PC/worktrees` for unmerged work before any separately
+planned state cleanup (R8). `/cost reset --yes` clears accounting history; it
+is not a runtime recovery step.

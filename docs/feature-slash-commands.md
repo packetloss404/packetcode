@@ -23,12 +23,17 @@ Slash commands are parsed and handled locally before a prompt reaches the model.
 | `/sessions delete <id> --yes` | Delete a session. |
 | `/queue` | List queued prompts. |
 | `/queue drop <n>` | Drop one queued prompt. |
+| `/queue resume` | Continue a paused queue while idle. |
 | `/queue clear` | Clear queued prompts. |
 | `/compact [--keep N]` | Summarize older context. |
 | `/undo` | Restore the latest file backup. |
 | `/cost` / `/cost reset --yes` | Show/reset API cost totals. |
 | `/transcript` | Open the saved transcript. |
 | `/clear` | Clear visible output only. |
+
+Failed turns and compaction pause pending prompts. New prompts join the paused
+queue; `/queue clear` or dropping the last entry clears the pause. Clearing
+the display or switching sessions does not resume queued work.
 
 ## Agents and Orchestration
 
@@ -37,7 +42,7 @@ Slash commands are parsed and handled locally before a prompt reaches the model.
 | `/spawn [--computer C] [--provider P] [--model M] [--write] <prompt>` | Start a local or Packet Computer background job. |
 | `/agents [id]` | Open Agent View or a transcript. |
 | `/jobs [id]` | List jobs or open a transcript. |
-| `/jobs resubmit [id]` | Re-run a job abandoned by a previous app exit. Starts a new job; the original is not resumed. |
+| `/jobs resubmit [id]` | List eligible recovered jobs or start one new run using its full ID. The original is not resumed. |
 | `/cancel <id\|all>` | Cancel jobs. |
 | `/computers` | List registered Packet Computers. |
 | `/computers status <name>` | Show one computer's stored record. |
@@ -76,4 +81,5 @@ Slash commands are parsed and handled locally before a prompt reaches the model.
 
 Markdown commands load from `~/.packetcode/commands/*.md` and `.packetcode/commands/*.md`; project commands win. Optional frontmatter supplies `description`, and `$ARGUMENTS` expands to the text after the command.
 
-Built-ins cannot be shadowed. A custom command expands into a normal prompt and queues if a turn is active.
+Built-ins cannot be shadowed. A custom command expands into a normal prompt and
+queues if a turn is active or the foreground queue is paused.
