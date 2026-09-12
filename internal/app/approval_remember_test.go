@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/packetcode/packetcode/internal/permissions"
@@ -77,5 +78,28 @@ func TestRememberApproval_StripsBackgroundJobAnnotation(t *testing.T) {
 	annotated := r.app.currentPermissionPolicy().Decide(permissions.Request{ToolName: "[job:abc12345] write_file", RequiresApproval: true})
 	if annotated.Decision == permissions.DecisionAllow {
 		t.Fatal("remembered rule must target the real tool name, not the UI annotation")
+	}
+}
+
+func TestRememberApproval_ConfirmationExplainsActualScope(t *testing.T) {
+	r := newTestApp(t)
+	r.app.rememberApproval(provider.ToolCall{Name: "execute_command", Arguments: `{"command":"git status","cwd":"src"}`})
+	policy := r.app.currentPermissionPolicy()
+	got := policy.Decide(permissions.Request{
+		ToolName: "execute_command", RequiresApproval: true,
+		Params: json.RawMessage(`{"command":"git status","cwd":"other","timeout_sec":120}`),
+	})
+	if got.Decision != permissions.DecisionAllow {
+		t.Fatalf("same command in another directory = %s; confirmation describes command-text matching", got.Decision)
+	}
+	out := strings.Join(strings.Fields(r.app.conversation.View()), " ")
+	for _, want := range []string{"session rule", "exact command text", "any working directory", "/permissions reset"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("confirmation missing %q: %s", want, out)
+		}
+	}
+	r.app.rememberApproval(provider.ToolCall{Name: "write_file", Arguments: `{"path":"one.go"}`})
+	if !strings.Contains(strings.Join(strings.Fields(r.app.conversation.View()), " "), "any arguments or paths") {
+		t.Fatal("tool-wide permission scope missing from confirmation")
 	}
 }

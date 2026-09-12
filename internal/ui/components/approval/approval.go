@@ -16,7 +16,6 @@ import (
 
 	"github.com/packetcode/packetcode/internal/provider"
 	"github.com/packetcode/packetcode/internal/tools"
-	"github.com/packetcode/packetcode/internal/ui/terminaltext"
 	"github.com/packetcode/packetcode/internal/ui/theme"
 )
 
@@ -40,7 +39,7 @@ type ResultMsg struct {
 	// prompt that was replaced between the keypress and the message cannot
 	// have the user's answer applied to its successor.
 	RequestID uint64
-	// Remember is set when the user chose "always allow" — the App adds a
+	// Remember is set when the user chose a session allowance — the App adds a
 	// session permission rule so this tool (or command) isn't asked again.
 	Remember bool
 }
@@ -144,14 +143,17 @@ func (m Model) View() string {
 	if width <= 0 {
 		width = 80
 	}
-	displayName := m.tool.Name()
+	padding := min(2, (width-1)/2)
+	contentWidth := max(1, width-2*padding)
+	bodyIndent := min(2, contentWidth-1)
+	bodyWidth := max(1, contentWidth-bodyIndent)
+	displayName := visibleApprovalText(m.tool.Name())
 	if m.toolCall.Name != "" && m.toolCall.Name != displayName {
-		displayName = terminaltext.Clean(m.toolCall.Name)
+		displayName = visibleApprovalText(m.toolCall.Name)
 	}
-	// The arguments are the model's text. Rendered raw, an ESC[2K in a
-	// proposed command would erase the part of the line the user is being
-	// asked to approve; an OSC 52 in file content would reach the clipboard.
-	arguments := terminaltext.Clean(m.toolCall.Arguments)
+	// Renderers escape decoded text for display. Cleaning the JSON before
+	// parsing misses escaped controls and can change the path being previewed.
+	arguments := m.toolCall.Arguments
 	source, action := splitApprovalDisplay(displayName)
 	action = approvalActionLabel(action)
 	headerText := action
@@ -167,16 +169,21 @@ func (m Model) View() string {
 		body = r(RenderContext{
 			Tool:      m.tool,
 			Arguments: arguments,
-			Width:     width - 8,
+			Width:     bodyWidth,
 		})
 	} else {
 		body = summariseParams(arguments)
 	}
-	choices := []string{
-		"1. Yes",
-		"2. Yes, and don't ask again for this tool",
-		"3. No",
+	rememberLabel := "Allow this tool this session"
+	scope := "Option 2 covers all arguments and paths for " + visibleApprovalText(m.tool.Name()) + "."
+	if m.tool.Name() == "execute_command" {
+		rememberLabel = "Allow exact command this session"
+		scope = "Option 2 matches the exact command text, in any working directory."
 	}
+	if source != "" {
+		scope += " Running jobs keep their existing permission policy."
+	}
+	choices := []string{"1. Allow once", "2. " + rememberLabel, "3. Reject this request"}
 	for i, choice := range choices {
 		prefix := "  "
 		style := theme.StyleSecondary
@@ -186,17 +193,18 @@ func (m Model) View() string {
 		}
 		choices[i] = prefix + style.Render(choice)
 	}
-	question := theme.StylePrimary.Bold(true).Render("Do you want to proceed?")
-	footer := theme.StyleDim.Render("Esc to cancel · ↑/↓ to select · Enter to confirm")
-	body = lipgloss.NewStyle().Width(max(10, width-8)).Render(body)
-	content := strings.Join([]string{header, "", indent(body, "  "), "", question, strings.Join(choices, "\n"), "", footer}, "\n")
-	return lipgloss.NewStyle().Padding(0, 2).Width(width).Render(content)
+	question := theme.StylePrimary.Bold(true).Render("Allow this request?")
+	footer := theme.StyleDim.Render("Esc rejects this request · ↑/↓ select · Enter confirms")
+	revoke := theme.StyleDim.Render("/permissions reviews rules · /permissions reset revokes all session rules")
+	body = lipgloss.NewStyle().Width(bodyWidth).Render(body)
+	content := strings.Join([]string{header, "", indent(body, strings.Repeat(" ", bodyIndent)), "", question, strings.Join(choices, "\n"), theme.StyleDim.Render(scope), revoke, "", footer}, "\n")
+	return lipgloss.NewStyle().Padding(0, padding).Width(width).Render(content)
 }
 
 func approvalActionLabel(action string) string {
 	switch strings.TrimSpace(action) {
 	case "execute_command":
-		return "Bash command"
+		return "Shell command"
 	case "write_file":
 		return "Write file"
 	case "patch_file":
@@ -241,5 +249,5 @@ func summariseParams(args string) string {
 		buf, _ := json.MarshalIndent(pretty, "", "  ")
 		return theme.StylePrimary.Render(string(buf))
 	}
-	return trimmed
+	return visibleApprovalText(trimmed)
 }

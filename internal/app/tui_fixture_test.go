@@ -16,7 +16,7 @@ func TestTUIFixtureStatesRenderProductionComponents(t *testing.T) {
 		"streaming":      "failure occurs",
 		"tool-running":   "Bash(go test",
 		"tool-result":    "Read 115 lines",
-		"approval":       "Do you want to proceed?",
+		"approval":       "Allow exact command this session",
 		"error":          "timed out",
 		"cancelled":      "turn cancelled",
 		"queued":         "(queued)",

@@ -3,8 +3,11 @@ package approval
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"unicode"
 
+	"github.com/packetcode/packetcode/internal/computers"
 	"github.com/packetcode/packetcode/internal/tools"
 	"github.com/packetcode/packetcode/internal/ui/components/diff"
 	"github.com/packetcode/packetcode/internal/ui/theme"
@@ -72,12 +75,12 @@ func renderWriteFile(ctx RenderContext) string {
 
 	switch {
 	case newFile:
-		m := diff.NewFile(params.Path, params.Content).SetWidth(ctx.Width).SetMaxRows(maxApprovalDiffRows)
+		m := diff.NewFile(visibleApprovalText(params.Path), visibleApprovalText(params.Content)).SetWidth(ctx.Width).SetMaxRows(maxApprovalDiffRows)
 		return renderDiffWithHeader(m, params.Path+" (new file)")
 	case unified == "":
-		return theme.StyleDim.Render(fmt.Sprintf("%s — no changes (proposed content matches current file)", params.Path))
+		return theme.StyleDim.Render(fmt.Sprintf("%s — no changes (proposed content matches current file)", visibleApprovalText(params.Path)))
 	default:
-		m, parseErr := diff.Parse(unified)
+		m, parseErr := diff.Parse(visibleApprovalText(unified))
 		if parseErr != nil {
 			return renderDiffErrorFallback(parseErr, params.Content)
 		}
@@ -101,12 +104,12 @@ func renderPatchFile(ctx RenderContext) string {
 
 	unified, err := pt.PreviewPatchDiff(params.Path, params.Patches)
 	if err != nil {
-		return renderDiffErrorFallback(err, summariseParams(ctx.Arguments))
+		return renderDiffErrorFallback(err, ctx.Arguments)
 	}
 
-	m, parseErr := diff.Parse(unified)
+	m, parseErr := diff.Parse(visibleApprovalText(unified))
 	if parseErr != nil {
-		return renderDiffErrorFallback(parseErr, summariseParams(ctx.Arguments))
+		return renderDiffErrorFallback(parseErr, ctx.Arguments)
 	}
 	m = m.SetWidth(ctx.Width).SetMaxRows(maxApprovalDiffRows)
 	return renderDiffWithHeader(m, params.Path)
@@ -133,10 +136,19 @@ func renderExecuteCommand(ctx RenderContext) string {
 		cwd = "(project root)"
 	}
 	info := tools.DetectShellRuntime()
+	runtimeName := info.Default
+	note := "Review shell syntax and side effects before approving."
+	if info.OS == "windows" {
+		note += " PowerShell, WSL, and Git Bash require an explicit invocation."
+	}
+	if tool, ok := ctx.Tool.(*tools.ExecuteCommandTool); ok && tool.Backend != nil && tool.Backend.Kind() == computers.KindSSH {
+		runtimeName = "remote POSIX login shell"
+		note = "Review shell syntax and side effects on the remote computer before approving."
+	}
 	lines := []string{
-		theme.StylePrimary.Render("$ " + params.Command),
-		theme.StyleDim.Render(fmt.Sprintf("cwd: %s · timeout: %ds · runtime: %s", cwd, timeout, info.Default)),
-		theme.StyleWarning.Render("Review shell syntax and side effects before approving. On Windows, PowerShell/WSL/Git Bash commands must invoke that runtime explicitly."),
+		theme.StylePrimary.Render("$ " + visibleApprovalText(params.Command)),
+		theme.StyleDim.Render(fmt.Sprintf("cwd: %s · timeout: %ds · runtime: %s", visibleApprovalText(cwd), timeout, runtimeName)),
+		theme.StyleWarning.Render(note),
 	}
 	return strings.Join(lines, "\n")
 }
@@ -147,7 +159,7 @@ func renderExecuteCommand(ctx RenderContext) string {
 func renderDiffWithHeader(m diff.Model, label string) string {
 	added, removed := m.Stats()
 	stats := theme.StyleDim.Render(fmt.Sprintf("+%d \u2212%d", added, removed))
-	subject := theme.StylePrimary.Render(label)
+	subject := theme.StylePrimary.Render(visibleApprovalText(label))
 	body := m.View()
 	parts := []string{subject + "  " + stats}
 	if body != "" {
@@ -161,10 +173,11 @@ func renderDiffWithHeader(m diff.Model, label string) string {
 // the preview is capped so a 10k-line write doesn't blow through the
 // modal.
 func renderDiffErrorFallback(err error, preview string) string {
-	head := theme.StyleError.Render("! could not compute diff: " + err.Error())
+	head := theme.StyleError.Render("! could not compute diff: " + visibleApprovalText(err.Error()))
 	if preview == "" {
 		return head
 	}
+	preview = visibleApprovalText(preview)
 	lines := strings.Split(preview, "\n")
 	if len(lines) > maxFallbackPreviewLines {
 		trimmed := lines[:maxFallbackPreviewLines]
@@ -172,4 +185,21 @@ func renderDiffErrorFallback(err error, preview string) string {
 		return head + "\n\n" + strings.Join(trimmed, "\n")
 	}
 	return head + "\n\n" + preview
+}
+
+// Keep controls visible as escaped text rather than letting them erase or
+// overwrite approval details. This runs after JSON decoding, only on display
+// text: the request and the bytes passed to diff previewers remain unchanged.
+func visibleApprovalText(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	var out strings.Builder
+	for _, r := range value {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			quoted := strconv.QuoteRune(r)
+			out.WriteString(quoted[1 : len(quoted)-1])
+		} else {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
 }
