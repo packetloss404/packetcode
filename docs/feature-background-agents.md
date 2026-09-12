@@ -12,7 +12,9 @@ This document describes the current shipped orchestration model. Every delegated
 /spawn --computer production --write migrate the app
 ```
 
-The model can delegate through `spawn_agent` using the same manager. `wait=true` returns a compact result when the child finishes; asynchronous children can be joined with the approval-gated `collect_agent_results` tool.
+The model can delegate through `spawn_agent` using the same manager. `wait=true`
+returns a compact result when the child finishes; asynchronous children can be
+joined with the read-only `collect_agent_results` tool.
 
 Concurrency is bounded by:
 
@@ -66,7 +68,28 @@ evidence rather than shared with the foreground or another worker.
 
 Jobs persist snapshots under `~/.packetcode/jobs/`. Queued, running, and terminal transitions are written immediately; high-frequency activity updates are coalesced and flushed at shutdown. Jobs left active by an unclean prior exit recover as terminal evidence; execution is never resumed. A job that was **running** recovers as `abandoned` with cause `app-exit`, because nothing witnessed how it ended; a job that was only **queued** recovers as `cancelled`, because it provably never started. Abandoned is a distinct terminal state precisely so a loss is never reported as a cancellation somebody chose. packetcode does not resume jobs across a restart (ruled 2026-08-14) — that is a scope boundary, not a missing feature. For SSH jobs, PacketCode cannot guarantee that a detached remote descendant stopped when the connection disappeared.
 
-Recovered jobs carry a durable `Recovered` flag (not inferred from the reason string) and can be explicitly re-run with `/jobs resubmit <id>`. That spawns a *new* job from the saved prompt and links the pair via `ResubmitOf` / `ResubmittedAs`; the abandoned job is never mutated beyond gaining the forward link, so its evidence stays intact. Resubmit is allowed once per job, rejects jobs that ended normally, and refuses a saved prompt larger than `jobs.MaxResubmitPromptBytes` (32 KiB) rather than truncating it. There is no reconnect-and-continue path and none is planned: PCMP9 was cut on 2026-08-14 because durable execution after the originating app closes belongs to PacketAgent, so resubmit is the whole story. See [`packet-computers-loop.md`](packet-computers-loop.md).
+Recovered jobs carry a durable `Recovered` flag and can be explicitly re-run
+with `/jobs resubmit <id>`. This starts a new job from the saved prompt and
+links both records through `ResubmitOf` / `ResubmittedAs`; the original keeps
+its reconciliation state and evidence. Resubmit is allowed once per job,
+rejects jobs that ended normally, and refuses prompts larger than
+`jobs.MaxResubmitPromptBytes` (32 KiB) rather than truncating them. There is no
+reconnect-and-continue path: durable execution after the originating app closes
+belongs to PacketAgent. See [the implementation history](packet-computers-loop.md).
+
+Recovery applies to eligible terminal records marked `Recovered`, including
+jobs cancelled before starting. `/jobs resubmit` lists complete IDs and exact
+commands; inspect `/jobs <id>` first. Empty or oversized saved prompts are
+omitted from that list, but their records remain available for inspection.
+The original keeps its reconciliation state and evidence.
+
+The manager reserves a job ID during resubmission, so concurrent requests
+cannot create duplicate successors. Validation or initial-storage failure
+releases the reservation for a later manual attempt. Initial job records must
+be durable before execution starts; failed later snapshots remain pending for
+retry and unresolved writes are reported at shutdown. See
+`internal/jobs/resubmit_recovery_test.go`, `persistence_failure_test.go`, and
+`internal/app/recovery_guidance_test.go` for the regression contract.
 
 Terminal results are not silently inserted into foreground context. Agent View marks them seen and lets the user inject or ignore them. Parent agents that explicitly wait/collect mark results consumed.
 
@@ -150,11 +173,15 @@ Explicit pipeline stages beyond the current ordered phases/steps remain in the
 - `/loop 10m /cost` runs immediately, then every ten minutes.
 - `/loop Continue reviewing until complete` runs self-paced.
 - `/loop list` shows active loops.
-- `/loop stop <id|all>` stops scheduling future iterations.
+- `/loop stop <id|all>` stops future iterations and removes its queued work.
 
 Self-paced loops ask the model for a versioned `packetcode-loop-decision`
 block, retain `LOOP_DONE` for compatibility, and stop after 25 iterations
-regardless. A tick during active foreground work queues instead of overlapping.
+regardless. Interval ticks skip while foreground work is active or its queue
+is paused. Failures pause pending prompts for explicit `/queue resume`; Ctrl+C
+stops self-paced continuation. Loop ownership is assigned only when the agent
+turn begins, after any compaction, so discarded work cannot restart on a later
+ordinary prompt.
 Loop bodies can spawn agents or invoke workflows.
 
 ## Current Limits
@@ -162,7 +189,8 @@ Loop bodies can spawn agents or invoke workflows.
 - Active jobs do not resume after packetcode restarts. This one is a permanent
   boundary rather than a limit awaiting work: durable execution after the app
   closes belongs to PacketAgent (ruled 2026-08-14). Recovered jobs are reported
-  as abandoned and can be explicitly resubmitted as new runs.
+  as abandoned if they had started, or cancelled if still queued, and eligible
+  saved prompts can be explicitly resubmitted as new runs.
 - packetcode cannot confirm that a detached remote descendant stopped. That is
   reported honestly rather than papered over: such a job is `abandoned`, not
   `cancelled`. Local commands do have structured teardown evidence — mechanism,

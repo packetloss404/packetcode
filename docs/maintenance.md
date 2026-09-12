@@ -3,6 +3,9 @@
 Updated 2026-09-11. This guide favors small, verifiable changes. Larger product
 work stays in [BACKLOG.md](../BACKLOG.md); the latest hardening evidence is in
 [the September 8 review](audit/hardening-2026-09-08.md).
+For implementation contracts and regression locations, use
+[the developer guide](development.md). [The maintainer handoff](../HANDOFF.md)
+records the latest verified behavior baseline.
 
 ## Start with the failure
 

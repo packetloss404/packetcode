@@ -139,7 +139,8 @@ By default, each `fetch__fetch` call asks for approval.
   that requirement asks, allows, or denies.
 
 The approval menu shows the exact tool name (`filesystem__write_file`)
-and proposed arguments before you select Yes, remember a session rule, or No.
+and proposed arguments before you allow once, allow that tool for this session,
+or reject the request. A tool-wide session rule covers all arguments and paths.
 Use `/permissions reset` to revoke remembered/session rules and restore the
 startup policy.
 
@@ -170,6 +171,11 @@ a lot of servers print diagnostics to stderr before exiting.
 refreshing its registered tool adapters while leaving the rest of the fleet
 running. Restart uses the configuration loaded at PacketCode startup; restart
 PacketCode itself after changing `config.toml`.
+
+`/mcp status <name>` and `/mcp tools <name>` show recovery instructions for
+failed or exited servers. Disabled servers need `enabled = true` in their
+configuration followed by an app restart. Reconnection does not rerun a failed
+tool call; review any partial effects before requesting it again.
 
 ---
 

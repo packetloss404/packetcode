@@ -125,7 +125,7 @@ scope is `call`: approving one invocation approves that invocation only. There
 is no implicit server-wide approval and no trust inherited by another server or
 origin.
 
-The existing “Yes, and do not ask again” choice is a separate, deliberate user
+The existing “Allow this tool this session” choice is a separate, deliberate user
 action. It remembers the exact provider-safe tool alias for the current
 PacketCode session, not the whole server. `/permissions` shows the resulting
 rule. `/permissions reset` revokes remembered/session rules, exits temporary

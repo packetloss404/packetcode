@@ -82,6 +82,36 @@ git worktree list
 
 The job fails closed rather than editing the foreground checkout. Inspect successful worktrees with the path shown in `/agents` or `/jobs <id>`.
 
+## Prompts Stay Queued After an Error
+
+A failed turn or compaction pauses pending prompts so dependent work cannot
+start after a failed prerequisite. New prompts join the paused queue. Run
+`/queue` to inspect it, `/queue drop N` to remove an entry, and `/queue resume`
+while idle to continue. `/queue clear` discards pending work and lets you start
+fresh. `/clear` only clears the display and does not resume or discard the queue.
+
+## A Headless Run Failed
+
+If a session exists, stderr shows its ID and how to open it interactively with
+`packetcode --resume ID` from the same directory. Review saved history before
+continuing; completed file edits, commands, or external actions are not rolled
+back. An approval-blocked run exits 3 and needs an interactive decision.
+Cancellation exits 130. Plain stdout is empty on failure; JSON may retain
+incomplete output with `ok: false`.
+
+## Work Was Interrupted by an App Exit
+
+Run `/jobs resubmit` to list eligible recovered jobs using full IDs. Inspect
+`/jobs <id>` before rerunning the saved prompt with `/jobs resubmit <id>`.
+This starts a new job and preserves the original evidence. Running jobs recover
+as abandoned; queued jobs recover as cancelled before starting. Empty or
+oversized prompts need a new manual request after inspection. Concurrent
+resubmission requests cannot launch duplicate successors.
+
+If new work reports `persistence_failed`, it has not started. Restore writable
+storage; do not delete saved jobs as a generic repair. A shutdown save failure
+requires restoring storage and retrying shutdown while the process is alive.
+
 ## Missing or Truncated Agent Output
 
 Artifact manifests and model-facing tool results are intentionally bounded. Open `/jobs <id>` for the persisted transcript and inspect the worktree for full changes. Older oversized tool output is compacted only in requests sent back to the model; the persisted session remains complete.
@@ -96,6 +126,9 @@ Run `/mcp`, `/mcp status <name>`, `/mcp logs <name>`, and
 `/mcp restart <name>`. Logs live at `~/.packetcode/mcp-<name>.log` and are displayed through
 a bounded redacted tail. Restart one crashed process in place; restart
 PacketCode after changing MCP configuration.
+Disabled servers must be enabled in their configuration before restarting the
+app. `/mcp status <name>` and `/mcp tools <name>` explain the applicable recovery
+path. Reconnection does not repeat failed tool calls.
 
 ## Hooks or Statusline Fail
 

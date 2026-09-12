@@ -1,14 +1,48 @@
 # Packetcode Maintainer Handoff
 
-Updated: 2026-09-08
+Updated: 2026-09-11
 
 The latest security and lifecycle hardening is documented in
 [the September 8 review](docs/audit/hardening-2026-09-08.md). For routine fixes,
 test commands, and recovery during the next month, start with
 [the maintenance guide](docs/maintenance.md). The architecture notes below
 remain useful; Git and the current CI run are authoritative for shipped work.
+For implementation contracts and regression locations, read
+[the developer guide](docs/development.md).
 
-Audit baseline: `main` and `origin/main` began at `d646094` (`Merge
+## Latest verified behavior baseline
+
+The September 11 usability pass is merged as `7f7ecb3`.
+[All 16 CI jobs passed](https://github.com/packetloss404/packetcode/actions/runs/34664539030),
+including Windows/macOS/Linux tests, Linux race checking, six build targets,
+smoke tests, lint, vulnerabilities, TUI goldens/protocol safety, and release dry
+run. Local full tests, race tests, vet, and module verification also passed.
+This documentation update follows that behavior baseline; inspect Git for the
+current tip rather than treating the hash as permanently current.
+
+- Failures in a foreground turn or compaction pause and retain queued prompts.
+  New prompts join the paused queue. `/queue resume` continues while idle;
+  `/queue clear` discards pending work and clears the pause.
+- Ctrl+C prevents self-paced continuation even with buffered success. Stopping
+  a loop removes queued iterations. Loop ownership is claimed after compaction,
+  only when the actual agent turn starts.
+- Approvals name their session scope and revocation path. Shell allowances
+  match exact command text in any working directory; other tool allowances
+  cover all arguments and paths. Decoded controls are escaped for display
+  without changing execution arguments.
+- Headless failures report saved-session recovery instructions on stderr.
+  JSON retains partial output and the original error; plain stdout stays empty
+  on failure. Completed tool actions are not rolled back.
+- Job recovery shows full IDs, distinguishes abandoned work from queued jobs
+  cancelled before starting, and prevents concurrent duplicate resubmissions.
+  MCP recovery explains logs, manual reconnection, and configuration reload.
+
+The remaining priority issues are per-model cost accounting, backend read
+bounds/SFTP cancellation repros, and broader offline provider replay fixtures.
+Use a new session when switching models if cost attribution matters. See
+[BACKLOG.md](BACKLOG.md); these items were not fixed by the usability pass.
+
+Historical audit baseline: `main` and `origin/main` began at `d646094` (`Merge
 fix/help-lists-commands: help names what dispatch runs`), version
 `v0.5.1-127-gd646094`. This handoff also describes the integrated headless-run
 and shared-runtime work after that baseline; use the current log for its final
@@ -187,6 +221,10 @@ Inside Packetcode:
 
 - [README.md](README.md): project overview, installation, daily commands, and
   the canonical documentation index.
+- [docs/development.md](docs/development.md): implementation contracts,
+  regression map, validation, and documentation upkeep.
+- [docs/maintenance.md](docs/maintenance.md): routine tests and recovery.
+- [docs/handoff.md](docs/handoff.md): dated audit status and open trust decisions.
 - [docs/manual.md](docs/manual.md): progressive everyday user manual.
 - [docs/advanced-guide.md](docs/advanced-guide.md): architecture, permissions,
   agent orchestration, context, MCP, statusline, security, and advanced
@@ -285,7 +323,7 @@ machine-specific Codex/Packetcode state.
 - Backslash-Enter works in every input state. Ctrl+J inserts a newline while
   completion is closed and moves the completion selection while its popup is
   open; `Alt+Enter` also works when Alt is reported distinctly.
-- Esc dismisses ordinary overlays, but in an approval prompt it means **No**
+- Esc dismisses ordinary overlays, but in an approval prompt it means **Reject this request**
   and rejects the action.
 - Finalized chat output is in terminal-native scrollback. Use the terminal or
   tmux scroll controls; `/transcript` opens saved session content.
@@ -297,13 +335,14 @@ machine-specific Codex/Packetcode state.
 
 ## Verification Baseline
 
-Run these before merging behavior changes:
+Run these sequentially before merging behavior changes:
 
 ```powershell
 go mod verify
-go test ./...
 go vet ./...
+go test ./...
 go test -race -count=1 ./...
+golangci-lint run ./...
 ```
 
 For TUI changes:
@@ -338,18 +377,21 @@ For documentation changes, check:
 The authoritative queue is [BACKLOG.md](BACKLOG.md). The highest-leverage next
 steps are:
 
-1. Add broader end-to-end smoke coverage for first-run setup, provider
+1. Address per-model cost accounting and reproduce backend read-bound/SFTP
+   cancellation risks from the September 8 review. Keep each fix bounded and
+   preserve compatibility with existing records.
+2. Add broader end-to-end smoke coverage for first-run setup, provider
    switching, session resume, approvals, agents, workflows, and MCP. The run
    command already has contract tests and build/CI help smoke coverage.
-2. Return to the Bubble Tea v2 migration for enhanced key reporting and
+3. Return to the Bubble Tea v2 migration for enhanced key reporting and
    synchronized output against the committed golden/protocol contract; add tall
    approval/tool fixtures and a native ConPTY evidence lane alongside it.
-3. Continue other v1 readiness work: provider catalogue freshness, opt-in live
+4. Continue other v1 readiness work: provider catalogue freshness, opt-in live
    contract tests, and bounded model-facing output storage.
-4. If Streamable HTTP MCP is selected, implement it only against
+5. If Streamable HTTP MCP is selected, implement it only against
    `packetcode-mcp-http-trust-v1`; independently, add workflow pipeline stages,
    safe worktree apply/cleanup assistance, and transcript search/jump-to-latest.
-5. Continue the PacketADE/BridgeCode ledger from
+6. Continue the PacketADE/BridgeCode ledger from
    [docs/bridgecode-feature-truth-2026-07-27.md](docs/bridgecode-feature-truth-2026-07-27.md)
    and
    [docs/bridgecode-plus-hardening-loop-2026-07-27.md](docs/bridgecode-plus-hardening-loop-2026-07-27.md).
@@ -371,7 +413,7 @@ tests and a short changelog entry.
 8. Run the verification baseline before publishing.
 ```
 
-This reconciliation started from `main`/`origin/main` at `d646094` and includes
-the integrated shared-runtime/headless-run work that followed. Check the current
+The earlier reconciliation started at `d646094`; the latest behavior baseline
+is recorded at the top of this file. Check the current
 branch, log, and working tree for the published tip before resuming; do not
 discard unrelated or parallel edits to make the checkout look clean.

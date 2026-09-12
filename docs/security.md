@@ -22,11 +22,17 @@ session rules added before or during Bypass; `/permissions reset`, not
 
 ## Approval Menu
 
-1. Yes
-2. Yes, and do not ask again
-3. No
+1. Allow once
+2. Allow exact command this session (shell), or allow this tool this session
+3. Reject this request
 
-Option 2 installs a session rule. For `execute_command`, packetcode remembers the exact command string rather than inferring a broad command family. Other tools are remembered by tool name. Inspect session policy with `/permissions`; use `/permissions reset` to revoke all session rules and restore the startup policy.
+Option 2 installs a session rule. For `execute_command`, it matches exact
+command text in any working directory. For other tools it covers all arguments
+and paths for that tool name. Running background jobs keep their existing
+policy, and explicit denies remain effective. Inspect session policy with
+`/permissions`; use `/permissions reset` to revoke all session rules and restore
+the startup policy. The display escapes decoded control characters without
+changing the arguments being approved.
 
 ## Rules
 

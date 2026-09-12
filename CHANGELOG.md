@@ -48,6 +48,10 @@ All notable packetcode changes are recorded here. The project is pre-1.0; `Unrel
 
 ### Changed
 
+- Developer guidance, README, handoffs, and focused references now describe
+  paused-queue recovery, session-scoped approvals, guarded job resubmission,
+  and manual MCP/headless recovery. Historical audit advice is labelled
+  separately from current maintenance work.
 - `allowed-tools` narrowed to particular commands is now honoured for the
   shell tool instead of refused. `Bash(gh:*)` becomes a command-prefix rule on
   `execute_command` and `execute_command(git status)` an exact-command rule, so

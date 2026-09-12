@@ -1,5 +1,25 @@
 # Audit handoff
 
+## September 11 usability and developer update
+
+The behavior baseline is `7f7ecb3`, with
+[all 16 CI jobs passing](https://github.com/packetloss404/packetcode/actions/runs/34664539030).
+Failures now pause queued prompts for explicit `/queue resume`; cancellation
+and loop stops cannot restart discarded work. Approval choices explain their
+session scope, and job/MCP/headless recovery gives usable next steps without
+automatically repeating actions. Concurrent job resubmission is guarded.
+
+Start new work from [the developer guide](development.md) and
+[maintenance guide](maintenance.md). [The root handoff](../HANDOFF.md) records
+the current architecture and verification baseline. The user manuals and
+[README](../README.md) describe the shipped controls.
+
+Still open: mixed-model cost estimates, backend file-read bounds and SFTP
+cancellation repros, provider replay fixtures, and the trust decisions retained
+below. These are tracked in [the backlog](../BACKLOG.md). The older proposed
+Go upgrades, smoke wiring, and approval-metadata corrections are already done;
+do not apply their historical patches.
+
 ## September 8 maintenance update
 
 The September 5 narrative below is historical. Its advice to upgrade the Go
