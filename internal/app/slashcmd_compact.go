@@ -99,23 +99,29 @@ func (a *App) handleCompactDone(msg compactDoneMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if msg.err != nil {
+		a.skipAutoCompactOnce = false
 		if isCancellation(msg.err) {
 			a.conversation.AppendSystem("compact cancelled")
 		} else {
 			a.conversation.AppendSystem("compact: " + msg.err.Error())
 		}
-		return a.startNextQueuedInput()
+		a.pauseQueuedInputs()
+		return a, nil
 	}
 
 	cur := a.deps.Sessions.Current()
 	if cur == nil || cur.ID != msg.sessionID {
 		a.conversation.AppendSystem("compact: session changed before save; discarded result")
-		return a.startNextQueuedInput()
+		a.skipAutoCompactOnce = false
+		a.pauseQueuedInputs()
+		return a, nil
 	}
 
 	if saveErr := a.deps.Sessions.ReplaceMessagesAfterCompaction(msg.after); saveErr != nil {
 		a.conversation.AppendSystem("compact: save failed: " + saveErr.Error())
-		return a.startNextQueuedInput()
+		a.skipAutoCompactOnce = false
+		a.pauseQueuedInputs()
+		return a, nil
 	}
 	if msg.usage != nil {
 		if usageErr := a.deps.Sessions.UpdateUsage(*msg.usage, msg.inputRate, msg.outputRate); usageErr != nil {

@@ -198,11 +198,11 @@ func parseQueueArgs(args []string) (sub string, index int, err error) {
 		return "", 0, nil
 	}
 	switch args[0] {
-	case "clear":
+	case "clear", "resume":
 		if len(args) > 1 {
 			return "", 0, fmt.Errorf("unexpected argument %q", args[1])
 		}
-		return "clear", 0, nil
+		return args[0], 0, nil
 	case "drop":
 		if len(args) < 2 {
 			return "", 0, fmt.Errorf("drop: missing queue index")
@@ -216,7 +216,7 @@ func parseQueueArgs(args []string) (sub string, index int, err error) {
 		}
 		return "drop", n, nil
 	default:
-		return "", 0, fmt.Errorf("unknown subcommand %q (want \"clear\" or \"drop\")", args[0])
+		return "", 0, fmt.Errorf("unknown subcommand %q (want \"clear\", \"drop\", or \"resume\")", args[0])
 	}
 }
 

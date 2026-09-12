@@ -139,7 +139,13 @@ func (a *App) runLoopBody(ls *loopState) tea.Cmd {
 	// A /command body: dispatch it directly (doesn't invoke the agent loop,
 	// so self-paced re-running is driven here, not by agentDoneMsg).
 	if cmd, cargs, ok := a.slashRegistry().Parse(body); ok {
+		before := len(a.queuedInputs)
 		_, teacmd := a.handleSlashCommand(cmd, cargs, body)
+		for i := before; i < len(a.queuedInputs); i++ {
+			if a.queuedInputs[i].SourceLoopID == "" {
+				a.queuedInputs[i].SourceLoopID = ls.id
+			}
+		}
 		return teacmd
 	}
 
@@ -148,7 +154,7 @@ func (a *App) runLoopBody(ls *loopState) tea.Cmd {
 	// no loop ownership, and it did not carry the iteration instruction that
 	// tells the model how to declare the work finished. The loop then sat in
 	// /loop list forever, doing nothing.
-	opt := turnOptions{text: body, emitUser: true}
+	opt := turnOptions{text: body, emitUser: true, sourceLoopID: ls.id}
 	if ls.mode == loopSelfPaced {
 		opt.loopID = ls.id
 		opt.text = body + "\n\n[Loop iteration " + fmt.Sprint(ls.iterations) + ". If the task is complete and no further iterations are needed, end your reply with " + loopDecisionOpen + `{"version":1,"decision":"stop","reason":"brief reason"}` + loopDecisionClose + ". The legacy " + loopDoneSentinel + " sentinel is also accepted.]"
@@ -259,6 +265,7 @@ func (a *App) stopLoop(args []string) (tea.Model, tea.Cmd) {
 		}
 		a.loops = map[string]*loopState{}
 		a.activeLoopID = ""
+		a.removeQueuedLoopTurns("")
 		a.conversation.AppendSystem(fmt.Sprintf("stopped %d loop(s)", n))
 		return a, nil
 	}
@@ -269,11 +276,33 @@ func (a *App) stopLoop(args []string) (tea.Model, tea.Cmd) {
 	}
 	ls.stopped = true
 	delete(a.loops, target)
+	a.removeQueuedLoopTurns(target)
 	if a.activeLoopID == target {
 		a.activeLoopID = ""
 	}
 	a.conversation.AppendSystem("stopped loop " + target)
 	return a, nil
+}
+
+// Stop must remove an iteration already queued behind unrelated work, too.
+func (a *App) removeQueuedLoopTurns(id string) {
+	kept := a.queuedInputs[:0]
+	for _, q := range a.queuedInputs {
+		owner := q.SourceLoopID
+		if owner == "" {
+			owner = q.LoopID
+		}
+		if owner != "" && (id == "" || owner == id) {
+			continue
+		}
+		kept = append(kept, q)
+	}
+	clear(a.queuedInputs[len(kept):])
+	a.queuedInputs = kept
+	if len(kept) == 0 {
+		a.queuePaused = false
+	}
+	a.refreshTopBar()
 }
 
 func (a *App) renderLoops() string {

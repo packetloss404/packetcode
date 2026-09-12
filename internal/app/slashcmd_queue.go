@@ -17,6 +17,19 @@ func (a *App) handleQueueCommand(args []string) (tea.Model, tea.Cmd) {
 	switch sub {
 	case "":
 		a.conversation.AppendSystem(a.renderQueue())
+	case "resume":
+		if len(a.queuedInputs) == 0 {
+			a.queuePaused = false
+			a.conversation.AppendSystem("queue: no queued prompts")
+			return a, nil
+		}
+		if a.streaming {
+			a.conversation.AppendSystem("queue: wait for the current turn to finish, then use /queue resume")
+			return a, nil
+		}
+		a.queuePaused = false
+		a.conversation.AppendSystem("resuming queued prompts")
+		return a.startNextQueuedInput()
 	case "clear":
 		if a.clearQueuedInputs() == 0 {
 			a.conversation.AppendSystem("queue: no queued prompts")
@@ -29,6 +42,9 @@ func (a *App) handleQueueCommand(args []string) (tea.Model, tea.Cmd) {
 		dropped := a.queuedInputs[index-1]
 		copy(a.queuedInputs[index-1:], a.queuedInputs[index:])
 		a.queuedInputs = a.queuedInputs[:len(a.queuedInputs)-1]
+		if len(a.queuedInputs) == 0 {
+			a.queuePaused = false
+		}
 		a.refreshTopBar()
 		a.conversation.AppendSystem(fmt.Sprintf("dropped queued prompt %d: %s", index, truncOneLine(dropped.Label(), 80)))
 	}
@@ -41,6 +57,9 @@ func (a *App) renderQueue() string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "queued prompts (%d)\n", len(a.queuedInputs))
+	if a.queuePaused {
+		b.WriteString("paused after a failed turn; /queue resume to continue, /queue clear to discard\n")
+	}
 	now := time.Now()
 	limit := len(a.queuedInputs)
 	if limit > 20 {
@@ -54,6 +73,15 @@ func (a *App) renderQueue() string {
 		fmt.Fprintf(&b, "... %d more\n", len(a.queuedInputs)-limit)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func (a *App) pauseQueuedInputs() {
+	if len(a.queuedInputs) == 0 || a.queuePaused {
+		return
+	}
+	a.queuePaused = true
+	a.conversation.AppendSystem(fmt.Sprintf("paused %d queued %s after the turn stopped; /queue to review, /queue resume to continue, /queue clear to discard", len(a.queuedInputs), plural(len(a.queuedInputs), "prompt", "prompts")))
+	a.refreshTopBar()
 }
 
 // truncOneLine collapses s to a single space-separated line and clips it to

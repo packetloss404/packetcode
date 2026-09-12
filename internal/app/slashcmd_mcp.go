@@ -70,8 +70,13 @@ func (a *App) handleMCPCommand(args []string) (tea.Model, tea.Cmd) {
 		a.conversation.AppendSystem(out)
 		return a, nil
 	case "restart":
-		if !mcpReportExists(a.mcp.Reports(), name) {
+		report, exists := findMCPReport(a.mcp.Reports(), name)
+		if !exists {
 			a.conversation.AppendSystem(fmt.Sprintf("mcp restart: no server named %s", name))
+			return a, nil
+		}
+		if report.Status == "disabled" {
+			a.conversation.AppendSystem(mcpRecoveryHint(name, report.Status))
 			return a, nil
 		}
 		a.conversation.AppendSystem(fmt.Sprintf("mcp restart: reconnecting %s…", name))
@@ -163,7 +168,7 @@ func renderMCPTable(reports []mcp.StartupReport, clients []*mcp.Client) string {
 		command := commandForReport(r)
 
 		fmt.Fprintf(&b, "%s %s %s %s %s\n",
-			padRight(trunc(r.Name, 12), 12),
+			padRight(r.Name, 12),
 			padRight(trunc(status, 10), 10),
 			padRight(tools, 6),
 			padRight(pid, 7),
@@ -222,16 +227,24 @@ func renderMCPStatus(name string, reports []mcp.StartupReport, clients []*mcp.Cl
 		fmt.Fprintf(&b, "last error: %s\n", lastErr)
 	}
 	fmt.Fprintf(&b, "logs: /mcp logs %s", name)
+	if hint := mcpRecoveryHint(name, status); hint != "" {
+		fmt.Fprintf(&b, "\n%s", hint)
+	}
 	return b.String(), true
 }
 
 func renderMCPTools(name string, reports []mcp.StartupReport, clients []*mcp.Client) (string, bool) {
-	if _, ok := findMCPReport(reports, name); !ok {
+	report, ok := findMCPReport(reports, name)
+	if !ok {
 		return "", false
 	}
 	client := findMCPClient(clients, name)
 	if client == nil || !client.IsAlive() {
-		return fmt.Sprintf("MCP tools for %s\nserver is not running", name), true
+		status := report.Status
+		if status == "running" {
+			status = "exited"
+		}
+		return fmt.Sprintf("MCP tools for %s\nserver is not running\n%s", name, mcpRecoveryHint(name, status)), true
 	}
 	serverTools := client.Tools()
 	if len(serverTools) == 0 {
@@ -247,6 +260,29 @@ func renderMCPTools(name string, reports []mcp.StartupReport, clients []*mcp.Cli
 		fmt.Fprintf(&b, "- %s — %s\n", mcp.ToolAlias(name, t.Name), trunc(desc, 72))
 	}
 	return strings.TrimRight(b.String(), "\n"), true
+}
+
+func mcpRecoveryHint(name, status string) string {
+	switch status {
+	case "disabled":
+		path, err := config.ConfigPath()
+		if err != nil {
+			path = "your PacketCode config.toml"
+		}
+		return fmt.Sprintf("MCP server %s is disabled. Set enabled = true under [mcp.%s] in %s, then restart PacketCode to load the change.", name, name, path)
+	case "failed", "exited":
+		return fmt.Sprintf("Inspect /mcp logs %s, then use /mcp restart %s to reconnect after fixing the problem. Configuration changes require restarting PacketCode. Reconnecting does not rerun a failed tool call.", name, name)
+	default:
+		return ""
+	}
+}
+
+func formatMCPRestartError(name string, report mcp.StartupReport, err error) string {
+	message := "mcp restart: " + err.Error()
+	if hint := mcpRecoveryHint(name, report.Status); hint != "" {
+		message += "\n" + hint
+	}
+	return message
 }
 
 func findMCPReport(reports []mcp.StartupReport, name string) (mcp.StartupReport, bool) {

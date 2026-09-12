@@ -50,6 +50,11 @@ The default invocation opens the TUI; `run`, `doctor`, `skills`, `acp`, and
 prompt from stdin. Approval requests fail closed with exit 3; cancellation exits
 130. Plain stdout contains only the final response, while JSON returns one
 versioned object with identity, output, elapsed time, usage, and any error.
+If a run fails after creating a session, stderr shows its ID and how to open
+saved history with `packetcode --resume ID` from the same directory. Review
+completed actions before continuing: cancellation or failure does not undo
+tool actions. An approval-blocked run can be continued interactively after
+reviewing the requested action.
 
 ## Everyday Keys
 

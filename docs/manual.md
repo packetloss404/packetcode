@@ -109,6 +109,13 @@ final response only. `--json` writes one `schema_version: 1` object containing
 `ok`, session/provider/model identity, output, `elapsed_ms`, per-run
 input/output/cache usage, and `error` on failure.
 
+Failures after session creation include the session ID and an interactive
+`packetcode --resume ID` recovery command on stderr. Open it from the same
+directory to review saved history before continuing. Completed tool actions
+are not rolled back, and recovery does not automatically repeat the prompt.
+Approval-blocked runs need an interactive decision; changing to a broader
+permission mode is not required to inspect the saved session.
+
 ## 2. Your First Conversation
 
 Type a request at the bottom prompt and press `Enter`:
@@ -148,7 +155,7 @@ Completed turns move into your terminal's normal scrollback. The small live area
 | `Ctrl+C` | Cancel active work, clear a draft, or quit from an empty prompt. |
 | `Ctrl+D` | Quit from an empty prompt. |
 | `Ctrl+L` | Clear visible output while keeping the saved session. |
-| `Esc` | Close the current popup, picker, or transcript; in an approval prompt it selects **No**. |
+| `Esc` | Close the current popup, picker, or transcript; in an approval prompt it selects **Reject this request**. |
 
 The input grows to multiple rows as needed. Its default maximum height is 10 rows and is configurable with `max_input_rows`.
 
@@ -194,10 +201,14 @@ Submitting a prompt during an active turn or compaction queues it instead of int
 ```text
 /queue
 /queue drop 2
+/queue resume
 /queue clear
 ```
 
 Queued prompts run in order. `/queue` displays up to the first 20 with one-based indexes.
+If a turn or compaction fails, pending prompts pause for review. New prompts
+join the paused queue. Use `/queue resume` when idle to continue, `/queue drop N`
+to remove an entry, or `/queue clear` to discard pending work and start fresh.
 
 ## 3. Permission Modes and Approvals
 
@@ -233,11 +244,15 @@ and preserves session rules added before or during Bypass. An explicit
 
 When packetcode asks before a tool action, choose:
 
-1. Yes
-2. Yes, and do not ask again for this session
-3. No
+1. Allow once
+2. Allow exact command this session (shell), or allow this tool this session
+3. Reject this request
 
-Arrow keys and `Enter` work, as do `1`/`2`/`3` and the legacy `Y`/`A`/`N` shortcuts. Remembered shell approval applies to the exact command; other remembered approvals use the tool name.
+Arrow keys and `Enter` work, as do `1`/`2`/`3` and the legacy `Y`/`A`/`N` shortcuts.
+Remembered shell approval matches exact command text in any working directory;
+other remembered approvals cover all arguments and paths for that tool.
+Running jobs keep their existing policy. Use `/permissions` to inspect rules
+or `/permissions reset` to revoke all session rules. Explicit denies still apply.
 
 Inspect or change the session policy with:
 
@@ -596,6 +611,8 @@ Interval loops run once immediately and then on the interval:
 ```
 
 The minimum interval is one second. Loop work is queued rather than overlapped with an active foreground turn.
+Stopping a loop also removes its queued iterations. Interval ticks skip while
+the foreground queue is paused, and Ctrl+C stops self-paced continuation.
 
 Manage loops with:
 
@@ -892,7 +909,7 @@ Before destructive or broad work, a safe rhythm is:
 | `/computers ssh <name> <user@host> <root> --fingerprint <SHA256:...>` | Register a pinned SSH computer. |
 | `/workflows [run [--computer name] <name>\|validate <name>\|list\|stop [id\|all]\|<id>]` | Validate, run, or inspect local or remote workflows. |
 | `/loop [interval] <prompt\|/command>` | Repeat work; use `list` or `stop [id\|all]`. |
-| `/queue [drop <n>\|clear]` | Inspect or manage queued foreground prompts. |
+| `/queue [drop <n>\|resume\|clear]` | Inspect, resume, or clear queued foreground prompts. |
 | `/sessions` | List sessions. |
 | `/sessions resume <id>` | Resume by full ID or unique prefix. |
 | `/sessions rename <name>` | Rename the current session. |
