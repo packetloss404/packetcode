@@ -6,6 +6,19 @@ All notable packetcode changes are recorded here. The project is pre-1.0; `Unrel
 
 ### Fixed
 
+- Failed foreground turns and compaction pause pending prompts for explicit
+  `/queue resume`. Ctrl+C cannot restart a loop from buffered success, and
+  stopping a loop removes its queued iterations.
+- Approval prompts explain exact-command or whole-tool scope for the current
+  session, how to revoke rules, and which shell will run. Decoded command/path
+  text cannot inject terminal controls into the approval display.
+- Failed headless runs include saved-session recovery guidance; displayed
+  errors and MCP startup reports strip terminal control sequences.
+- Job recovery uses complete IDs and actionable errors. Concurrent resubmit
+  requests cannot launch duplicate successors, and recovery descriptions
+  distinguish abandoned work from jobs cancelled before they started.
+- Stopped or disabled MCP servers show state-specific recovery instructions;
+  reconnection never claims to repeat the failed tool call.
 - Skill grants apply when their foreground turn starts, survive session-policy
   changes without losing user decisions, and cannot leak from queued or
   background skill loads. Trust toggles and permission resets no longer restore

@@ -212,9 +212,9 @@ func TestView_HeaderAndActionsPresent(t *testing.T) {
 	tool := tools.NewWriteFileTool(root, nil)
 	out := showFor(t, tool, `{"path":"x.txt","content":"y"}`)
 	assert.Contains(t, out, "Write file")
-	assert.Contains(t, out, "❯ 1. Yes")
-	assert.Contains(t, out, "3. No")
-	assert.Contains(t, out, "Do you want to proceed?")
+	assert.Contains(t, out, "❯ 1. Allow once")
+	assert.Contains(t, out, "3. Reject this request")
+	assert.Contains(t, out, "Allow this request?")
 }
 
 func TestApprovalArrowSelectionAndEnter(t *testing.T) {

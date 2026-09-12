@@ -27,7 +27,7 @@ func (a *App) rememberApproval(call provider.ToolCall) {
 				a.preTrustPolicy = nil
 			}
 			a.setSessionPermissionPolicy(base.WithCommandRule(command, permissions.DecisionAllow))
-			a.conversation.AppendSystem("won't ask again for this exact command this session (/permissions to review; /permissions reset to revoke)")
+			a.conversation.AppendSystem("Added a session rule for this exact command text, in any working directory. Review with /permissions; revoke all session rules with /permissions reset.")
 		}
 		return
 	}
@@ -37,7 +37,7 @@ func (a *App) rememberApproval(call provider.ToolCall) {
 		a.preTrustPolicy = nil
 	}
 	a.setSessionPermissionPolicy(base.WithRule(call.Name, permissions.DecisionAllow))
-	a.conversation.AppendSystem("won't ask again for " + call.Name + " this session (/permissions to review; /permissions reset to revoke)")
+	a.conversation.AppendSystem("Added a session rule for " + call.Name + " with any arguments or paths. Review with /permissions; revoke all session rules with /permissions reset.")
 }
 
 func commandFromArgs(args string) (string, bool) {

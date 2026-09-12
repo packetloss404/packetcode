@@ -56,6 +56,19 @@ func (m *Manager) Resubmit(id string) (Snapshot, *SpawnError) {
 			Reason: fmt.Sprintf("job %s is still %s", id, old.State),
 		}
 	}
+	if m.resubmitting[id] {
+		m.mu.Unlock()
+		return Snapshot{}, &SpawnError{Code: "resubmit_in_progress", Reason: fmt.Sprintf("job %s is already being resubmitted; wait for that request to finish", id)}
+	}
+	if m.resubmitting == nil {
+		m.resubmitting = make(map[string]bool)
+	}
+	m.resubmitting[id] = true
+	defer func() {
+		m.mu.Lock()
+		delete(m.resubmitting, id)
+		m.mu.Unlock()
+	}()
 
 	req := SpawnRequest{
 		Prompt:      old.Prompt,
@@ -65,6 +78,7 @@ func (m *Manager) Resubmit(id string) (Snapshot, *SpawnError) {
 		ParentJobID: old.ParentJobID,
 	}
 	originalWorkspace := workspaceOfJob(old, m.cfg.Root)
+	savedWorkingDir := old.WorkingDir
 	if old.ComputerID != "" {
 		// Resolve by stable id, not display name. The resolver must compare the
 		// current endpoint/root identity before a new run is allowed.
@@ -110,12 +124,12 @@ func (m *Manager) Resubmit(id string) (Snapshot, *SpawnError) {
 		// Jobs created after workspace binding shipped carry a local root.
 		// Preserve it exactly; only legacy records with no root retain the
 		// historical current-local-root behavior.
-		if old.WorkingDir != "" && current.WorkingDir != old.WorkingDir {
+		if savedWorkingDir != "" && current.WorkingDir != savedWorkingDir {
 			return Snapshot{}, &SpawnError{
 				Code: "workspace_identity_mismatch",
 				Reason: fmt.Sprintf(
 					"job %s was bound to local root %s, not %s",
-					id, old.WorkingDir, current.WorkingDir,
+					id, savedWorkingDir, current.WorkingDir,
 				),
 			}
 		}
@@ -177,7 +191,7 @@ func (m *Manager) RecoveredResubmittable() []Snapshot {
 	defer m.mu.RUnlock()
 	var out []Snapshot
 	for _, j := range m.jobs {
-		if j.Recovered && j.ResubmittedAs == "" && j.Prompt != "" {
+		if j.Recovered && j.ResubmittedAs == "" && j.Prompt != "" && len(j.Prompt) <= MaxResubmitPromptBytes {
 			out = append(out, snapshotOf(j))
 		}
 	}

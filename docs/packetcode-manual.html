@@ -470,6 +470,7 @@ packetcode acp
 packetcode sugar login</code></pre>
         <p><code>--provider</code> and <code>--model</code> override the saved default for one launch. <code>--resume</code> opens a saved session. <code>--trust</code> starts in Bypass Permissions mode.</p>
         <h3 id="headless-run">Headless execution</h3>
+        <p>A failed run reports its session ID and an interactive resume command when a session exists. Open saved history from the same directory before continuing. Completed tool actions are not rolled back, and opening a session does not repeat the failed prompt.</p>
         <pre><code>packetcode run [--provider NAME] [--model MODEL] [--permission-mode MODE] [--resume ID] [--json] &lt;prompt...&gt;</code></pre>
         <p><code>run</code> executes one non-interactive agent turn through the provider, session, tool, policy, MCP, and compatibility runtime shared with the TUI and ACP server. The prompt is positional; stdin, <code>--trust</code>, <code>--computer</code>, and ephemeral-session modes are intentionally absent. An unavailable approval fails closed with exit 3; cancellation exits 130. Plain stdout contains only the sanitized final response. JSON is one <code>schema_version: 1</code> object with <code>ok</code>, session/provider/model identity, output, total elapsed milliseconds, per-run input/output/cache usage, and an error on failure.</p>
       </section>
@@ -497,7 +498,7 @@ packetcode sugar login</code></pre>
               <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd></td><td>Cancel active work, clear a draft, or quit from an empty prompt.</td></tr>
               <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Quit from an empty prompt.</td></tr>
               <tr><td><kbd>Ctrl</kbd>+<kbd>L</kbd></td><td>Clear visible output while keeping the saved session.</td></tr>
-              <tr><td><kbd>Esc</kbd></td><td>Close the current popup, picker, or transcript view; in an approval it chooses No and rejects the action.</td></tr>
+              <tr><td><kbd>Esc</kbd></td><td>Close the current popup, picker, or transcript view; in an approval it selects Reject this request.</td></tr>
             </tbody>
           </table>
         </div>
@@ -515,7 +516,9 @@ packetcode sugar login</code></pre>
         <p>Submitting during an active foreground turn or compaction queues the prompt instead of interrupting it:</p>
         <pre><code>/queue
 /queue drop 2
+/queue resume
 /queue clear</code></pre>
+        <p>A failed turn or compaction pauses pending prompts. New prompts join the paused queue. Review it, then use <code>/queue resume</code> while idle, drop individual entries, or clear the queue to start fresh.</p>
         <p>Queued prompts run in order. The listing shows up to the first 20 with one-based indexes.</p>
       </section>
 
@@ -619,7 +622,7 @@ supports_tools = true</code></pre>
 /plan off
 /trust on
 /trust off</code></pre>
-        <p>Session policy commands do not rewrite the saved configuration. The approval menu offers Yes, Yes and remember, and No. A remembered shell approval matches the exact command string; other remembered approvals use the tool name. <code>/permissions reset</code> revokes session rules, exits temporary Plan or Bypass state, and restores the startup policy.</p>
+        <p>Session policy commands do not rewrite the saved configuration. The approval menu offers Allow once, Allow exact command this session (or Allow this tool this session), and Reject this request. A remembered shell approval matches exact command text in any working directory; other remembered approvals cover all arguments and paths for that tool. Running jobs keep their existing policy, and explicit denies still apply. <code>/permissions reset</code> revokes session rules, exits temporary Plan or Bypass state, and restores the startup policy.</p>
 
         <h3 id="permission-rules">Persistent policy rules</h3>
         <pre><code>[permissions]
@@ -787,7 +790,7 @@ max = 2</code></pre>
 /loop list
 /loop stop &lt;loop-id&gt;
 /loop stop all</code></pre>
-        <p>Self-paced loops ask the model for a versioned <code>packetcode-loop-decision</code> JSON block, retain <code>LOOP_DONE</code> for compatibility, and stop after 25 iterations regardless. Interval loops run immediately and then on the interval (minimum one second). A tick during active foreground work queues rather than overlaps.</p>
+        <p>Self-paced loops ask the model for a versioned <code>packetcode-loop-decision</code> JSON block, retain <code>LOOP_DONE</code> for compatibility, and stop after 25 iterations regardless. Interval loops run immediately and then on the interval (minimum one second). Ticks skip while foreground work is active or the prompt queue is paused. Stopping a loop removes its queued iterations; Ctrl+C stops self-paced continuation.</p>
         <p>That scheduler ceiling is separate from the shared no-progress detector: foreground, background, and ACP runs stop earlier when the same tool executes repeatedly with identical arguments and identical results. The diagnostic names the call; changing output counts as progress.</p>
         <div class="callout limit">
           <span class="callout-title">Current orchestration limits</span>
@@ -1100,7 +1103,7 @@ packetcode run --permission-mode read-only --json "summarize this repository"</c
               <tr><td>Computers</td><td><code>/computers</code>, <code>/computers ssh ...</code>, <code>packetcode --computer production</code></td></tr>
               <tr><td>Workflow</td><td><code>/workflows validate &lt;name&gt;</code>, <code>/workflows run --computer production review</code>, <code>/workflows list</code>, <code>/workflows stop all</code></td></tr>
               <tr><td>Repeat work</td><td><code>/loop Continue until complete</code>, <code>/loop 10m /workflows run review</code>, <code>/loop list</code>, <code>/loop stop all</code></td></tr>
-              <tr><td>Pending prompts</td><td><code>/queue</code>, <code>/queue drop &lt;n&gt;</code>, <code>/queue clear</code></td></tr>
+              <tr><td>Pending prompts</td><td><code>/queue</code>, <code>/queue drop &lt;n&gt;</code>, <code>/queue resume</code>, <code>/queue clear</code></td></tr>
               <tr><td>Sessions/context</td><td><code>/sessions</code>, <code>/sessions resume &lt;id&gt;</code>, <code>/sessions rename &lt;name&gt;</code>, <code>/compact --keep 10</code></td></tr>
               <tr><td>Usage/recovery</td><td><code>/cost</code>, <code>/cost reset --yes</code>, <code>/undo</code>, <code>/transcript</code></td></tr>
               <tr><td>Ollama</td><td><code>/ollama status</code>, <code>/ollama models</code>, <code>/ollama ps</code>, <code>/ollama pull &lt;model&gt;</code></td></tr>
@@ -1124,7 +1127,7 @@ packetcode run --permission-mode read-only --json "summarize this repository"</c
               <tr><td><code>/computers [status &lt;name&gt;|ssh ...|remove ...]</code></td><td>Manage Packet Computers; use <code>packetcode --computer &lt;name&gt;</code> for a foreground SSH workspace.</td></tr>
               <tr><td><code>/workflows [run [--computer name] &lt;name&gt;|validate &lt;name&gt;|list|stop [id|all]|&lt;id&gt;]</code></td><td>Validate, run, or inspect local or remote workflows.</td></tr>
               <tr><td><code>/loop [interval] &lt;prompt|/command&gt;</code></td><td>Repeat work; use <code>list</code> or <code>stop</code>.</td></tr>
-              <tr><td><code>/queue [drop &lt;n&gt;|clear]</code></td><td>Manage queued foreground prompts.</td></tr>
+              <tr><td><code>/queue [drop &lt;n&gt;|resume|clear]</code></td><td>Inspect, resume, or clear queued foreground prompts.</td></tr>
               <tr><td><code>/sessions</code>, <code>resume</code>, <code>rename</code>, <code>delete &lt;id&gt; --yes</code></td><td>Manage saved sessions.</td></tr>
               <tr><td><code>/compact [--keep N]</code>, <code>/cost [reset [--yes]]</code>, <code>/undo</code></td><td>Manage context, usage, and latest native backup.</td></tr>
               <tr><td><code>/plan [on|off]</code>, <code>/permissions ...</code>, <code>/trust [on|off]</code></td><td>Control session policy.</td></tr>

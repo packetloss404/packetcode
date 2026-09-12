@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/packetcode/packetcode/internal/agent"
 	"github.com/packetcode/packetcode/internal/config"
 	"github.com/packetcode/packetcode/internal/git"
@@ -111,7 +113,7 @@ func runRunCommand(args []string, stdout, stderr io.Writer) int {
 	result.OK = err == nil
 	if err != nil {
 		result.Error = err.Error()
-		fmt.Fprintf(stderr, "packetcode run: %v\n", err)
+		writeRunFailure(stderr, result, err)
 	}
 
 	if opts.JSON {
@@ -135,6 +137,26 @@ func runRunCommand(args []string, stdout, stderr io.Writer) int {
 		return runExitApprovalUnavailable
 	default:
 		return runExitError
+	}
+}
+
+// Keep the machine-readable error intact, but never send provider-controlled
+// escape sequences to the user's terminal. Recovery opens saved history;
+// it does not silently repeat a prompt or any tool actions.
+func writeRunFailure(w io.Writer, result runResult, err error) {
+	fmt.Fprintf(w, "packetcode run: %s\n", terminaltext.Clean(err.Error()))
+	if errors.Is(err, errRunApprovalUnavailable) {
+		fmt.Fprintln(w, "packetcode run: open an interactive session to review and approve the requested action.")
+	}
+	if result.SessionID != "" {
+		resumeID := "ID"
+		// Newly created sessions use UUIDs. Keep legacy/custom IDs as quoted
+		// data rather than interpolating shell syntax into a suggested command.
+		if id, parseErr := uuid.Parse(result.SessionID); parseErr == nil && id.String() == result.SessionID {
+			resumeID = result.SessionID
+		}
+		fmt.Fprintf(w, "packetcode run: session ID %q. Use packetcode --resume %s from this directory to review saved history before continuing.\n", result.SessionID, resumeID)
+		fmt.Fprintln(w, "packetcode run: completed tool actions may still be present; the failed run did not roll them back.")
 	}
 }
 
@@ -232,7 +254,7 @@ func executeRunWithRuntime(ctx context.Context, opts runCommandOptions, stderr i
 		// has to be killed used to turn that into exit 1 with the answer
 		// withheld from stdout.
 		if closeErr := runtime.Close(); closeErr != nil {
-			fmt.Fprintf(stderr, "packetcode run: close runtime: %v\n", closeErr)
+			fmt.Fprintf(stderr, "packetcode run: close runtime: %s\n", terminaltext.Clean(closeErr.Error()))
 		}
 	}()
 	writeRunMCPReports(stderr, runtime.MCPReports)
@@ -258,9 +280,9 @@ func writeRunMCPReports(w io.Writer, reports []mcp.StartupReport) {
 	for _, report := range reports {
 		switch report.Status {
 		case "running":
-			fmt.Fprintf(w, "packetcode run: mcp %s: %d tools, pid %d\n", report.Name, report.ToolCount, report.PID)
+			fmt.Fprintf(w, "packetcode run: mcp %s: %d tools, pid %d\n", terminaltext.Clean(report.Name), report.ToolCount, report.PID)
 		default:
-			fmt.Fprintf(w, "packetcode run: mcp %s: %s — %s\n", report.Name, report.Status, report.Err)
+			fmt.Fprintf(w, "packetcode run: mcp %s: %s — %s\n", terminaltext.Clean(report.Name), terminaltext.Clean(report.Status), terminaltext.Clean(report.Err))
 		}
 	}
 }

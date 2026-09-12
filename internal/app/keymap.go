@@ -79,6 +79,7 @@ var (
 		{"/sessions rename <name>", "Rename the current session"},
 		{"/sessions delete <id> --yes", "Delete a saved session"},
 		{"/queue", "List queued foreground prompts"},
+		{"/queue resume", "Resume prompts paused after a failed turn"},
 		{"/queue clear", "Clear queued foreground prompts"},
 		{"/queue drop <n>", "Drop one queued prompt"},
 		{"/undo", "Undo the most recent file change"},

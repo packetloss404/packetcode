@@ -98,6 +98,10 @@ plain stdout contains only the sanitized final response. JSON is one
 `schema_version: 1` document with outcome, session/provider/model identity,
 output, total elapsed milliseconds, per-run input/output/cache usage, and an
 error on failure. Use `--help` for the exact command-local flags.
+When a session exists, failure diagnostics include its ID and an interactive
+resume command. Review saved history from the same working directory before
+continuing, since completed actions are not rolled back. Plain stdout remains
+empty on failure; JSON may contain incomplete output with `ok: false`.
 
 The foreground and ACP registries include root-scoped file/search/code-
 intelligence tools, `execute_command`, a bounded HTTP(S) `fetch`, per-session
@@ -601,7 +605,10 @@ The input is a bounded multiline editor. `max_input_rows` controls its displayed
 | `Ctrl+D` | Quit from an empty prompt. |
 | `Ctrl+L` or `/clear` | Clear visible output without deleting the session. |
 
-Prompt submission during a foreground turn or compaction queues the text. Manage it with `/queue`, `/queue drop <n>`, and `/queue clear`.
+Prompt submission during a foreground turn or compaction queues the text. Manage
+it with `/queue`, `/queue drop <n>`, `/queue resume`, and `/queue clear`. A failed
+turn or compaction pauses pending prompts; new prompts join that paused queue.
+Review it before resuming while idle, or clear it to start fresh.
 
 Type `/` for command completion. Use `//` when the intended prompt literally begins with `/`. Type `@` at a token boundary for project-file completion. On submit, selected `@path` mentions expand into bounded, root-scoped file context; the model receives the file contents as part of that turn.
 

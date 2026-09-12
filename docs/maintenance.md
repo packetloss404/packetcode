@@ -1,6 +1,6 @@
 # Maintaining Packetcode
 
-Updated 2026-09-08. This guide favors small, verifiable changes. Larger product
+Updated 2026-09-11. This guide favors small, verifiable changes. Larger product
 work stays in [BACKLOG.md](../BACKLOG.md); the latest hardening evidence is in
 [the September 8 review](audit/hardening-2026-09-08.md).
 
@@ -72,6 +72,19 @@ macOS, or WSL PTY environment; see [the TUI harness](tui-parity-harness.md).
   Avoid automatic retry of a tool call that may already have had effects.
 
 ## Keep recovery simple
+
+- A foreground failure pauses queued prompts. Inspect `/queue`, remove unwanted
+  entries with `/queue drop N`, and use `/queue resume` while idle. New prompts
+  join the paused queue; `/queue clear` lets you start fresh.
+- A failed headless run prints its session ID and an interactive resume command
+  when a session exists. Review saved history from the same directory before
+  continuing. Completed tool actions are not automatically undone.
+- `/jobs resubmit ID` starts a new run of recovered work using its full job ID.
+  It preserves the previous record, and concurrent resubmit requests cannot
+  launch duplicate successors.
+- For a stopped MCP server, `/mcp status NAME` and `/mcp tools NAME` point to
+  logs and manual reconnection. Editing the configuration requires restarting
+  Packetcode; reconnecting does not repeat failed tool calls.
 
 Use `packetcode doctor` for configuration/state diagnosis; see
 [operational runbooks](runbooks.md) for credential and storage procedures.

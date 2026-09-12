@@ -37,7 +37,7 @@ runs exit 3; cancellation exits 130. Plain stdout is the final response only.
 | Computers | `/computers`, `/computers ssh ...`, then `packetcode --computer <name>` |
 | Workflow | `/workflows validate <name>`, `/workflows run review target="the staged diff"`, `/workflows run --computer prod review`, `/workflows list`, `/workflows stop all` |
 | Repeat work | `/loop Continue until complete`, `/loop 10m /workflows run review`, `/loop list`, `/loop stop all` |
-| Pending prompts | `/queue`, `/queue drop <n>`, `/queue clear` |
+| Pending prompts | `/queue`, `/queue drop <n>`, `/queue resume`, `/queue clear` |
 | Sessions/context | `/sessions`, `/sessions resume <id>`, `/sessions rename <name>`, `/compact --keep 10` |
 | Usage/recovery | `/cost`, `/cost reset --yes`, `/undo`, `/transcript` |
 | Ollama | `/ollama status`, `/ollama models`, `/ollama ps`, `/ollama pull <model>` |

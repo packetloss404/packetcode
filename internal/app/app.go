@@ -101,9 +101,10 @@ type queuedInput struct {
 	Authored bool
 	Attached []string
 	// LoopID is the self-paced loop that owns this turn. See turnOptions.
-	LoopID     string
-	SkillGrant *skills.Skill
-	At         time.Time
+	LoopID       string
+	SourceLoopID string // identifies interval iterations too, for removing queued work
+	SkillGrant   *skills.Skill
+	At           time.Time
 }
 
 // Label is what a human should be shown for this entry. Never Text: for a
@@ -292,6 +293,7 @@ type App struct {
 	operationLabel      string
 	operationStarted    time.Time
 	queuedInputs        []queuedInput
+	queuePaused         bool // failures retain pending prompts until /queue resume
 	skipAutoCompactOnce bool
 
 	// /loop state. loops holds active loops by id; activeLoopID names the loop
@@ -654,6 +656,9 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, cmd
 			}
 		}
+		if a.turnFailed {
+			a.pauseQueuedInputs()
+		}
 		return a.startNextQueuedInput()
 
 	case skillLoadedMsg:
@@ -677,7 +682,7 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !ok || ls.stopped || ls.mode != loopInterval {
 			return a, nil // loop stopped or gone → stop ticking
 		}
-		if a.streaming {
+		if a.streaming || a.queuePaused {
 			// The previous body is still running. Queueing another copy on
 			// every tick grew the queue without bound when the body outlasts
 			// the interval; skip this tick and try again on the next one.
@@ -695,7 +700,7 @@ func (a *App) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case mcpRestartedMsg:
 		unregisterMCPClientTools(a.deps.Tools, msg.Previous)
 		if msg.Err != nil {
-			a.conversation.AppendSystem("mcp restart: " + msg.Err.Error())
+			a.conversation.AppendSystem(formatMCPRestartError(msg.Name, msg.Report, msg.Err))
 			return a, nil
 		}
 		registrations := mcp.RegisterTools(a.deps.Tools, []*mcp.Client{msg.Client})
@@ -982,6 +987,9 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// machine: (streaming && cancelTurn!=nil) -> first press
 			// cancels; (streaming && cancelTurn==nil) -> second press
 			// is a no-op; (!streaming) -> quit.
+			// The provider may already have buffered success. Record the user's
+			// cancellation now so a self-paced loop cannot restart after drain.
+			a.turnFailed = true
 			if a.cancelTurn != nil {
 				a.cancelTurn()
 				a.cancelTurn = nil
@@ -1610,11 +1618,16 @@ type turnOptions struct {
 	// and claiming it nowhere -- which is what happened -- left agentDoneMsg
 	// with nothing to re-run, so the loop registered, listed forever, and did
 	// nothing.
-	loopID     string
-	skillGrant *skills.Skill
+	loopID       string
+	sourceLoopID string
+	skillGrant   *skills.Skill
 }
 
 func (a *App) startTurnWith(opt turnOptions) (tea.Model, tea.Cmd) {
+	if a.queuePaused {
+		a.queueTurn(opt)
+		return a, nil
+	}
 	return a.startTurnResolved(opt)
 }
 
@@ -1629,12 +1642,6 @@ func (a *App) startTurnWith(opt turnOptions) (tea.Model, tea.Cmd) {
 // typed is what they should see.
 func (a *App) startTurnResolved(opt turnOptions) (tea.Model, tea.Cmd) {
 	display, text, emitUser := opt.display, opt.text, opt.emitUser
-	// Claimed as the turn starts, so a queued loop body owns the turn it
-	// actually runs in rather than the one that was already streaming when it
-	// was typed.
-	if opt.loopID != "" {
-		a.activeLoopID = opt.loopID
-	}
 	// Resolve model-facing additions before checking the threshold. Large file
 	// mentions and the plan-mode instruction must count toward the upcoming
 	// request even though the visible user message keeps the original text.
@@ -1674,6 +1681,9 @@ func (a *App) startTurnResolved(opt turnOptions) (tea.Model, tea.Cmd) {
 	}
 
 	a.streaming = true
+	// Compaction can defer or fail before this turn starts. Claim ownership
+	// only now, and clear any previous owner for an ordinary prompt.
+	a.activeLoopID = opt.loopID
 	a.skillTurnID++
 	if opt.skillGrant != nil {
 		if note := a.applySkillGrant(*opt.skillGrant); note != "" {
@@ -1741,16 +1751,20 @@ func (a *App) queueTurn(opt turnOptions) {
 	}
 	a.input.Reset()
 	q := queuedInput{
-		Text:       opt.text,
-		Display:    opt.display,
-		Authored:   opt.authored,
-		Attached:   opt.attached,
-		LoopID:     opt.loopID,
-		SkillGrant: opt.skillGrant,
-		At:         time.Now(),
+		Text:         opt.text,
+		Display:      opt.display,
+		Authored:     opt.authored,
+		Attached:     opt.attached,
+		LoopID:       opt.loopID,
+		SourceLoopID: opt.sourceLoopID,
+		SkillGrant:   opt.skillGrant,
+		At:           time.Now(),
 	}
 	a.queuedInputs = append(a.queuedInputs, q)
 	a.conversation.AppendQueuedUser(q.Label())
+	if a.queuePaused {
+		a.conversation.AppendSystem("added to the paused queue; /queue resume to continue, /queue clear to start fresh")
+	}
 	a.refreshTopBar()
 }
 
@@ -1764,6 +1778,7 @@ func (a *App) modalOwnsKeyboard() bool {
 }
 
 func (a *App) clearQueuedInputs() int {
+	a.queuePaused = false
 	if len(a.queuedInputs) == 0 {
 		return 0
 	}
@@ -1775,6 +1790,9 @@ func (a *App) clearQueuedInputs() int {
 }
 
 func (a *App) startNextQueuedInput() (tea.Model, tea.Cmd) {
+	if a.queuePaused {
+		return a, nil
+	}
 	if len(a.queuedInputs) == 0 {
 		a.refreshTopBar()
 		return a, nil
@@ -1788,13 +1806,14 @@ func (a *App) startNextQueuedInput() (tea.Model, tea.Cmd) {
 	// whole body into the pane, which is the exact thing Display exists to
 	// prevent.
 	return a.startTurnWith(turnOptions{
-		display:    next.Label(),
-		text:       next.Text,
-		emitUser:   false,
-		authored:   next.Authored,
-		attached:   next.Attached,
-		loopID:     next.LoopID,
-		skillGrant: next.SkillGrant,
+		display:      next.Label(),
+		text:         next.Text,
+		emitUser:     false,
+		authored:     next.Authored,
+		attached:     next.Attached,
+		loopID:       next.LoopID,
+		sourceLoopID: next.SourceLoopID,
+		skillGrant:   next.SkillGrant,
 	})
 }
 
@@ -1887,8 +1906,10 @@ func (a *App) handleAgentEvent(ev agent.AgentEvent) (tea.Model, tea.Cmd) {
 		// %w, so errors.Is walks the whole chain.
 		if isCancellation(ev.Error) {
 			a.conversation.AppendSystem("turn cancelled")
-		} else {
+		} else if ev.Error != nil {
 			a.conversation.AppendError(ev.Error.Error())
+		} else {
+			a.conversation.AppendError("turn failed without an error description")
 		}
 		a.turnFailed = true
 		if a.cancelTurn != nil {
@@ -2453,20 +2474,25 @@ func (a *App) handleJobsResubmit(args []string) (tea.Model, tea.Cmd) {
 	if len(args) == 0 {
 		pending := a.jobs.RecoveredResubmittable()
 		if len(pending) == 0 {
-			a.conversation.AppendSystem("jobs resubmit: no abandoned jobs are waiting to be resubmitted")
+			a.conversation.AppendSystem("jobs resubmit: no recovered jobs are waiting to be resubmitted")
 			return a, nil
 		}
 		var b strings.Builder
-		b.WriteString("jobs resubmit: usage /jobs resubmit <id>\nabandoned jobs available to re-run:\n")
+		b.WriteString("jobs resubmit: usage /jobs resubmit <id>\nrecovered jobs available to re-run:\n")
 		for _, s := range pending {
-			fmt.Fprintf(&b, "  %-5s %s\n", trunc(s.ID, 5), truncOneLine(s.Prompt, 60))
+			fmt.Fprintf(&b, "  /jobs resubmit %s — %s\n", s.ID, truncOneLine(s.Prompt, 60))
 		}
+		b.WriteString("Inspect /jobs <id> before rerunning: previous work may have changed files or external services.\n")
 		a.conversation.AppendSystem(strings.TrimRight(b.String(), "\n"))
+		return a, nil
+	}
+	if len(args) != 1 {
+		a.conversation.AppendSystem("jobs resubmit: usage /jobs resubmit <id>; exactly one job can be resubmitted at a time")
 		return a, nil
 	}
 	snap, err := a.jobs.Resubmit(args[0])
 	if err != nil {
-		a.conversation.AppendSystem(fmt.Sprintf("jobs resubmit: %s", err.Reason))
+		a.conversation.AppendSystem("jobs resubmit: " + jobResubmitError(err))
 		return a, nil
 	}
 	a.conversation.AppendSystem(fmt.Sprintf(
@@ -2659,7 +2685,7 @@ func renderJobsTable(snaps []jobs.Snapshot) string {
 		return snaps[i].CreatedAt.After(snaps[j].CreatedAt)
 	})
 	var b strings.Builder
-	b.WriteString("ID    STATE      TARGET       ROOT      PROV/MODEL              AGE    TOK(IN/OUT)  PROMPT\n")
+	b.WriteString("ID       STATE      TARGET       ROOT      PROV/MODEL              AGE    TOK(IN/OUT)  PROMPT\n")
 	now := time.Now()
 	for _, s := range snaps {
 		prov := s.Provider
@@ -2698,8 +2724,8 @@ func renderJobsTable(snaps []jobs.Snapshot) string {
 		if s.ComputerName != "" {
 			target = s.ComputerName
 		}
-		fmt.Fprintf(&b, "%-5s %-10s %-12s %-9s %-23s %-6s %-12s %s\n",
-			trunc(s.ID, 5), trunc(s.State.String(), 10), trunc(target, 12), trunc(rootMode, 9), trunc(prov, 23), age, trunc(tok, 12), prompt)
+		fmt.Fprintf(&b, "%-8s %-10s %-12s %-9s %-23s %-6s %-12s %s\n",
+			s.ID, trunc(s.State.String(), 10), trunc(target, 12), trunc(rootMode, 9), trunc(prov, 23), age, trunc(tok, 12), prompt)
 		if wt := worktreeSummary(s); wt != "" {
 			fmt.Fprintf(&b, "      %s\n", wt)
 		}
@@ -2717,13 +2743,23 @@ func renderJobsTable(snaps []jobs.Snapshot) string {
 // deliberately explicit that nothing resumed: the previous process exited
 // and the work was never continued, only re-run as a separate job.
 func reconcileSummary(s jobs.Snapshot) string {
+	recoveredState := "abandoned at previous app exit"
+	if s.State == jobs.StateCancelled {
+		recoveredState = "cancelled before starting at previous app exit"
+	}
 	switch {
 	case s.ResubmitOf != "":
-		return fmt.Sprintf("resubmitted from abandoned job %s (new run, not a resumption)", s.ResubmitOf)
+		return fmt.Sprintf("resubmitted from recovered job %s (new run, not a resumption)", s.ResubmitOf)
 	case s.Recovered && s.ResubmittedAs != "":
-		return fmt.Sprintf("abandoned at previous app exit; resubmitted as %s", s.ResubmittedAs)
+		return fmt.Sprintf("%s; resubmitted as %s", recoveredState, s.ResubmittedAs)
 	case s.Recovered:
-		return fmt.Sprintf("abandoned at previous app exit; /jobs resubmit %s starts a new run from the saved prompt", s.ID)
+		if s.Prompt == "" {
+			return recoveredState + "; no saved prompt to resubmit; inspect /jobs " + s.ID
+		}
+		if len(s.Prompt) > jobs.MaxResubmitPromptBytes {
+			return recoveredState + "; saved prompt is too large to resubmit; inspect /jobs " + s.ID + " and start a new job manually"
+		}
+		return fmt.Sprintf("%s; inspect /jobs %s before /jobs resubmit %s starts a new run", recoveredState, s.ID, s.ID)
 	}
 	return ""
 }
