@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -34,9 +35,10 @@ var HostedService = "https://usesugar.dev"
 var brandColor = lipgloss.Color("#A8D34F")
 
 type Provider struct {
-	client    *openaicompat.Client
-	runtimeMu sync.RWMutex
-	runtime   RuntimeHooks
+	client          *openaicompat.Client
+	taskBridgeError error
+	runtimeMu       sync.RWMutex
+	runtime         RuntimeHooks
 }
 
 func New(apiKey string) *Provider {
@@ -44,9 +46,13 @@ func New(apiKey string) *Provider {
 }
 
 func NewWithBaseURL(baseURL, apiKey string) *Provider {
+	taskRoot, taskErr := taskBridgeBaseURL(os.Getenv("SUGAR_TASK_API_ROOT"))
+	if taskRoot != "" {
+		baseURL = taskRoot
+	}
 	client := openaicompat.NewClient(NormalizeBaseURL(baseURL), apiKey)
 	client.ExtraChatFields = sugarChatFields
-	return &Provider{client: client, runtime: DisabledRuntimeHooks{}}
+	return &Provider{client: client, runtime: DisabledRuntimeHooks{}, taskBridgeError: taskErr}
 }
 
 type sugarCacheWire struct {
@@ -161,6 +167,9 @@ func (p *Provider) ValidateKey(ctx context.Context, apiKey string) error {
 }
 
 func (p *Provider) ListModels(ctx context.Context) ([]provider.Model, error) {
+	if p.taskBridgeError != nil {
+		return nil, p.taskBridgeError
+	}
 	models, err := p.client.ListModels(ctx)
 	if err != nil {
 		return nil, err
@@ -172,6 +181,9 @@ func (p *Provider) ListModels(ctx context.Context) ([]provider.Model, error) {
 }
 
 func (p *Provider) ChatCompletion(ctx context.Context, req provider.ChatRequest) (<-chan provider.StreamEvent, error) {
+	if p.taskBridgeError != nil {
+		return nil, p.taskBridgeError
+	}
 	return p.client.ChatCompletion(ctx, req)
 }
 
