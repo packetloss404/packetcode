@@ -15,6 +15,11 @@ packetcode-qa-workbook.pdf
 coverage.out
 .gocache/
 
+# Browser test dependencies and generated reports
+node_modules/
+test-results/
+playwright-report/
+
 # OS
 .DS_Store
 Thumbs.db

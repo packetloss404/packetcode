@@ -108,6 +108,10 @@ misleading:
   resubmitted as a new run. PacketCode never claims it resumed.
 - Remote `/undo` is unavailable. `write_file` and `patch_file` still show their
   approval diffs, but no local backup stack is created for remote paths.
+- Local and remote whole-file reads require regular files and enforce a 16 MiB
+  limit, including files that grow while being read. Requesting fewer rendered
+  lines does not bypass that limit. A stalled SFTP operation can still outlive
+  cancellation; bounded size does not establish a transport deadline.
 - Code-intelligence tools, `@file` expansion, local project hooks, external
   statusline commands, and local git-branch probing are disabled for the remote
   workspace. Remote search uses the SFTP-backed fallback rather than ripgrep.

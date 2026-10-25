@@ -167,12 +167,20 @@ files need nothing done to them; they simply stop losing keys and comments.
 
 ## What is not covered
 
-Files packetcode writes that carry no version, because losing them costs nothing
-that cannot be recomputed or re-entered:
+These files carry no version. Most are replaceable preferences or inputs;
+the cost tally is best-effort local accounting with the downgrade limitation
+described below:
 
 - `theme.toml` — a parse error falls back to the built-in theme and says so.
-- `cost-tally.json` — accounting; a corrupt tally resets rather than blocks.
+- `cost-tally.json` — accounting; corrupt data is reported by the cost tracker.
+  New records include additive `usage_by_model` buckets while retaining the
+  aggregate token counts and latest provider/model fields. Legacy records seed
+  one bucket from their stored label on the next update; any attribution lost
+  before that update cannot be recovered. This format remains unversioned:
+  older binaries ignore and can discard the buckets when saving, so downgrading
+  loses accurate mixed-model attribution.
 - `.env` — read, never written by packetcode. Problems are reported at startup.
 
-If one of these grows a field whose loss would matter, it needs a version and a
-row above, not an exception here.
+New formats whose fields cannot be reconstructed should carry a version and a
+row above. Adding a version now cannot make already-shipped unversioned cost
+readers refuse a newer tally, so the downgrade limitation is explicit.

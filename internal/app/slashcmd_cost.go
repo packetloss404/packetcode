@@ -76,6 +76,9 @@ func renderCostTable(tracker *cost.Tracker) string {
 		if provModel == "" {
 			provModel = "(none)"
 		}
+		if e.ModelCount > 1 {
+			provModel = fmt.Sprintf("mixed (%d models)", e.ModelCount)
+		}
 		tok := fmt.Sprintf("%s/%s", fmtTokensShort(e.Input), fmtTokensShort(e.Output))
 		// Read/write, not in/out: cached tokens are already inside e.Input, so
 		// the column reports how much of that input was served from cache

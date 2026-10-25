@@ -26,6 +26,20 @@ func TestReadFile_FullFile(t *testing.T) {
 	assert.Contains(t, res.Content, "(lines 1-3 of 3)")
 }
 
+func TestReadFile_OversizedLocalFileReturnsBoundedReadError(t *testing.T) {
+	root := t.TempDir()
+	file, err := os.Create(filepath.Join(root, "oversized.txt"))
+	require.NoError(t, err)
+	require.NoError(t, file.Truncate(32<<20))
+	require.NoError(t, file.Close())
+
+	result, err := NewReadFileTool(root).Execute(context.Background(), json.RawMessage(`{"path":"oversized.txt","start_line":1,"end_line":1}`))
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.Content, "read limit")
+	assert.Less(t, len(result.Content), 200, "a requested one-line slice must not load an unbounded backing file")
+}
+
 func TestReadFile_LineRange(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("1\n2\n3\n4\n5\n"), 0o644))

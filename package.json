@@ -1,0 +1,11 @@
+{
+  "name": "packetcode-browser-tests",
+  "private": true,
+  "description": "Real-browser checks for the offline Packetcode HTML manual",
+  "scripts": {
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  }
+}

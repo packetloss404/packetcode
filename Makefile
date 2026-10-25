@@ -1,4 +1,4 @@
-.PHONY: build test lint verify vulncheck goreleaser-check release-dry-run release-check install-test smoke smoke-e2e run clean ci tui-deps tui-snapshots tui-snapshots-claude tui-golden-update tui-golden-check
+.PHONY: build test lint verify vulncheck goreleaser-check release-dry-run release-check install-test smoke smoke-e2e browser-test run clean ci tui-deps tui-snapshots tui-snapshots-claude tui-golden-update tui-golden-check
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -57,6 +57,11 @@ smoke: build
 smoke-e2e:
 	bash smoke.sh
 
+# Chromium exercises the offline HTML manual. Install its pinned dependencies
+# with npm ci and npx playwright install chromium first.
+browser-test:
+	npm run test:browser
+
 tui-snapshots: build
 	sh scripts/tui_snapshot_suite.sh packetcode
 
@@ -77,7 +82,7 @@ tui-golden-check: build
 run: build
 	./$(BINARY)
 
-ci: verify lint test vulncheck build smoke smoke-e2e goreleaser-check release-dry-run install-test
+ci: verify lint test vulncheck build smoke smoke-e2e browser-test goreleaser-check release-dry-run install-test
 
 clean:
 	rm -rf bin/ dist/

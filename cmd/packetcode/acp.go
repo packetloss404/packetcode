@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -119,7 +120,10 @@ func runACPCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 	providerFlag := fs.String("provider", "", "override the configured provider")
 	modelFlag := fs.String("model", "", "override the configured model")
 	permissionFlag := fs.String("permission-mode", "", "override permission profile (ask, accept-edits, auto, read-only, bypass)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseCommandFlags(fs, args, stdout, stderr); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if fs.NArg() != 0 {

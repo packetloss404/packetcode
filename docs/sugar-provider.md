@@ -62,6 +62,20 @@ Remote Sugar URLs must use HTTPS. Plain HTTP is accepted only for localhost deve
 
 Use `/model` in Packetcode. The picker is populated from Sugar at runtime, so the service can add, remove, or advance models without a new CLI build. Choosing `sugar/conduit` restores task-aware routing; choosing another returned ID pins that Sugar lane.
 
+## Process-scoped coding tasks
+
+When Sugar starts Packetcode for a coding task, it can set `SUGAR_TASK_API_ROOT`
+to the HTTP API root printed by its local task bridge. The built-in provider
+uses that root for this process while keeping the saved endpoint and sign-in.
+Only `http://127.0.0.1:<port>/task/<UUID-v4>/api/v1` is accepted, with a port
+above 3050 and no credentials, query, fragment, or encoded path. An invalid
+override fails model discovery and completion rather than silently bypassing
+the task bridge. Do not set this variable for an ordinary hosted connection.
+
+The endpoint validation has automated tests. A real Sugar task bridge, its
+upstream routing, and the member's browser approval remain external integration
+checks; a local device-login fixture does not prove those services work.
+
 ## Phase 2
 
 The cross-platform desktop application for Windows, macOS, and Linux should reuse this exact provider contract. It needs no separate compute integration: authenticate with Sugar, fetch `/models`, send chat requests, and render Sugar usage/routing metadata while keeping project tools local.

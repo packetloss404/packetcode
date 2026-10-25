@@ -1,6 +1,6 @@
 # Developing Packetcode
 
-Updated 2026-09-11. Start with [the maintainer handoff](../HANDOFF.md),
+Updated 2026-10-25. Start with [the maintainer handoff](../HANDOFF.md),
 [the changelog](../CHANGELOG.md), and `git status --short --branch`. The
 [backlog](../BACKLOG.md) records remaining work; historical audits are evidence,
 not instructions to reapply old patches.
@@ -15,6 +15,10 @@ not instructions to reapply old patches.
 | Background recovery and persistence | `internal/jobs/manager.go`, `resubmit.go`, `internal/app/job_recovery.go` | `resubmit_recovery_test.go`, `persistence_failure_test.go`, `recovery_guidance_test.go` |
 | MCP transport and reconnection | `internal/mcp`, `internal/app/slashcmd_mcp.go` | `manager_lifecycle_test.go`, `write_cancellation_test.go`, `slashcmd_mcp_test.go` |
 | Headless runtime and failures | `cmd/packetcode/runtime.go`, `run_command.go` | `run_recovery_test.go`, `run_integration_test.go` |
+| Executable CLI workflows | `cmd/packetcode` | `cli_e2e_test.go` builds and runs the real binary |
+| Mixed-model accounting | `internal/cost`, `internal/app/slashcmd_cost.go` | `tally_test.go`, `slashcmd_cost_models_test.go` |
+| Bounded workspace reads | `internal/computers`, `internal/tools` | `local_backend_read_test.go`, `local_backend_fifo_test.go`, `read_file_test.go` |
+| Offline browser manual | `docs/packetcode-manual.html` | `tests/browser/manual.spec.js` |
 
 Test filenames are relative to the owning package. See
 [maintenance](maintenance.md) for package commands and recovery procedures.
@@ -68,6 +72,12 @@ For TUI changes, follow [the PTY harness](tui-parity-harness.md): inspect both
 `make tui-golden-check`. Use Linux, macOS, or WSL with
 `scripts/requirements-tui.txt`. Commit reviewed goldens, not raw ANSI captures,
 credentials, local state, or generated binaries.
+
+Executable end-to-end tests in `cmd/packetcode` build the actual CLI and use
+isolated state with local provider fixtures. The HTML manual has a separate
+Chromium gate: run `npm ci`, `npx playwright install chromium`, then
+`npm run test:browser` (or `make browser-test`). See [testing](testing.md) for
+the feature map, reproducible commands, and external coverage limits.
 
 ## Keep documentation aligned
 

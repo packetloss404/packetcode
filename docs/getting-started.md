@@ -4,6 +4,9 @@
 
 packetcode requires Go 1.26.0 or newer.
 
+Use Go 1.26.10 or newer for current certificate-security fixes. CI and release
+builds use 1.26.10; 1.26.0 is the language minimum.
+
 ```bash
 make build
 ./bin/packetcode

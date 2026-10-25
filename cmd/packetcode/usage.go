@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -70,11 +72,36 @@ func subcommands() []subcommand {
 // runSugarCommand keeps sugar's own nested verb where it belongs, rather than
 // spreading a second level of dispatch through the table.
 func runSugarCommand(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
+		fmt.Fprintln(stdout, "usage: packetcode sugar login [--server URL] [--name NAME] [--no-browser]")
+		return 0
+	}
 	if len(args) >= 1 && args[0] == "login" {
 		return runSugarLoginCommand(args[1:], stdout, stderr)
 	}
 	fmt.Fprintln(stderr, "usage: packetcode sugar login [--server URL] [--name NAME] [--no-browser]")
 	return 2
+}
+
+// parseCommandFlags keeps requested help on stdout with a successful exit,
+// while flag errors and their usage stay on stderr. Capture parser output so
+// its destination follows the actual parse result, including help after flags.
+func parseCommandFlags(fs *flag.FlagSet, args []string, stdout, stderr io.Writer) error {
+	return routeCommandParse(fs, stdout, stderr, func() error { return fs.Parse(args) })
+}
+
+func routeCommandParse(fs *flag.FlagSet, stdout, stderr io.Writer, parse func() error) error {
+	var output bytes.Buffer
+	previous := fs.Output()
+	fs.SetOutput(&output)
+	err := parse()
+	fs.SetOutput(previous)
+	if errors.Is(err, flag.ErrHelp) {
+		_, _ = io.Copy(stdout, &output)
+	} else {
+		_, _ = io.Copy(stderr, &output)
+	}
+	return err
 }
 
 // cliFlags is the top-level flag set, declared in one place so help and main

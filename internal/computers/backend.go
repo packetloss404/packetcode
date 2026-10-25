@@ -8,6 +8,10 @@ import (
 	"github.com/packetcode/packetcode/internal/procrun"
 )
 
+// Both workspace backends bound whole-file reads independently of the tools'
+// rendered line limits. A file that grows while being read is bounded too.
+const maxReadFileBytes = 16 << 20
+
 // RuntimeBackend is the workspace boundary used by PacketCode's core tools.
 // Implementations may be local or remote; tools deliberately do not know
 // which transport is underneath them.
@@ -20,6 +24,7 @@ type RuntimeBackend interface {
 	// requires every existing ancestor and an existing leaf to resolve inside
 	// the workspace.
 	Resolve(ctx context.Context, path string, forWrite bool) (string, error)
+	// ReadFile accepts regular files only, up to maxReadFileBytes.
 	ReadFile(ctx context.Context, path string) ([]byte, error)
 	WriteFile(ctx context.Context, path string, data []byte) error
 	ReadDir(ctx context.Context, path string) ([]FileEntry, error)

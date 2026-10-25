@@ -36,9 +36,10 @@ type Tally struct {
 	StartTime int64                  `json:"start_time"`
 }
 
-// SessionCost holds the per-session token totals plus the provider/model
-// they came from. We keep provider+model on the cost record so totals can
-// be re-priced later without re-reading every session.json.
+// SessionCost keeps aggregate high-water marks for callers passing cumulative
+// session usage, and attributes each increase to the provider/model that used
+// it. Provider and Model retain the most recently recorded label for older
+// readers; new readers price UsageByModel instead.
 type SessionCost struct {
 	Input  int `json:"input"`
 	Output int `json:"output"`
@@ -48,6 +49,19 @@ type SessionCost struct {
 	// the fresh input rate, and never adds them on top. Omitted when zero so
 	// tallies written before cache plumbing keep their original shape, and
 	// so absent fields decode to zero rather than to a wrong number.
+	CacheCreation int          `json:"cache_creation,omitempty"`
+	CacheRead     int          `json:"cache_read,omitempty"`
+	Provider      string       `json:"provider"`
+	Model         string       `json:"model"`
+	UsageByModel  []ModelUsage `json:"usage_by_model,omitempty"`
+}
+
+// ModelUsage is one provider/model's share of a session's aggregate counts.
+// Legacy tallies have no shares; their existing usage remains attributed to
+// the label they stored, since earlier model switches cannot be recovered.
+type ModelUsage struct {
+	Input         int    `json:"input"`
+	Output        int    `json:"output"`
 	CacheCreation int    `json:"cache_creation,omitempty"`
 	CacheRead     int    `json:"cache_read,omitempty"`
 	Provider      string `json:"provider"`
@@ -142,9 +156,10 @@ func NewTracker(path string, pricing PricingFunc) (*Tracker, error) {
 // indistinguishable from a provider genuinely reporting no cache hits, so
 // it leaves any previously recorded cache counts alone.
 func (t *Tracker) RecordUsage(sessionID, providerSlug, modelID string, input, output int) error {
-	cur := t.session(sessionID)
-	return t.RecordUsageWithCache(sessionID, providerSlug, modelID, input, output,
-		cur.CacheCreation, cur.CacheRead)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	cur := t.tally.Sessions[sessionID]
+	return t.recordUsageLocked(sessionID, providerSlug, modelID, input, output, cur.CacheCreation, cur.CacheRead)
 }
 
 // RecordUsageWithCache applies the high-water-mark rule for the given
@@ -157,7 +172,41 @@ func (t *Tracker) RecordUsage(sessionID, providerSlug, modelID string, input, ou
 // still derives from input alone.
 func (t *Tracker) RecordUsageWithCache(sessionID, providerSlug, modelID string, input, output, cacheCreation, cacheRead int) error {
 	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.recordUsageLocked(sessionID, providerSlug, modelID, input, output, cacheCreation, cacheRead)
+}
+
+func (t *Tracker) recordUsageLocked(sessionID, providerSlug, modelID string, input, output, cacheCreation, cacheRead int) error {
 	cur := t.tally.Sessions[sessionID]
+	if len(cur.UsageByModel) == 0 && (cur.Input > 0 || cur.Output > 0 || cur.CacheCreation > 0 || cur.CacheRead > 0) {
+		cur.UsageByModel = []ModelUsage{{
+			Input: cur.Input, Output: cur.Output, CacheCreation: cur.CacheCreation, CacheRead: cur.CacheRead,
+			Provider: cur.Provider, Model: cur.Model,
+		}}
+	}
+	delta := ModelUsage{
+		Input: max(0, input-cur.Input), Output: max(0, output-cur.Output),
+		CacheCreation: max(0, cacheCreation-cur.CacheCreation), CacheRead: max(0, cacheRead-cur.CacheRead),
+		Provider: providerSlug, Model: modelID,
+	}
+	if delta.Input > 0 || delta.Output > 0 || delta.CacheCreation > 0 || delta.CacheRead > 0 {
+		index := -1
+		for i, usage := range cur.UsageByModel {
+			if usage.Provider == providerSlug && usage.Model == modelID {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			cur.UsageByModel = append(cur.UsageByModel, delta)
+		} else {
+			usage := &cur.UsageByModel[index]
+			usage.Input += delta.Input
+			usage.Output += delta.Output
+			usage.CacheCreation += delta.CacheCreation
+			usage.CacheRead += delta.CacheRead
+		}
+	}
 	if input > cur.Input {
 		cur.Input = input
 	}
@@ -173,22 +222,14 @@ func (t *Tracker) RecordUsageWithCache(sessionID, providerSlug, modelID string, 
 	cur.Provider = providerSlug
 	cur.Model = modelID
 	t.tally.Sessions[sessionID] = cur
-	defer t.mu.Unlock()
 	return t.tally.Save(t.path)
-}
-
-// session returns a copy of one session's record under the lock.
-func (t *Tracker) session(sessionID string) SessionCost {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.tally.Sessions[sessionID]
 }
 
 // SessionCost returns the cumulative USD cost for the named session.
 func (t *Tracker) SessionCost(sessionID string) float64 {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	sc := t.tally.Sessions[sessionID]
-	t.mu.Unlock()
 	return t.priced(sc)
 }
 
@@ -251,14 +292,21 @@ func (t *Tracker) Breakdown() []Entry {
 	defer t.mu.Unlock()
 	out := make([]Entry, 0, len(t.tally.Sessions))
 	for id, sc := range t.tally.Sessions {
+		providerSlug, modelID := sc.Provider, sc.Model
+		if len(sc.UsageByModel) == 1 {
+			// A no-usage switch or stale report can update the compatibility
+			// label without adding a bucket. Label the actual usage instead.
+			providerSlug, modelID = sc.UsageByModel[0].Provider, sc.UsageByModel[0].Model
+		}
 		out = append(out, Entry{
 			SessionID:     id,
 			Input:         sc.Input,
 			Output:        sc.Output,
 			CacheCreation: sc.CacheCreation,
 			CacheRead:     sc.CacheRead,
-			Provider:      sc.Provider,
-			Model:         sc.Model,
+			Provider:      providerSlug,
+			Model:         modelID,
+			ModelCount:    len(sc.UsageByModel),
 			USD:           t.priced(sc),
 		})
 	}
@@ -276,10 +324,25 @@ type Entry struct {
 	CacheRead     int
 	Provider      string
 	Model         string
+	ModelCount    int
 	USD           float64
 }
 
 func (t *Tracker) priced(sc SessionCost) float64 {
+	if len(sc.UsageByModel) > 0 {
+		var total float64
+		for _, usage := range sc.UsageByModel {
+			total += t.pricedUsage(usage)
+		}
+		return total
+	}
+	return t.pricedUsage(ModelUsage{
+		Input: sc.Input, Output: sc.Output, CacheCreation: sc.CacheCreation, CacheRead: sc.CacheRead,
+		Provider: sc.Provider, Model: sc.Model,
+	})
+}
+
+func (t *Tracker) pricedUsage(sc ModelUsage) float64 {
 	if t.pricing == nil {
 		return 0
 	}

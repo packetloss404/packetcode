@@ -1,6 +1,6 @@
 # Maintaining Packetcode
 
-Updated 2026-09-11. This guide favors small, verifiable changes. Larger product
+Updated 2026-10-25. This guide favors small, verifiable changes. Larger product
 work stays in [BACKLOG.md](../BACKLOG.md); the latest hardening evidence is in
 [the September 8 review](audit/hardening-2026-09-08.md).
 For implementation contracts and regression locations, use
@@ -101,8 +101,9 @@ running. The existing audit's external trust questions still need an explicit
 decision: ACP client trust, repository-authored instructions, custom HTTP
 provider endpoints, and default installer signature requirements.
 
-For cost tracking, start a new session when switching models. The existing
-tally attributes cumulative session tokens to the last model; mixed-model
-session estimates can therefore be wrong. Provider usage remains the source
-for actual billed charges. The review records this limitation for a future
-per-model accounting change.
+Cost tracking attributes new usage deltas to each provider/model, so switching
+models no longer reprices earlier tokens. Existing tallies retain the estimate
+under the last model they stored; lost historical attribution cannot be
+reconstructed. Mixed sessions are labelled in `/cost`. Provider usage remains
+the source for actual billed charges, and downgrading to an older binary can
+discard the new attribution buckets. See [compatibility](compatibility.md).

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -44,6 +45,17 @@ func runSkillsCommand(args []string, stdout, stderr io.Writer) int {
 	case "remove", "uninstall":
 		return runSkillsRemove(args[1:], stdout, stderr)
 	case "path":
+		fs := flag.NewFlagSet("skills path", flag.ContinueOnError)
+		if err := parseCommandFlags(fs, args[1:], stdout, stderr); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return 0
+			}
+			return 2
+		}
+		if fs.NArg() != 0 {
+			fmt.Fprintf(stderr, "packetcode skills path: unexpected argument %q\n", fs.Arg(0))
+			return 2
+		}
 		return runSkillsPath(stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, skillsUsage)
@@ -85,7 +97,14 @@ func runSkillsList(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("skills list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
-	if err := fs.Parse(args); err != nil {
+	if err := parseCommandFlags(fs, args, stdout, stderr); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintf(stderr, "packetcode skills list: unexpected argument %q\n", fs.Arg(0))
 		return 2
 	}
 	cwd, err := os.Getwd()
@@ -123,6 +142,9 @@ func runSkillsList(args []string, stdout, stderr io.Writer) int {
 			"warnings": reg.Warnings(),
 		}); err != nil {
 			fmt.Fprintf(stderr, "packetcode skills: %s\n", err)
+			return 1
+		}
+		if len(reg.Errors()) > 0 {
 			return 1
 		}
 		return 0
@@ -227,6 +249,15 @@ func parsePositionals(fs *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
+func parseCommandPositionals(fs *flag.FlagSet, args []string, stdout, stderr io.Writer) (positional []string, err error) {
+	err = routeCommandParse(fs, stdout, stderr, func() error {
+		var parseErr error
+		positional, parseErr = parsePositionals(fs, args)
+		return parseErr
+	})
+	return positional, err
+}
+
 type repeatedString []string
 
 func (r *repeatedString) String() string { return strings.Join(*r, ",") }
@@ -247,8 +278,11 @@ func runSkillsInstall(args []string, stdout, stderr io.Writer) int {
 	ref := fs.String("ref", "", "branch or tag to clone")
 	project := fs.Bool("project", false, "install into ./.packetcode/skills")
 	force := fs.Bool("force", false, "overwrite skills that are already installed")
-	positional, err := parsePositionals(fs, args)
+	positional, err := parseCommandPositionals(fs, args, stdout, stderr)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if len(positional) != 1 {
@@ -308,8 +342,11 @@ func runSkillsRemove(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("skills remove", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	project := fs.Bool("project", false, "remove from ./.packetcode/skills")
-	positional, err := parsePositionals(fs, args)
+	positional, err := parseCommandPositionals(fs, args, stdout, stderr)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if len(positional) != 1 {

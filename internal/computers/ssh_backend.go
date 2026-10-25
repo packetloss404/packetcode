@@ -26,7 +26,7 @@ const (
 	sshDialTimeout        = 10 * time.Second
 	sshKeepaliveEvery     = 30 * time.Second
 	sshCancelDrainTimeout = 2 * time.Second
-	sshMaxReadFileBytes   = 16 << 20
+	sshMaxReadFileBytes   = maxReadFileBytes
 )
 
 // SSHBackend maintains one authenticated SSH connection and one SFTP client.
@@ -394,6 +394,9 @@ func (b *SSHBackend) ReadFile(ctx context.Context, name string) ([]byte, error) 
 	info, err := b.sftp.Stat(resolved)
 	if err != nil {
 		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("remote read requires a regular file")
 	}
 	if info.Size() > sshMaxReadFileBytes {
 		return nil, fmt.Errorf("remote file exceeds %d-byte read limit", sshMaxReadFileBytes)

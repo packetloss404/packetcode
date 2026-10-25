@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -73,7 +74,14 @@ func runSugarLogin(args []string, stdin io.Reader, stdout, stderr io.Writer, cli
 	server := fs.String("server", "", "Sugar service URL (for example https://sugar.example)")
 	name := fs.String("name", "", "name attached to the Sugar API key (default: this machine's hostname)")
 	noBrowser := fs.Bool("no-browser", false, "do not open the Sugar approval page automatically")
-	if err := fs.Parse(args); err != nil {
+	if err := parseCommandFlags(fs, args, stdout, stderr); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintf(stderr, "packetcode sugar login: unexpected argument %q\n", fs.Arg(0))
 		return 2
 	}
 

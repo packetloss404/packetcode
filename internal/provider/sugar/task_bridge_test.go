@@ -2,9 +2,11 @@ package sugar
 
 import (
 	"context"
-	"github.com/packetcode/packetcode/internal/provider"
-	"github.com/stretchr/testify/require"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/packetcode/packetcode/internal/provider"
 )
 
 func TestTaskBridgeEndpointIsProcessScopedAndFailsClosed(t *testing.T) {

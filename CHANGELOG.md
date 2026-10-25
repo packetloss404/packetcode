@@ -1,11 +1,27 @@
 # Changelog
 
-All notable packetcode changes are recorded here. The project is pre-1.0; `Unreleased` describes the current `main` branch.
+All notable packetcode changes are recorded here. The project is pre-1.0;
+`Unreleased` describes changes since the latest release.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-25
+
 ### Fixed
 
+- CI and release builds use Go 1.26.10, fixing the standard-library certificate
+  vulnerability GO-2026-6809 reported by the vulnerability scan.
+- Public command help exits successfully and writes to stdout, including nested
+  skills and Sugar help. Non-prompt commands reject stray positional arguments.
+- `skills list --json` returns a failing exit status for malformed skills while
+  retaining its machine-readable diagnostics, matching text mode.
+- Cost tallies preserve per-model usage when a session switches models instead
+  of repricing earlier tokens. Legacy usage retains its previously stored
+  attribution, and mixed sessions are labelled in `/cost`.
+- Local computer file reads reject non-regular files and files over 16 MiB,
+  matching the remote backend's bounded-read contract.
+- The offline HTML manual fits narrow phone screens and wraps long printed
+  commands instead of clipping them. Its build instructions match Go 1.26.0.
 - Failed foreground turns and compaction pause pending prompts for explicit
   `/queue resume`. Ctrl+C cannot restart a loop from buffered success, and
   stopping a loop removes its queued iterations.
@@ -48,6 +64,12 @@ All notable packetcode changes are recorded here. The project is pre-1.0; `Unrel
 
 ### Changed
 
+- Real executable end-to-end tests cover public CLI help/validation, headless
+  run/resume/approvals, diagnostics, skills, ACP stdio, and Sugar device login
+  through isolated local services. The offline HTML manual has Chromium tests
+  and a CI/release gate; the coverage guide states external integration limits.
+- Sugar coding tasks can override the API endpoint for one process through a
+  validated loopback task bridge without changing the saved sign-in/endpoint.
 - Developer guidance, README, handoffs, and focused references now describe
   paused-queue recovery, session-scoped approvals, guarded job resubmission,
   and manual MCP/headless recovery. Historical audit advice is labelled

@@ -4,16 +4,22 @@ How a packetcode release is built, what is signed, and how anyone can check it.
 
 ## Cutting a release
 
-Push a tag. `.github/workflows/release.yml` does the rest.
+First wait for CI on the exact commit to finish successfully, including the
+cross-platform tests, lint, vulnerabilities, executable smoke, browser manual,
+PTY goldens, six builds, and release dry run. Then push a new version tag.
+`.github/workflows/release.yml` does the rest. Packetcode has no hosted web
+deployment in this repository; publishing a release is its distribution step.
 
 ```bash
 git tag -a v0.6.0 -m "v0.6.0"
 git push origin v0.6.0
 ```
 
-The workflow runs the test suite on Linux, macOS and Windows and the TUI golden
-check before it builds anything, so a tag that fails its own tests publishes
-nothing.
+The workflow runs the test suite on Linux, macOS and Windows, the TUI golden
+check, and the Chromium manual check before publication, so a tag that fails
+those gates publishes nothing. After it completes, check the release assets
+and the signing/provenance steps; a successful main-branch CI run does not
+establish that a later publication succeeded.
 
 Nothing about the pipeline waits for a tag to be exercised. CI builds a full
 snapshot on every push (`make release-dry-run`) and asserts the result with

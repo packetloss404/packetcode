@@ -8,6 +8,9 @@ This manual starts with the shortest path to a useful session, then introduces t
 
 packetcode requires Go 1.26.0 or newer when building from source.
 
+Use Go 1.26.10 or newer for the current certificate-security fixes; this is the
+version pinned by CI and releases. The language minimum remains 1.26.0.
+
 ### macOS or Linux release install
 
 ```bash

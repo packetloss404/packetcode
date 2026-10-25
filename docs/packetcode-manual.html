@@ -317,7 +317,7 @@
     }
     @media (max-width: 600px) {
       .hero-inner, .layout, footer div { width: min(100% - 1.2rem, 1180px); }
-      .cards, .ref-grid, #quick-reference .ref-grid { grid-template-columns: 1fr; }
+      .cards, .ref-grid, #quick-reference .ref-grid { grid-template-columns: minmax(0, 1fr); }
       .toc ol { columns: 1; }
       pre { margin-left: -.15rem; margin-right: -.15rem; font-size: .78rem; }
       th, td { padding: .55rem; }
@@ -338,6 +338,7 @@
       h2 { font-size: 20pt; }
       h3 { font-size: 13pt; break-after: avoid; }
       pre { white-space: pre-wrap; overflow: visible; color: #000; box-shadow: inset 2px 0 0 #07594f; }
+      pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
       table { font-size: 8.5pt; }
       tr, pre, .callout, .card { break-inside: avoid; }
       a { color: #000; text-decoration: none; }
@@ -349,7 +350,7 @@
       #quick-reference pre { margin: 1.5mm 0; padding: 2.5mm; font-size: 7pt; line-height: 1.25; }
       #quick-reference table { font-size: 6.8pt; line-height: 1.2; }
       #quick-reference th, #quick-reference td { padding: 1.2mm 1.6mm; }
-      #quick-reference .ref-grid { grid-template-columns: 1fr 1fr; gap: 4mm; }
+      #quick-reference .ref-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4mm; }
       #quick-reference .key-strip { padding: 2.5mm; line-height: 1.55; }
       body.print-cheat .hero, body.print-cheat aside, body.print-cheat main > section:not(#quick-reference), body.print-cheat footer { display: none !important; }
       body.print-cheat .layout { display: block; }
@@ -417,7 +418,7 @@
 
       <section id="quick-start" aria-labelledby="quick-start-title">
         <h2 id="quick-start-title"><span class="section-no">01</span><a class="anchor-link" href="#quick-start">Install and start</a></h2>
-        <p>packetcode requires Go 1.24.2 or newer when building from source. Run it from the project directory you want it to work in; inside a Git repository it resolves the repository root as the native file-tool boundary.</p>
+        <p>packetcode requires Go 1.26.0 or newer when building from source. Use Go 1.26.10 or newer for the current certificate-security fixes; CI and releases pin 1.26.10. Run it from the project directory you want it to work in; inside a Git repository it resolves the repository root as the native file-tool boundary.</p>
 
         <h3 id="install-release">macOS or Linux release install</h3>
         <pre><code>curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | bash</code></pre>

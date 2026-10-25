@@ -14,18 +14,10 @@ copy its code or prompt text.
 
 ## v1 Release Readiness
 
-- Preserve per-model usage in cost tallies. Verified 2026-09-08:
-  `RecordUsageWithCache` changes the model label on all cumulative session
-  tokens, so switching models reprices earlier usage. A synthetic $10 + $1
-  session reports $2 at the cheaper model's rate. Store per-model deltas with
-  legacy-tally migration and cache-token coverage; old records cannot recover
-  attribution they never stored. Workaround: start a new session when switching
-  models. See [the hardening review](docs/audit/hardening-2026-09-08.md).
-- Bound local backend file reads by size and regular-file type, and make SFTP
-  I/O cancellation-aware. Identified by code inspection in the September 8
-  review; reproduce the large/special-file and stalled-connection cases before
-  implementing. Preserve backend parity and avoid closing shared connections
-  without accounting for other active calls.
+- Make SFTP I/O cancellation-aware. Local and SSH whole-file reads now reject
+  non-regular files and enforce a 16 MiB cap. A stalled SFTP operation can still
+  outlive cancellation; reproduce that case before changing shared-connection
+  teardown. Preserve backend parity and account for other active calls.
 - Make `internal/jobs` survive CPU pressure. The package runs in ~3.4s idle
   and took 88s with `TestManager_ReadOnlyJobWithoutVerifyRootCannotSeeWorktree`
   failing outright when three `golangci-lint` passes ran alongside it. It
@@ -40,7 +32,7 @@ copy its code or prompt text.
   `file requires newer Go version go1.27 (application built with go1.26)`,
   so the CI Go version cannot move ahead of the linter's own build. Nothing
   is lost by waiting — every reachable stdlib advisory is fixed by go1.26.6
-  and the pin is 1.26.8. The module floor is `go 1.26.0` and does not need
+  and the pin is 1.26.10. The module floor is `go 1.26.0` and does not need
   to move with it.
 - ~~Add a bounded non-interactive execution surface:~~ **Shipped 2026-08-31.**
   `packetcode run [--provider P] [--model M] [--permission-mode MODE]

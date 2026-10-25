@@ -187,3 +187,104 @@ func TestTally_LoadWithoutCacheFields(t *testing.T) {
 	assert.NotContains(t, string(raw), "cache_creation")
 	assert.NotContains(t, string(raw), "cache_read")
 }
+
+func TestTracker_ModelSwitchPreservesAttributionAcrossReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tally.json")
+	pricing := func(slug, model string) (float64, float64) {
+		if slug == "premium" && model == "large" {
+			return 10, 20
+		}
+		return 1, 2
+	}
+	tr, err := NewTracker(path, pricing)
+	require.NoError(t, err)
+	require.NoError(t, tr.RecordUsage("mixed", "premium", "large", 1_000_000, 0))
+	// Selecting another model without using tokens must not relabel the
+	// previous model's usage, even though the aggregate compatibility label
+	// records the most recent report.
+	require.NoError(t, tr.RecordUsage("mixed", "budget", "small", 1_000_000, 0))
+	rows := tr.Breakdown()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "premium", rows[0].Provider)
+	assert.Equal(t, "large", rows[0].Model)
+	assert.Equal(t, 1, rows[0].ModelCount)
+	assert.InDelta(t, 10, rows[0].USD, 1e-9)
+	require.NoError(t, tr.RecordUsage("mixed", "budget", "small", 2_000_000, 0))
+	assert.InDelta(t, 11, tr.SessionCost("mixed"), 1e-9, "$10 of premium usage plus $1 of budget usage must not become $2")
+
+	tr, err = NewTracker(path, pricing)
+	require.NoError(t, err)
+	assert.InDelta(t, 11, tr.SessionCost("mixed"), 1e-9)
+	// Switching back merges new deltas into the original model's bucket.
+	require.NoError(t, tr.RecordUsage("mixed", "premium", "large", 3_000_000, 0))
+	// A replayed report must neither add usage nor reprice previous tokens.
+	require.NoError(t, tr.RecordUsage("mixed", "budget", "small", 2_500_000, 0))
+	assert.InDelta(t, 21, tr.SessionCost("mixed"), 1e-9)
+	assert.InDelta(t, 21, tr.TotalCost(), 1e-9)
+	assert.InDelta(t, 21, tr.SessionCostsForIDs([]string{"mixed", "missing"}), 1e-9)
+	in, out := tr.SessionTokens("mixed")
+	assert.Equal(t, 3_000_000, in)
+	assert.Zero(t, out)
+	rows = tr.Breakdown()
+	require.Len(t, rows, 1)
+	assert.Equal(t, 2, rows[0].ModelCount)
+	assert.InDelta(t, 21, rows[0].USD, 1e-9)
+}
+
+func TestTracker_LegacyTallySeedsRecordedModelBeforeSwitch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tally.json")
+	legacy := `{"sessions":{"s1":{"input":1000000,"output":0,"provider":"api","model":"large"}},"start_time":1736942400}`
+	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o600))
+	pricing := func(_, model string) (float64, float64) {
+		if model == "large" {
+			return 10, 0
+		}
+		return 1, 0
+	}
+	tr, err := NewTracker(path, pricing)
+	require.NoError(t, err)
+	assert.InDelta(t, 10, tr.SessionCost("s1"), 1e-9)
+	require.NoError(t, tr.RecordUsage("s1", "api", "small", 2_000_000, 0))
+	assert.InDelta(t, 11, tr.SessionCost("s1"), 1e-9)
+	loaded, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1736942400), loaded.StartTime)
+	require.Len(t, loaded.Sessions["s1"].UsageByModel, 2)
+	assert.Equal(t, ModelUsage{Input: 1_000_000, Provider: "api", Model: "large"}, loaded.Sessions["s1"].UsageByModel[0])
+	assert.Equal(t, ModelUsage{Input: 1_000_000, Provider: "api", Model: "small"}, loaded.Sessions["s1"].UsageByModel[1])
+}
+
+func TestTracker_ModelSwitchUsesEachModelsCacheRates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tally.json")
+	pricing := func(_, model string) (float64, float64) {
+		if model == "large" {
+			return 10, 20
+		}
+		return 1, 2
+	}
+	cacheRates := func(_, model string) (float64, float64) {
+		if model == "large" {
+			return 0.1, 2
+		}
+		return 0.5, 1
+	}
+	tr, err := NewTracker(path, pricing)
+	require.NoError(t, err)
+	tr.SetCacheRates(cacheRates)
+	// Large: 100k fresh + 200k cache writes + 700k reads + 100k output = $7.70.
+	require.NoError(t, tr.RecordUsageWithCache("s1", "api", "large", 1_000_000, 100_000, 200_000, 700_000))
+	// Small adds 400k fresh + 100k writes + 500k reads + 200k output = $1.15.
+	require.NoError(t, tr.RecordUsageWithCache("s1", "api", "small", 2_000_000, 300_000, 300_000, 1_200_000))
+	assert.InDelta(t, 8.85, tr.SessionCost("s1"), 1e-9)
+	tr, err = NewTracker(path, pricing)
+	require.NoError(t, err)
+	tr.SetCacheRates(cacheRates)
+	assert.InDelta(t, 8.85, tr.SessionCost("s1"), 1e-9)
+	// Return to large: 100k fresh + 400k reads = $1.40 more.
+	require.NoError(t, tr.RecordUsageWithCache("s1", "api", "large", 2_500_000, 300_000, 300_000, 1_600_000))
+	assert.InDelta(t, 10.25, tr.SessionCost("s1"), 1e-9)
+	rows := tr.Breakdown()
+	require.Len(t, rows, 1)
+	assert.Equal(t, 300_000, rows[0].CacheCreation)
+	assert.Equal(t, 1_600_000, rows[0].CacheRead)
+}

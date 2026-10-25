@@ -118,6 +118,10 @@ download by hand, and how release signing is configured.
 
 Build from source with Go 1.26.0 or newer:
 
+Use Go 1.26.10 or newer for the certificate-security fix in
+[GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809). CI and releases pin 1.26.10;
+the module's language minimum remains 1.26.0.
+
 ```bash
 make build
 ./bin/packetcode
@@ -477,6 +481,12 @@ version, and what happens when a build meets a file it was not built for.
 
 The statusline context gauge shows current request occupancy, not cumulative billed tokens. Cumulative usage still drives cost. `/cost`, background-job usage, and statusline JSON report cache creation/read tokens separately where providers supply them; those figures are subsets of input, not extra tokens. Automatic compaction includes system prompts and tool-schema estimates, preserves complete recent tool exchanges, and records compaction usage.
 
+New cost-tally updates attribute token increases to the provider/model that
+used them, so a model switch does not reprice earlier tokens at the new model's
+rate. Older
+tallies retain their previous last-model estimate; historical attribution that
+was never saved cannot be recovered. Provider billing remains authoritative.
+
 To reduce repeated context:
 
 - Older oversized tool results are compacted only in the model-facing copy; the complete result remains in the session and UI.
@@ -765,6 +775,20 @@ and consistency checks; changes to runtime behavior also need the relevant
 tests and CI checks.
 
 The credential-free `--tui-fixture=<state>` development flag renders deterministic lifecycle states for PTY snapshots without loading config, providers, credentials, sessions, hooks, MCP, or project files.
+
+The offline HTML manual has real Chromium tests for its navigation, responsive
+layout, offline loading, and print controls:
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:browser
+```
+
+These browser tests cover the manual. The terminal application is covered by
+Go integration tests, executable subprocess tests, the cross-platform smoke
+suite, and the POSIX PTY gate. See [testing and coverage limits](docs/testing.md)
+for the feature map and external checks that automation does not establish.
 
 ## License
 

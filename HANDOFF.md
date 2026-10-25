@@ -1,6 +1,24 @@
 # Packetcode Maintainer Handoff
 
-Updated: 2026-09-11
+Updated: 2026-10-25
+
+## October feature validation
+
+Start with [testing and coverage limits](docs/testing.md) for the advertised
+feature map and reproducible checks. The new executable tests drive the actual
+CLI through isolated provider, ACP, skills, and Sugar fixtures. Chromium tests
+exercise the offline HTML manual on desktop/mobile; both CI and tagged releases
+gate on them. They do not replace the terminal PTY gate or external service
+checks.
+
+This pass fixes command help/argument handling, malformed-skill JSON exit
+status, mixed-model cost attribution and labels, bounded regular-file reads,
+and the manual's mobile/print layouts. Cost tallies retain aggregate fields and
+add model buckets; older binaries can discard those buckets. Stalled SFTP
+cancellation and the external checks in the coverage guide remain open.
+
+Check the CI run for the current commit and the release workflow for its tag;
+the September baseline below is historical evidence, not the current result.
 
 The latest security and lifecycle hardening is documented in
 [the September 8 review](docs/audit/hardening-2026-09-08.md). For routine fixes,
@@ -10,7 +28,7 @@ remain useful; Git and the current CI run are authoritative for shipped work.
 For implementation contracts and regression locations, read
 [the developer guide](docs/development.md).
 
-## Latest verified behavior baseline
+## September verified behavior baseline
 
 The September 11 usability pass is merged as `7f7ecb3`.
 [All 16 CI jobs passed](https://github.com/packetloss404/packetcode/actions/runs/34664539030),

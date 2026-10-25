@@ -143,7 +143,48 @@ func (b *LocalBackend) ReadFile(ctx context.Context, name string) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	return os.ReadFile(resolved)
+	// Inspect before opening: opening a FIFO can block before a context can
+	// be checked. Inspect the opened handle again for replacement/growth.
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkLocalReadFile(info); err != nil {
+		return nil, err
+	}
+	f, err := os.Open(resolved)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err = f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if err := checkLocalReadFile(info); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxReadFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxReadFileBytes {
+		return nil, fmt.Errorf("local file exceeds %d-byte read limit", maxReadFileBytes)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func checkLocalReadFile(info os.FileInfo) error {
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("local read requires a regular file")
+	}
+	if info.Size() > maxReadFileBytes {
+		return fmt.Errorf("local file exceeds %d-byte read limit", maxReadFileBytes)
+	}
+	return nil
 }
 
 func (b *LocalBackend) WriteFile(ctx context.Context, name string, data []byte) error {

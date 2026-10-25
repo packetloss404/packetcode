@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -83,7 +84,10 @@ func runDoctorCommand(args []string, stdout, stderr io.Writer) int {
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	var filter doctorCheckFilter
 	fs.Var(&filter, "check", "limit diagnostics to a section or check id; repeat or comma-separate")
-	if err := fs.Parse(args); err != nil {
+	if err := parseCommandFlags(fs, args, stdout, stderr); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if fs.NArg() != 0 {

@@ -76,10 +76,9 @@ func runRunCommand(args []string, stdout, stderr io.Writer) int {
 	jsonFlag := fs.Bool("json", false, "write one machine-readable JSON result")
 	// stdout is the answer stream for automation, so usage goes there only
 	// when it was asked for; a flag error prints it to stderr.
-	fs.Usage = func() { printRunUsage(stderr) }
-	if err := fs.Parse(args); err != nil {
+	fs.Usage = func() { printRunUsage(fs.Output()) }
+	if err := parseCommandFlags(fs, args, stdout, stderr); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printRunUsage(stdout)
 			return 0
 		}
 		return runExitUsage
