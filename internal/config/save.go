@@ -140,7 +140,7 @@ func readConfigFile(path string) (string, error) {
 	if err := EnsureDir(filepath.Dir(path)); err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(path)
+	data, err := atomicfile.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil

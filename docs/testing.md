@@ -76,9 +76,15 @@ interaction remains a manual check.
 - **Distribution:** CI checks six binary targets and a GoReleaser snapshot.
   Installer tests verify valid/invalid/missing signature branches. Tagged
   releases repeat platform preflight, PTY and browser checks before publication.
+  Windows CI and release preflight also repeat the persistence package ten
+  times, including held-reader replacement and external-lock regressions.
 
 These groups make the feature claims traceable. Passing them is not a claim
 that every possible feature combination or external environment was tested.
+
+During the 2026-10-25 pass, the opt-in live Codex text, tool-call, and reasoning
+smokes passed using one existing account with `gpt-5.6-sol`. Other live provider
+accounts and the environments below remain external checks.
 
 ## External end-to-end checks
 
@@ -96,6 +102,9 @@ The following require their actual service, client, hardware, or credentials:
   client's request/poll/save sequence only.
 - Native terminal behavior on the user's emulator, especially Windows ConPTY,
   clipboard integration, and terminal-specific shifted keys.
+- FAT, UNC/network shares, and crash/power-loss durability. The Windows
+  held-reader and contention regressions establish local filesystem behavior;
+  filesystem-specific replacement support and external locking still vary.
 - Clean-machine release installation, upgrade/rollback, Apple notarization,
   and Windows certificate/reputation behavior. OS signing runs only when the
   repository has the required certificates; the release summary reports it.

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/packetcode/packetcode/internal/atomicfile"
 	"github.com/packetcode/packetcode/internal/compat"
 	"github.com/packetcode/packetcode/internal/config"
 )
@@ -66,7 +67,7 @@ func LoadApprovals() (*Approvals, error) {
 	path := filepath.Join(home, approvalsFile)
 	a := &Approvals{path: path, entries: map[string]approvalEntry{}}
 
-	data, err := os.ReadFile(path)
+	data, err := atomicfile.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return a, nil
@@ -169,27 +170,9 @@ func (a *Approvals) save() error {
 	if err := os.MkdirAll(filepath.Dir(a.path), 0o700); err != nil {
 		return err
 	}
-	// Written through a temp file in the same directory and renamed, so a
-	// crash mid-write cannot leave a half-parsed store -- which would read as
-	// "nothing approved" and silently disable every skill already agreed to.
-	tmp, err := os.CreateTemp(filepath.Dir(a.path), ".skill-approvals-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, a.path)
+	// Sync and replace with the same sharing-aware persistence used by jobs
+	// and sessions; retain the exact sorted JSON and trailing newline.
+	return atomicfile.Write(a.path, append(data, '\n'), 0o600, ".skill-approvals-*")
 }
 
 // BodyDigest is the content identity an approval is bound to.

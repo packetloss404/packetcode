@@ -11,9 +11,14 @@ PTY goldens, six builds, and release dry run. Then push a new version tag.
 deployment in this repository; publishing a release is its distribution step.
 
 ```bash
-git tag -a v0.6.0 -m "v0.6.0"
-git push origin v0.6.0
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin vX.Y.Z
 ```
+
+Replace `vX.Y.Z` with an unused version. Preserve a failed tag as evidence and
+use a new patch version for a source fix; do not move a published tag. The
+`v0.6.1` preflight caught a Windows concurrent-save failure before publication,
+so those changes and the fix continue in `v0.6.2`.
 
 The workflow runs the test suite on Linux, macOS and Windows, the TUI golden
 check, and the Chromium manual check before publication, so a tag that fails

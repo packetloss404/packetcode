@@ -79,7 +79,7 @@ func Empty() *Tally {
 // Load reads a tally from path. Missing file returns Empty() with no error
 // — first-run is normal.
 func Load(path string) (*Tally, error) {
-	data, err := os.ReadFile(path)
+	data, err := atomicfile.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return Empty(), nil

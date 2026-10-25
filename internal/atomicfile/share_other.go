@@ -2,6 +2,12 @@
 
 package atomicfile
 
+import "os"
+
+func readFile(path string) ([]byte, error) { return os.ReadFile(path) }
+
+func renameFile(from, to string) error { return os.Rename(from, to) }
+
 // isShareViolation is always false away from Windows.
 //
 // POSIX renames succeed with the destination open, and a reader holding an

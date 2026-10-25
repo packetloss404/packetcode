@@ -14,6 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/packetcode/packetcode/internal/atomicfile"
 	"github.com/packetcode/packetcode/internal/compat"
 )
 
@@ -470,7 +471,7 @@ func (c *Config) CompatProblems() []string {
 // LoadFrom reads config from an explicit path. Exposed for testing and
 // for callers that want to point at a non-default file.
 func LoadFrom(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := atomicfile.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, fmt.Errorf("read config: %w", err)

@@ -5,10 +5,17 @@ All notable packetcode changes are recorded here. The project is pre-1.0;
 
 ## [Unreleased]
 
-## [0.6.1] - 2026-10-25
+## [0.6.2] - 2026-10-25
+
+The `v0.6.1` tag did not publish binaries: Windows release preflight caught a
+concurrent-save failure. Its changes are included here with the persistence fix.
 
 ### Fixed
 
+- Windows atomic state saves can replace a file while Packetcode readers finish
+  their complete previous snapshots, using Go's native replacement semantics.
+  Filesystems without that support and external processes that deny replacement
+  can still cause a bounded save failure; the prior file remains intact.
 - CI and release builds use Go 1.26.10, fixing the standard-library certificate
   vulnerability GO-2026-6809 reported by the vulnerability scan.
 - Public command help exits successfully and writes to stdout, including nested

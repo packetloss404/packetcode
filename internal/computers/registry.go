@@ -61,7 +61,7 @@ func Load(dir string) (*Registry, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, fmt.Errorf("computers: empty registry dir")
 	}
-	data, err := os.ReadFile(filepath.Join(dir, FileName))
+	data, err := atomicfile.ReadFile(filepath.Join(dir, FileName))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return r, nil

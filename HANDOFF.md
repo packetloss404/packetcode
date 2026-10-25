@@ -13,7 +13,10 @@ checks.
 
 This pass fixes command help/argument handling, malformed-skill JSON exit
 status, mixed-model cost attribution and labels, bounded regular-file reads,
-and the manual's mobile/print layouts. Cost tallies retain aggregate fields and
+the manual's mobile/print layouts, and Windows save contention with active
+persistent-state readers. The `v0.6.1` preflight blocked publication after
+catching the Windows failure; its fix proceeds in `v0.6.2`.
+Cost tallies retain aggregate fields and
 add model buckets; older binaries can discard those buckets. Stalled SFTP
 cancellation and the external checks in the coverage guide remain open.
 

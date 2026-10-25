@@ -232,7 +232,7 @@ func (m *Manager) Load(id string) (*Session, error) {
 		return nil, err
 	}
 	path := filepath.Join(m.dir, id+".json")
-	data, err := os.ReadFile(path)
+	data, err := atomicfile.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("load session: %w", err)
 	}
@@ -498,7 +498,7 @@ func (m *Manager) ListWithProblems() ([]Summary, []string, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(m.dir, e.Name()))
+		data, err := atomicfile.ReadFile(filepath.Join(m.dir, e.Name()))
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("%s: %s", e.Name(), err))
 			continue

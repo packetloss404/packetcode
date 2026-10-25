@@ -77,12 +77,12 @@ const (
 	shareRetryDelay = 10 * time.Millisecond
 )
 
-// renameRetrying is os.Rename that waits out a transient Windows sharing
+// renameRetrying performs atomic replacement and waits out a transient Windows sharing
 // collision instead of reporting one as a failed write.
 func renameRetrying(from, to string) error {
 	var err error
 	for attempt := 0; attempt < shareRetries; attempt++ {
-		if err = os.Rename(from, to); err == nil || !isShareViolation(err) {
+		if err = renameFile(from, to); err == nil || !isShareViolation(err) {
 			return err
 		}
 		time.Sleep(shareRetryDelay)
@@ -90,20 +90,19 @@ func renameRetrying(from, to string) error {
 	return err
 }
 
-// ReadFile is os.ReadFile that waits out a transient Windows sharing collision.
+// ReadFile reads an immutable snapshot, allowing atomic replacement while its
+// handle is open on Windows, and retries transient external sharing collisions.
 //
-// It is the read half of the same problem Write solves: a reader that happens
-// to open a file during the instant a rename is replacing it gets
-// ERROR_SHARING_VIOLATION, which callers cannot distinguish from a corrupt or
-// missing record and so tend to report as one. A file that does not exist still
-// returns os.ErrNotExist on the first attempt, without waiting.
+// A handle already reading the previous file retains those bytes; a new reader
+// sees the replacement. External handles may still deny sharing, so bounded
+// retries remain. A missing file returns os.ErrNotExist without waiting.
 func ReadFile(path string) ([]byte, error) {
 	var (
 		data []byte
 		err  error
 	)
 	for attempt := 0; attempt < shareRetries; attempt++ {
-		if data, err = os.ReadFile(path); err == nil || !isShareViolation(err) {
+		if data, err = readFile(path); err == nil || !isShareViolation(err) {
 			return data, err
 		}
 		time.Sleep(shareRetryDelay)

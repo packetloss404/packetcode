@@ -18,6 +18,7 @@ not instructions to reapply old patches.
 | Executable CLI workflows | `cmd/packetcode` | `cli_e2e_test.go` builds and runs the real binary |
 | Mixed-model accounting | `internal/cost`, `internal/app/slashcmd_cost.go` | `tally_test.go`, `slashcmd_cost_models_test.go` |
 | Bounded workspace reads | `internal/computers`, `internal/tools` | `local_backend_read_test.go`, `local_backend_fifo_test.go`, `read_file_test.go` |
+| Windows state persistence | `internal/atomicfile` and its persistent-state readers | `share_windows_test.go`, `share_race_test.go`; Windows CI repeats the package ten times |
 | Offline browser manual | `docs/packetcode-manual.html` | `tests/browser/manual.spec.js` |
 
 Test filenames are relative to the owning package. See

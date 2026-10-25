@@ -1,6 +1,8 @@
 package atomicfile
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -38,8 +40,13 @@ func TestWriteAndReadContendOnOnePathWithoutFailing(t *testing.T) {
 			case <-done:
 				return
 			default:
-				if _, err := ReadFile(path); err != nil {
+				data, err := ReadFile(path)
+				if err != nil {
 					readErr.Store(err)
+					return
+				}
+				if !bytes.Equal(data, []byte(`{"state":"running"}`)) && !bytes.Equal(data, []byte(`{"state":"completed"}`)) {
+					readErr.Store(fmt.Errorf("reader observed a partial snapshot: %q", data))
 					return
 				}
 				atomic.AddInt64(&reads, 1)

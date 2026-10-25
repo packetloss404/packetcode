@@ -161,12 +161,9 @@ func TestLiveReasoning(t *testing.T) {
 			t.Fatalf("stream error: %v", ev.Error)
 		}
 	}
-	// Note: the Codex ChatGPT backend reports default_reasoning_summary=none for
-	// the gpt-5.6 family (responses-lite mode), so it does not stream reasoning
-	// summaries today — reasoning.Len() is expected to be 0 for those models.
-	// This is informational: it documents backend behavior and confirms the
-	// answer still streams. packetcode's reasoning display is exercised by the
-	// unit tests; it lights up for any model that does emit summaries.
+	// Reasoning summaries depend on live model/account metadata; a valid stream
+	// can include a summary or omit it. Require the final answer here and leave
+	// deterministic reasoning-event handling to the protocol unit tests.
 	t.Logf("reasoning chars=%d answer=%q", reasoning.Len(), strings.TrimSpace(text.String()))
 	if strings.TrimSpace(text.String()) == "" {
 		t.Fatal("expected an answer")

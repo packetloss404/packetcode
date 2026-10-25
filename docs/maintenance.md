@@ -88,6 +88,11 @@ macOS, or WSL PTY environment; see [the TUI harness](tui-parity-harness.md).
 - For a stopped MCP server, `/mcp status NAME` and `/mcp tools NAME` point to
   logs and manual reconnection. Editing the configuration requires restarting
   Packetcode; reconnecting does not repeat failed tool calls.
+- On supported Windows filesystems, Packetcode's state readers and native rename
+  path allow atomic replacement during a read. Unsupported filesystems retain
+  the bounded legacy retry path. An external process opening a state file
+  without deletion sharing can still block replacement; a failed save reports
+  its error and retains the prior file rather than truncating it.
 
 Use `packetcode doctor` for configuration/state diagnosis; see
 [operational runbooks](runbooks.md) for credential and storage procedures.

@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/packetcode/packetcode/internal/atomicfile"
 	"github.com/packetcode/packetcode/internal/diaglog"
 )
 
@@ -182,7 +183,7 @@ func (s *Store) Refresh(ctx context.Context) (Tokens, error) {
 
 // read parses auth.json. Callers must hold s.mu.
 func (s *Store) read() (authFile, error) {
-	raw, err := os.ReadFile(s.path)
+	raw, err := atomicfile.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return authFile{}, fmt.Errorf("%s not found; run `codex login` and choose Sign in with ChatGPT", s.path)
@@ -202,7 +203,7 @@ func (s *Store) read() (authFile, error) {
 func (s *Store) write(tokens Tokens) error {
 	// Preserve unknown keys by decoding into a generic map first.
 	obj := map[string]json.RawMessage{}
-	if raw, err := os.ReadFile(s.path); err == nil {
+	if raw, err := atomicfile.ReadFile(s.path); err == nil {
 		_ = json.Unmarshal(raw, &obj)
 	}
 
@@ -223,26 +224,7 @@ func (s *Store) write(tokens Tokens) error {
 		return err
 	}
 
-	dir := filepath.Dir(s.path)
-	tmp, err := os.CreateTemp(dir, ".auth-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op after a successful rename
-
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, s.path)
+	return atomicfile.Write(s.path, out, 0o600, ".auth-*.tmp")
 }
 
 // tokenResponse is the OAuth token endpoint reply for a refresh_token grant.
