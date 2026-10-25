@@ -294,12 +294,11 @@ func TestCLIEndToEnd(t *testing.T) {
 	})
 
 	t.Run("sugar_device_login_persists_discovered_model", func(t *testing.T) {
-		var base string
 		service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			switch r.URL.Path {
 			case "/api/v1/auth/device/code":
-				fmt.Fprintf(w, `{"device_code":"fixture-device","user_code":"E2E-CODE","verification_uri":"%s/connect","expires_in":30,"interval":1}`, base)
+				fmt.Fprintf(w, `{"device_code":"fixture-device","user_code":"E2E-CODE","verification_uri":"http://%s/connect","expires_in":30,"interval":1}`, r.Host)
 			case "/api/v1/auth/device/token":
 				fmt.Fprint(w, `{"token":"sgr_e2e_fixture","name":"CLI fixture"}`)
 			case "/api/v1/models":
@@ -313,8 +312,7 @@ func TestCLIEndToEnd(t *testing.T) {
 			}
 		}))
 		defer service.Close()
-		base = service.URL
-		stdout, _ := run(t, 0, "sugar", "login", "--server", base, "--name", "e2e-machine", "--no-browser")
+		stdout, _ := run(t, 0, "sugar", "login", "--server", service.URL, "--name", "e2e-machine", "--no-browser")
 		if !strings.Contains(stdout, "1 live models available") || strings.Contains(stdout, "sgr_e2e_fixture") {
 			t.Fatalf("login output = %q", stdout)
 		}
