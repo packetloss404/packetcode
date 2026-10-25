@@ -124,7 +124,7 @@ try {
     Write-Host "$installedVersion"
     Write-Host "Installed to $destination"
     if (($env:PATH -split [System.IO.Path]::PathSeparator) -notcontains $InstallDir) {
-        Write-Warning "$InstallDir is not on PATH. PacketADE can still detect this documented install location."
+        Write-Warning "$InstallDir is not on PATH. Add this directory to PATH to run packetcode by name."
     }
 }
 finally {

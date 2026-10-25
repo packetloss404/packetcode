@@ -5,6 +5,9 @@ All notable packetcode changes are recorded here. The project is pre-1.0;
 
 ## [Unreleased]
 
+- The Windows installer's custom-directory PATH hint no longer claims that
+  PacketADE automatically discovers every chosen installation path.
+
 ## [0.6.2] - 2026-10-25
 
 The `v0.6.1` tag did not publish binaries: Windows release preflight caught a
