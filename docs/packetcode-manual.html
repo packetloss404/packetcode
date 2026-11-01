@@ -418,14 +418,26 @@
 
       <section id="quick-start" aria-labelledby="quick-start-title">
         <h2 id="quick-start-title"><span class="section-no">01</span><a class="anchor-link" href="#quick-start">Install and start</a></h2>
-        <p>packetcode requires Go 1.26.0 or newer when building from source. Use Go 1.26.10 or newer for the current certificate-security fixes; CI and releases pin 1.26.10. Run it from the project directory you want it to work in; inside a Git repository it resolves the repository root as the native file-tool boundary.</p>
+        <p>Prebuilt executables are available for macOS (Apple silicon and Intel), Linux (x86-64 and ARM64), and Windows (x86-64 and ARM64). You do not need Go to run a release download. Run it from the project directory you want it to work in; inside a Git repository it resolves the repository root as the native file-tool boundary.</p>
 
         <h3 id="install-release">macOS or Linux release install</h3>
+        <p>The installer detects your operating system and architecture, verifies the archive checksum, and installs into <code>/usr/local/bin</code>:</p>
         <pre><code>curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | bash</code></pre>
         <p>Without <code>sudo</code>:</p>
-        <pre><code>curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash</code></pre>
+        <pre><code>curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
+export PATH="$HOME/.local/bin:$PATH"</code></pre>
+        <p>Keep that directory on <code>PATH</code> in your shell profile for future terminals. Verify and launch from your project directory:</p>
+        <pre><code>packetcode --version
+packetcode</code></pre>
+
+        <h3 id="install-windows">Windows release install</h3>
+        <pre><code>&amp; ([scriptblock]::Create((Invoke-WebRequest https://raw.githubusercontent.com/packetloss404/packetcode/main/install.ps1).Content))
+&amp; "$env:LOCALAPPDATA\Programs\PacketCode\bin\packetcode.exe" --version
+&amp; "$env:LOCALAPPDATA\Programs\PacketCode\bin\packetcode.exe"</code></pre>
+        <p>The default install directory is <code>%LOCALAPPDATA%\Programs\PacketCode\bin</code>. Add it to <code>PATH</code> to use <code>packetcode</code> without the full path in future terminals. The <a href="../README.md#download-a-binary-directly">README</a> lists all six downloads; the <a href="releases.md">release guide</a> explains checksum and signature verification.</p>
 
         <h3 id="build-source">Build from source</h3>
+        <p>Building from source requires Go 1.26.0 or newer. Use Go 1.26.10 or newer for the current certificate-security fixes; CI and releases pin 1.26.10. The language minimum remains 1.26.0.</p>
         <div class="cards">
           <div class="card">
             <h4>macOS / Linux</h4>

@@ -33,16 +33,32 @@ live in `testdata/tui/golden/packetcode/` and are checked by CI.
 
 ## Install
 
+Prebuilt executables are available for macOS (Apple silicon and Intel), Linux
+(x86-64 and ARM64), and Windows (x86-64 and ARM64). Go is only needed to build
+from source.
+
 Install the latest macOS or Linux release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | bash
 ```
 
+The installer detects your operating system and architecture, verifies the
+archive's SHA-256 checksum, and installs `packetcode` into `/usr/local/bin`.
+
 Install without `sudo`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Keep that directory on `PATH` in your shell profile for future terminals.
+Verify the install, then launch from the project directory you want to work in:
+
+```bash
+packetcode --version
+packetcode
 ```
 
 Install the latest Windows release:
@@ -55,33 +71,32 @@ The Windows installer defaults to
 `%LOCALAPPDATA%\Programs\PacketCode\bin` and does not silently modify `PATH`.
 PacketADE also checks that documented location.
 
-Install a specific release rather than whatever is newest:
+Pin a specific release, for example `v0.6.2`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | VERSION=v0.6.0 bash
+curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | VERSION=v0.6.2 bash
 ```
 
 ```powershell
-& ([scriptblock]::Create((Invoke-WebRequest https://raw.githubusercontent.com/packetloss404/packetcode/main/install.ps1).Content)) -Version v0.6.0
+& ([scriptblock]::Create((Invoke-WebRequest https://raw.githubusercontent.com/packetloss404/packetcode/main/install.ps1).Content)) -Version v0.6.2
 ```
 
-Worth doing for anything unattended. `latest` is whatever the repository
-publishes at the moment the script happens to run, which is the opposite of a
-reproducible install.
+Set a version for scripts that need a fixed release. Omit it to install the
+latest published release.
 
 ### Download a binary directly
 
-Every release publishes a static binary for each supported platform. These
-links resolve to whatever the newest release is, so they do not go stale:
+Every release includes an executable for each supported platform. These links
+resolve to the latest published release:
 
 | Platform | Download |
 | --- | --- |
 | Linux x86-64 | [packetcode-linux-amd64.tar.gz](https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-linux-amd64.tar.gz) |
-| Linux arm64 | [packetcode-linux-arm64.tar.gz](https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-linux-arm64.tar.gz) |
-| macOS Apple silicon | [packetcode-darwin-arm64.tar.gz](https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-darwin-arm64.tar.gz) |
-| macOS Intel | [packetcode-darwin-amd64.tar.gz](https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-darwin-amd64.tar.gz) |
+| Linux ARM64 | [packetcode-linux-arm64.tar.gz](https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-linux-arm64.tar.gz) |
+| macOS Apple silicon (ARM64) | [packetcode-darwin-arm64.tar.gz](https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-darwin-arm64.tar.gz) |
+| macOS Intel (x86-64) | [packetcode-darwin-amd64.tar.gz](https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-darwin-amd64.tar.gz) |
 | Windows x86-64 | [packetcode-windows-amd64.zip](https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-windows-amd64.zip) |
-| Windows arm64 | [packetcode-windows-arm64.zip](https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-windows-arm64.zip) |
+| Windows ARM64 | [packetcode-windows-arm64.zip](https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-windows-arm64.zip) |
 
 Older versions, release notes, and the checksum and signature files are on the
 [releases page](https://github.com/packetloss404/packetcode/releases).
@@ -116,7 +131,9 @@ attestation covering every archive, verifiable with
 See [docs/releases.md](docs/releases.md) for what is published, how to verify a
 download by hand, and how release signing is configured.
 
-Build from source with Go 1.26.0 or newer:
+### Build from source
+
+Building from source requires Go 1.26.0 or newer.
 
 Use Go 1.26.10 or newer for the certificate-security fix in
 [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809). CI and releases pin 1.26.10;

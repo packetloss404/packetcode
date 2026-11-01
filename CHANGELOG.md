@@ -5,6 +5,10 @@ All notable packetcode changes are recorded here. The project is pre-1.0;
 
 ## [Unreleased]
 
+- Installation guides now lead with prebuilt macOS, Linux, and Windows
+  downloads, clarify architecture detection and PATH setup, and document
+  platform builds. Release verification includes macOS checksum commands and
+  fixes the shell example for requiring a checksum signature.
 - The Windows installer's custom-directory PATH hint no longer claims that
   PacketADE automatically discovers every chosen installation path.
 

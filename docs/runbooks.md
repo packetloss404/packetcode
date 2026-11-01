@@ -522,13 +522,17 @@ sha256sum --check --ignore-missing checksums.txt
 gh attestation verify packetcode-linux-amd64.tar.gz --repo packetloss404/packetcode
 ```
 
+On macOS, use `shasum -a 256 --check --ignore-missing checksums.txt` for the
+checksum step. Use your downloaded archive's name for `gh attestation verify`.
+
 `install.sh` and `install.ps1` do the first two for you when `cosign` is
-present. **They proceed without it unless you insist**
-(`install.sh:98-99`, `install.ps1:53-54`):
+present. To require signature verification, install `cosign` and use:
 
 ```bash
-REQUIRE_SIGNATURE=1 curl -fsSL .../install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | REQUIRE_SIGNATURE=1 bash
 ```
+
+Set `REQUIRE_SIGNATURE` on `bash`, which runs the installer.
 
 ```powershell
 .\install.ps1 -RequireSignature
