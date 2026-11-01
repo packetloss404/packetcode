@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#f4f1e9"/>
+  <path d="M60 100H1140M60 560H1140" stroke="#d8d9ce"/>
+  <rect x="60" y="45" width="30" height="30" rx="4" fill="#e85d3f"/>
+  <path d="m68 54 7 6-7 6m11 0h5" fill="none" stroke="#fffaf1" stroke-width="2.5"/>
+  <text x="105" y="70" font-family="monospace" font-size="29" font-weight="700" fill="#242821">packetcode</text>
+  <text x="1138" y="67" text-anchor="end" font-family="monospace" font-size="14" letter-spacing="2" fill="#697064">OPEN SOURCE. OPEN ENDED.</text>
+  <text x="60" y="155" font-family="monospace" font-size="14" letter-spacing="2" fill="#697064">A CODING AGENT FOR YOUR TERMINAL</text>
+  <g font-family="Georgia, serif" font-size="82" fill="#242821" letter-spacing="-3">
+    <text x="57" y="253">Your terminal.</text>
+    <text x="57" y="345">Your models.</text>
+    <text x="57" y="437" font-style="italic" fill="#e85d3f">Your code.</text>
+  </g>
+  <g transform="translate(662 191)">
+    <rect width="478" height="318" rx="12" fill="#242821"/>
+    <circle cx="23" cy="23" r="4" fill="#e85d3f"/>
+    <circle cx="39" cy="23" r="4" fill="#d6b361"/>
+    <circle cx="55" cy="23" r="4" fill="#92aa8e"/>
+    <text x="455" y="28" text-anchor="end" font-family="monospace" font-size="11" fill="#b4b9aa">~/your-next-idea</text>
+    <path d="M0 46H478" stroke="#41473a"/>
+    <g font-family="monospace" font-size="16">
+      <text x="25" y="91" fill="#e85d3f">› <tspan fill="#f4f1e9">Review this change.</tspan></text>
+      <text x="25" y="141" fill="#a5b69b">read_file <tspan fill="#d8d9ce">internal/app/app.go</tspan></text>
+      <text x="25" y="176" fill="#a5b69b">git diff  <tspan fill="#d8d9ce">3 files changed</tspan></text>
+      <text x="25" y="231" fill="#f4f1e9">Your workflow, with more possibility.</text>
+      <path d="M25 260H453" stroke="#41473a"/>
+      <text x="25" y="287" font-size="12" fill="#b4b9aa">YOUR MODELS · YOUR TOOLS · YOUR APPROVAL</text>
+    </g>
+  </g>
+  <text x="60" y="598" font-family="monospace" font-size="15" fill="#697064">macOS · Linux · Windows</text>
+  <text x="1140" y="598" text-anchor="end" font-family="monospace" font-size="15" fill="#697064">packetloss404.github.io/packetcode</text>
+</svg>

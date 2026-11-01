@@ -1,8 +1,9 @@
 # Testing and coverage limits
 
-The advertised product is a terminal coding agent. `docs/packetcode-manual.html`
-is its offline browser manual; this repository does not deploy a web application.
-Its distribution target is GitHub Releases, built by `.github/workflows/release.yml`.
+The product is a terminal coding agent, distributed through GitHub Releases by
+`.github/workflows/release.yml`. Its public website lives in `site/` and is
+published to GitHub Pages by `.github/workflows/pages.yml`.
+`docs/packetcode-manual.html` is its offline browser manual.
 
 ## Reproduce the checks
 
@@ -44,6 +45,18 @@ The [POSIX PTY gate](tui-parity-harness.md) runs `make tui-golden-check` with
 Python and `scripts/requirements-tui.txt`. It checks actual terminal output,
 resize, styled cells, and terminal protocol safety. Native Windows/ConPTY
 interaction remains a manual check.
+
+For the public website, build the static output and run its browser checks:
+
+```text
+npm run build:site
+npm run test:site
+```
+
+The website checks use the GitHub Pages project path `/packetcode/` and cover
+installation controls, download links, navigation, documentation, and mobile
+layout. The Pages workflow runs them before deployment. See
+[website maintenance](website.md) for the preview and publication workflow.
 
 ## Advertised feature map
 

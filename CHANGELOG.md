@@ -5,6 +5,9 @@ All notable packetcode changes are recorded here. The project is pre-1.0;
 
 ## [Unreleased]
 
+- A public GitHub Pages website introduces PacketCode with real app screenshots,
+  platform downloads, copyable installation commands, and a getting-started
+  guide. Its deployment workflow validates desktop and mobile behavior.
 - Installation guides now lead with prebuilt macOS, Linux, and Windows
   downloads, clarify architecture detection and PATH setup, and document
   platform builds. Release verification includes macOS checksum commands and

@@ -14,8 +14,9 @@ the same for Windows. Go is only needed when building from source.
 First wait for CI on the exact commit to finish successfully, including the
 cross-platform tests, lint, vulnerabilities, executable smoke, browser manual,
 PTY goldens, six builds, and release dry run. Then push a new version tag.
-`.github/workflows/release.yml` does the rest. Packetcode has no hosted web
-deployment in this repository; publishing a release is its distribution step.
+`.github/workflows/release.yml` distributes the terminal application through
+GitHub Releases. The [product website](https://packetloss404.github.io/packetcode/)
+is deployed separately to GitHub Pages; see [website maintenance](website.md).
 
 ```bash
 git tag -a vX.Y.Z -m "vX.Y.Z"

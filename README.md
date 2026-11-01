@@ -2,6 +2,11 @@
 
 A keyboard-first, multi-provider coding agent for the terminal, with a Claude Code-inspired TUI and first-class OpenAI Codex subscription support.
 
+[Website](https://packetloss404.github.io/packetcode/) ·
+[Getting started](https://packetloss404.github.io/packetcode/guide/) ·
+[Releases](https://github.com/packetloss404/packetcode/releases) ·
+[User manual](docs/manual.md)
+
 > Status: pre-1.0 and under active development. Documentation describes the current `main` branch.
 
 packetcode keeps the conversation, tools, approvals, background agents, and workflows in one terminal interface. It can inspect and edit the current project, execute commands, delegate work, connect to MCP tools, and use hosted or local models without routing through OpenCode.

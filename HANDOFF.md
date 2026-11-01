@@ -2,6 +2,14 @@
 
 Updated: 2026-10-31
 
+## Product website
+
+The public site is [packetloss404.github.io/packetcode](https://packetloss404.github.io/packetcode/).
+Edit `site/`, run `npm run build:site` and `npm run test:site`, and use the
+dedicated GitHub Pages workflow to deploy. The site includes a getting-started
+guide and the offline HTML manual. Website maintenance and deployment settings
+are documented in [docs/website.md](docs/website.md).
+
 ## Platform installation documentation
 
 The README, Getting Started, user manual, and offline HTML manual describe
