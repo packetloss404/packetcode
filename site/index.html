@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f1e9">
+  <meta name="description" content="Meet PacketCode: the open-source coding agent for your terminal. Bring your models, work with native tools, and stay in control. Available for macOS, Linux, and Windows.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="PacketCode — Your terminal. More capable.">
+  <meta property="og:description" content="An open-source coding agent. Your models, your tools, your terminal. One native binary for macOS, Linux, and Windows.">
+  <meta property="og:url" content="https://packetloss404.github.io/packetcode/">
+  <meta property="og:image" content="https://packetloss404.github.io/packetcode/assets/social-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="PacketCode: your terminal, more capable. A coding agent for macOS, Linux, and Windows.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="PacketCode — Your terminal. More capable.">
+  <meta name="twitter:description" content="An open-source coding agent. Your models, your tools, your terminal.">
+  <meta name="twitter:image" content="https://packetloss404.github.io/packetcode/assets/social-card.png">
+  <link rel="canonical" href="https://packetloss404.github.io/packetcode/">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/InstrumentSerif-Regular.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="assets/site.css">
+  <script src="assets/site.js" defer></script>
+  <title>PacketCode — Your terminal. More capable.</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="./" aria-label="PacketCode home"><span class="brand-mark" aria-hidden="true">[p_]</span>packetcode<span class="brand-dot">.</span></a>
+      <button class="nav-toggle" data-menu-toggle aria-controls="site-nav" aria-expanded="false" aria-label="Toggle navigation">Menu <span aria-hidden="true">+</span></button>
+      <nav class="site-nav" id="site-nav" aria-label="Main navigation">
+        <a href="#workspace">The workspace</a>
+        <a href="#features">Why PacketCode</a>
+        <a href="guide/">The guide</a>
+        <a class="button button-small button-dark" href="https://github.com/packetloss404/packetcode">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero container" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> THE OPEN-SOURCE CODING AGENT</p>
+        <h1 id="hero-title">Your terminal.<br><em>More capable.</em></h1>
+        <p class="hero-description">Bring your models. Keep your workflow. Conversation, native tools, and background agents, together in the terminal you already use.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#download">Get PacketCode <span aria-hidden="true">↓</span></a>
+          <a class="text-link" href="guide/">Read the guide <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="hero-footnote">One native binary. No Go runtime required.</p>
+      </div>
+      <div class="hero-install">
+        <div class="install-intro"><span class="small-cross" aria-hidden="true">✳</span><p>A good place<br>to <em>start.</em></p><span class="install-index">[ 01 / INSTALL ]</span></div>
+        <div class="install-box" data-install>
+          <div class="install-tabs" role="tablist" aria-label="Installation platform">
+            <button id="install-tab-unix" class="install-tab" role="tab" aria-selected="true" aria-controls="install-panel-unix" data-install-tab="unix">macOS / Linux</button>
+            <button id="install-tab-windows" class="install-tab" role="tab" aria-selected="false" aria-controls="install-panel-windows" tabindex="-1" data-install-tab="windows">Windows</button>
+          </div>
+          <div id="install-panel-unix" class="install-panel" role="tabpanel" aria-labelledby="install-tab-unix" tabindex="0">
+            <div class="terminal-label"><span aria-hidden="true">↳</span> RUN IN YOUR TERMINAL <button class="copy-button" data-copy-target="install-command-unix" aria-label="Copy macOS or Linux install command">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><span class="command-prompt" aria-hidden="true">$ </span><code id="install-command-unix">curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | bash</code></pre>
+            <p class="install-note">Finds the right build for your machine.<br>Checks the archive before installing.</p>
+          </div>
+          <div id="install-panel-windows" class="install-panel" role="tabpanel" aria-labelledby="install-tab-windows" tabindex="0" hidden>
+            <div class="terminal-label"><span aria-hidden="true">↳</span> RUN IN POWERSHELL <button class="copy-button" data-copy-target="install-command-windows" aria-label="Copy Windows install command">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><span class="command-prompt" aria-hidden="true">&gt; </span><code id="install-command-windows">&amp; ([scriptblock]::Create((Invoke-WebRequest https://raw.githubusercontent.com/packetloss404/packetcode/main/install.ps1).Content))</code></pre>
+            <p class="install-note">Selects your Windows architecture.<br>The installer prints your launch path.</p>
+          </div>
+          <a class="install-help" href="guide/#install">Other ways to install <span aria-hidden="true">↗</span></a>
+        </div>
+        <noscript><p class="install-noscript">For Windows installation commands, <a href="guide/#install">open the guide</a>.</p></noscript>
+      </div>
+    </section>
+
+    <div class="container platform-strip" aria-label="Project at a glance">
+      <span><span class="strip-icon" aria-hidden="true">◇</span> macOS · Linux · Windows</span>
+      <span><span class="strip-icon" aria-hidden="true">⌘</span> Keyboard first. Naturally.</span>
+      <a href="https://github.com/packetloss404/packetcode/blob/main/LICENSE">Open source · MIT <span aria-hidden="true">↗</span></a>
+    </div>
+
+    <section id="workspace" class="workspace-section container" aria-labelledby="workspace-title">
+      <div class="section-heading workspace-heading">
+        <div><p class="section-kicker">01 — A FAMILIAR PLACE</p><h2 id="workspace-title">Less switching.<br><em>More making.</em></h2></div>
+        <p>Your conversation, the work in progress, and the tools to move it forward. All together, without leaving the terminal.</p>
+      </div>
+      <div class="workspace-frame">
+        <div class="workspace-toolbar">
+          <div class="workspace-brand"><span class="live-dot" aria-hidden="true"></span> THE PACKETCODE WORKSPACE</div>
+          <div class="showcase-tabs" role="tablist" aria-label="Explore the workspace">
+            <button id="showcase-tab-chat" role="tab" aria-selected="true" aria-controls="showcase-panel-chat" data-showcase-tab="chat">Conversation</button>
+            <button id="showcase-tab-approval" role="tab" aria-selected="false" aria-controls="showcase-panel-approval" tabindex="-1" data-showcase-tab="approval">Approvals</button>
+            <button id="showcase-tab-agents" role="tab" aria-selected="false" aria-controls="showcase-panel-agents" tabindex="-1" data-showcase-tab="agents">Background agents</button>
+          </div>
+        </div>
+        <div id="showcase-panel-chat" class="showcase-panel" role="tabpanel" aria-labelledby="showcase-tab-chat" tabindex="0">
+          <img src="assets/screenshots/packetcode-chat.png" width="1620" height="447" alt="PacketCode conversation showing a model response, prompt composer, context usage, and manual permission mode.">
+          <div class="showcase-caption"><span class="caption-index">[ CONVERSATION ]</span><p>A focused prompt. A visible context budget. Your next move.</p><a href="guide/#first-session">Your first session <span aria-hidden="true">↗</span></a></div>
+        </div>
+        <div id="showcase-panel-approval" class="showcase-panel" role="tabpanel" aria-labelledby="showcase-tab-approval" tabindex="0" hidden>
+          <img src="assets/screenshots/packetcode-approval.png" width="1620" height="809" loading="lazy" alt="PacketCode approval interface showing the requested shell command and choices to approve or reject it.">
+          <div class="showcase-caption"><span class="caption-index">[ APPROVALS ]</span><p>See what is being requested. Decide how it should proceed.</p><a href="guide/#permissions">Meet the permission modes <span aria-hidden="true">↗</span></a></div>
+        </div>
+        <div id="showcase-panel-agents" class="showcase-panel" role="tabpanel" aria-labelledby="showcase-tab-agents" tabindex="0" hidden>
+          <img src="assets/screenshots/packetcode-agents.png" width="1620" height="1076" loading="lazy" alt="PacketCode Agent View listing background jobs, their progress, and workspace details.">
+          <div class="showcase-caption"><span class="caption-index">[ BACKGROUND AGENTS ]</span><p>A workspace for the work happening alongside your conversation.</p><a href="guide/#agents">Put agents to work <span aria-hidden="true">↗</span></a></div>
+        </div>
+      </div>
+      <p class="screenshot-note">Actual app screenshots. Interface labels may evolve as PacketCode develops.</p>
+    </section>
+
+    <section class="providers-section container" aria-labelledby="providers-title">
+      <div class="provider-intro"><span class="section-kicker">YOUR MODELS, YOUR CALL</span><h2 id="providers-title">Your models.<br>Your next move.</h2><p>Use a hosted provider, your Codex ChatGPT login, or local Ollama models. Switch when the work calls for something different.</p></div>
+      <div class="provider-list" aria-label="Supported provider examples">
+        <span><span class="provider-symbol" aria-hidden="true">◎</span>OpenAI <small>API &amp; Codex</small></span>
+        <span><span class="provider-symbol" aria-hidden="true">✳</span>Anthropic <small>Claude</small></span>
+        <span><span class="provider-symbol" aria-hidden="true">✧</span>Google <small>Gemini API</small></span>
+        <span><span class="provider-symbol" aria-hidden="true">◉</span>Ollama <small>Local models</small></span>
+        <span><span class="provider-symbol" aria-hidden="true">↗</span>OpenRouter <small>Your catalog</small></span>
+        <a href="guide/#providers"><span class="provider-symbol" aria-hidden="true">+</span>Your endpoint <small>OpenAI-compatible</small></a>
+      </div>
+    </section>
+
+    <section id="features" class="features-section" aria-labelledby="features-title">
+      <div class="container features-inner">
+        <div class="features-intro"><p class="section-kicker">02 — CAPABLE, WITH INTENTION</p><h2 id="features-title">Make progress.<br><em>Keep control.</em></h2><p>Real tools for real projects, with decisions that stay visible.</p><a class="text-link" href="guide/">Get to know PacketCode <span aria-hidden="true">↗</span></a><div class="terminal-motif" aria-hidden="true"><span>~/your-next-idea</span><b>❯ <i>make something</i><span class="terminal-caret"></span></b></div></div>
+        <div class="feature-list">
+          <article class="feature-item"><span class="feature-number">01</span><div><h3>The tools to get there.</h3><p>Inspect a codebase, make edits, run commands, and review what changed. Native file tools are scoped to your project. Shell actions follow your permission policy.</p><div class="feature-tags"><span>READ</span><span>EDIT</span><span>EXECUTE</span><span>REVIEW</span></div></div></article>
+          <article class="feature-item"><span class="feature-number">02</span><div><h3>Permission is a decision.</h3><p>Move from read-only exploration to approved edits at your own pace. Clear approval prompts keep the requested action and its scope in view.</p><a href="guide/#permissions">Explore permission modes <span aria-hidden="true">↗</span></a></div></article>
+          <article class="feature-item"><span class="feature-number">03</span><div><h3>Give the work some company.</h3><p>Send focused tasks to background agents. Write-capable agents get their own Git worktrees; you choose when to review and bring results back.</p><code class="inline-command">/spawn --write fix the focused tests</code></div></article>
+          <article class="feature-item"><span class="feature-number">04</span><div><h3>Make room for your workflow.</h3><p>Connect MCP tools, load Agent Skills, and turn repeatable work into workflows. Use the headless CLI for scripts or ACP for an editor connection.</p><a href="guide/#automation">Find your way of working <span aria-hidden="true">↗</span></a></div></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="download-section container" aria-labelledby="download-title">
+      <div class="download-intro"><p class="section-kicker">03 — MEET YOUR NEXT TOOL</p><h2 id="download-title">One agent.<br><em>Every machine.</em></h2><p>Native builds for the platforms you already use. Download, unpack, and open a terminal.</p><p class="download-recommendation"><span aria-hidden="true">↳</span> Prefer a one-line install? <a href="#hero-title">Start at the top.</a></p><a class="text-link" href="https://github.com/packetloss404/packetcode/releases">Release notes &amp; checksums <span aria-hidden="true">↗</span></a></div>
+      <div class="download-list">
+        <article class="download-platform"><div class="platform-heading"><span class="os-icon" aria-hidden="true">⌘</span><div><h3>macOS</h3><p>For your Mac, naturally.</p></div><span class="platform-format">.TAR.GZ</span></div><div class="download-links"><a href="https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-darwin-arm64.tar.gz">Apple silicon <span>ARM64 <b aria-hidden="true">↓</b></span></a><a href="https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-darwin-amd64.tar.gz">Intel <span>x86-64 <b aria-hidden="true">↓</b></span></a></div></article>
+        <article class="download-platform"><div class="platform-heading"><span class="os-icon" aria-hidden="true">&gt;_</span><div><h3>Linux</h3><p>At home in your shell.</p></div><span class="platform-format">.TAR.GZ</span></div><div class="download-links"><a href="https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-linux-amd64.tar.gz">x86-64 <span>AMD64 <b aria-hidden="true">↓</b></span></a><a href="https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-linux-arm64.tar.gz">ARM64 <span>AARCH64 <b aria-hidden="true">↓</b></span></a></div></article>
+        <article class="download-platform"><div class="platform-heading"><span class="os-icon windows-icon" aria-hidden="true">⊞</span><div><h3>Windows</h3><p>Your terminal is invited.</p></div><span class="platform-format">.ZIP</span></div><div class="download-links"><a href="https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-windows-amd64.zip">x86-64 <span>AMD64 <b aria-hidden="true">↓</b></span></a><a href="https://github.com/packetloss404/packetcode/releases/latest/download/packetcode-windows-arm64.zip">ARM64 <span>ARM64 <b aria-hidden="true">↓</b></span></a></div></article>
+      </div>
+      <p class="download-verification">Installers check archive checksums. For manual downloads and OS signing details, read the <a href="guide/#install">installation guide</a>.</p>
+    </section>
+
+    <section class="closing-section" aria-labelledby="closing-title"><div class="container closing-inner"><p class="section-kicker">BUILT IN THE OPEN. READY FOR YOUR IDEAS.</p><h2 id="closing-title">Good things start<br>with a <em>prompt.</em><span class="closing-caret" aria-hidden="true">_</span></h2><div class="closing-actions"><a class="button button-primary" href="#download">Find your build <span aria-hidden="true">↓</span></a><a class="button button-outline" href="guide/">Read the guide <span aria-hidden="true">↗</span></a></div><p>Free, open source, and still finding new possibilities.</p></div></section>
+  </main>
+
+  <footer class="site-footer"><div class="container"><div class="footer-top"><a class="brand" href="./" aria-label="PacketCode home"><span class="brand-mark" aria-hidden="true">[p_]</span>packetcode<span class="brand-dot">.</span></a><p>A little more possibility<br>at your prompt.</p><nav aria-label="Footer navigation"><a href="guide/">Getting started</a><a href="docs/packetcode-manual.html">Full manual</a><a href="https://github.com/packetloss404/packetcode/releases">Releases</a><a href="https://github.com/packetloss404/packetcode">Source code <span aria-hidden="true">↗</span></a></nav></div><div class="footer-bottom"><span>© 2026 PacketCode contributors. MIT licensed.</span><span class="footer-status"><span class="status-dot" aria-hidden="true"></span> PRE-1.0 · BUILT IN THE OPEN</span><a href="#main">Back to top <span aria-hidden="true">↑</span></a></div></div></footer>
+  <span id="copy-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
+</body>
+</html>

@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f1e9">
+  <meta name="description" content="Install PacketCode on macOS, Linux, or Windows, connect your model provider, and start your first terminal coding session with clear permissions.">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Getting started — PacketCode">
+  <meta property="og:description" content="One binary. Your choice of models. A practical guide to your first PacketCode session.">
+  <meta property="og:url" content="https://packetloss404.github.io/packetcode/guide/">
+  <meta property="og:site_name" content="PacketCode">
+  <meta property="og:image" content="https://packetloss404.github.io/packetcode/assets/social-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="PacketCode: your terminal, your models, your code. A terminal coding agent for macOS, Linux, and Windows.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Getting started — PacketCode">
+  <meta name="twitter:description" content="One binary. Your choice of models. A practical guide to your first PacketCode session.">
+  <meta name="twitter:image" content="https://packetloss404.github.io/packetcode/assets/social-card.png">
+  <meta name="twitter:image:alt" content="PacketCode: your terminal, your models, your code. A terminal coding agent for macOS, Linux, and Windows.">
+  <link rel="canonical" href="https://packetloss404.github.io/packetcode/guide/">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/site.css">
+  <script src="../assets/site.js" defer></script>
+  <title>Getting started — PacketCode</title>
+</head>
+<body class="guide-page">
+  <a class="skip-link" href="#main">Skip to guide</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="../" aria-label="PacketCode home"><span class="brand-mark" aria-hidden="true">[p_]</span>packetcode<span class="brand-dot">.</span></a>
+      <button class="nav-toggle" type="button" data-menu-toggle aria-controls="site-nav" aria-expanded="false" aria-label="Toggle navigation">Menu <span aria-hidden="true">+</span></button>
+      <nav class="site-nav" id="site-nav" aria-label="Main navigation">
+        <a href="../">Product</a>
+        <a href="./" aria-current="page">Guide</a>
+        <a href="https://github.com/packetloss404/packetcode/releases">Releases</a>
+        <a class="button button-small button-dark" href="https://github.com/packetloss404/packetcode">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="guide-hero">
+      <div class="container">
+        <p class="eyebrow"><span aria-hidden="true">↳</span> Getting started</p>
+        <h1>Your first session,<br><em>step by step.</em></h1>
+        <p>Install one binary, connect the provider you use, and start in the project you want to work on. Here’s how to make PacketCode part of your workflow.</p>
+        <a class="button button-primary" href="#install">Let’s get set up <span aria-hidden="true">↓</span></a>
+      </div>
+    </section>
+
+    <div class="container guide-layout">
+      <aside class="guide-toc">
+        <p class="section-kicker">On this page</p>
+        <nav class="guide-nav" aria-label="On this page">
+          <a href="#install"><span aria-hidden="true">01</span> Install PacketCode</a>
+          <a href="#providers"><span aria-hidden="true">02</span> Connect your model</a>
+          <a href="#first-session"><span aria-hidden="true">03</span> Start a conversation</a>
+          <a href="#permissions"><span aria-hidden="true">04</span> Set your permissions</a>
+          <a href="#agents"><span aria-hidden="true">05</span> Work with agents</a>
+          <a href="#automation"><span aria-hidden="true">06</span> Automate a task</a>
+          <a href="#troubleshooting"><span aria-hidden="true">07</span> Find your footing</a>
+          <a href="#next-steps"><span aria-hidden="true">08</span> Keep exploring</a>
+        </nav>
+        <a class="guide-manual-link" href="../docs/packetcode-manual.html">Read the full manual <span aria-hidden="true">↗</span></a>
+      </aside>
+
+      <article class="guide-content prose" aria-label="Getting started with PacketCode">
+        <section class="guide-section" id="install" aria-labelledby="install-heading">
+          <p class="guide-kicker">01 / Install</p>
+          <h2 id="install-heading">Start with one binary.</h2>
+          <p>PacketCode has prebuilt executables for Apple silicon and Intel Macs, x86-64 and ARM64 Linux, and x86-64 and ARM64 Windows. You don’t need Go to run a release download.</p>
+
+          <h3>macOS &amp; Linux</h3>
+          <p>Open a terminal and run the installer. It detects your operating system and architecture, verifies the archive’s SHA-256 checksum, and installs into <code>/usr/local/bin</code>.</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>Terminal · macOS / Linux</span><button class="copy-button" type="button" data-copy-target="guide-install-unix" aria-label="Copy macOS and Linux installer">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-install-unix">curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | bash</code></pre>
+          </div>
+          <details class="guide-faq">
+            <summary>Prefer to install without sudo?</summary>
+            <p>Install into your user directory and add it to this terminal’s <code>PATH</code>:</p>
+            <div class="code-block guide-code">
+              <div class="code-header"><span>Terminal · user install</span><button class="copy-button" type="button" data-copy-target="guide-install-user" aria-label="Copy installer without sudo">Copy <span aria-hidden="true">⧉</span></button></div>
+              <pre><code id="guide-install-user">curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
+export PATH="$HOME/.local/bin:$PATH"</code></pre>
+            </div>
+            <p>Add the <code>export PATH</code> line to your shell profile to keep it available in future terminals.</p>
+          </details>
+
+          <h3>Windows</h3>
+          <p>Run the installer in PowerShell. It chooses the Windows executable for your architecture.</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>PowerShell · Windows</span><button class="copy-button" type="button" data-copy-target="guide-install-windows" aria-label="Copy Windows installer">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-install-windows">&amp; ([scriptblock]::Create((Invoke-WebRequest https://raw.githubusercontent.com/packetloss404/packetcode/main/install.ps1).Content))</code></pre>
+          </div>
+          <p>The default location is <code>%LOCALAPPDATA%\Programs\PacketCode\bin</code>. Add that directory to your user <code>PATH</code>, or launch with its full path:</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>PowerShell · verify and launch</span><button class="copy-button" type="button" data-copy-target="guide-windows-launch" aria-label="Copy Windows verification and launch commands">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-windows-launch">&amp; "$env:LOCALAPPDATA\Programs\PacketCode\bin\packetcode.exe" --version
+&amp; "$env:LOCALAPPDATA\Programs\PacketCode\bin\packetcode.exe"</code></pre>
+          </div>
+          <div class="guide-note">
+            <strong>Download it your way.</strong>
+            <p>All six native archives are on <a href="https://github.com/packetloss404/packetcode/releases/latest">GitHub Releases</a>. For version pinning, manual checksum verification, and Sigstore signatures, see the <a href="https://github.com/packetloss404/packetcode/blob/main/docs/releases.md">release guide</a>. Go is only needed for <a href="https://github.com/packetloss404/packetcode#build-from-source">building from source</a>.</p>
+          </div>
+        </section>
+
+        <section class="guide-section" id="providers" aria-labelledby="providers-heading">
+          <p class="guide-kicker">02 / Connect</p>
+          <h2 id="providers-heading">Bring the model you use.</h2>
+          <p>On first launch, choose a provider, enter an API key when required, and select a model. PacketCode saves your choices in <code>~/.packetcode/config.toml</code>. You can change providers later with <kbd>Ctrl</kbd> + <kbd>P</kbd> or <code>/provider</code>.</p>
+
+          <h3>Use your Codex ChatGPT login</h3>
+          <p>For a Codex-enabled ChatGPT plan, sign in through the official Codex CLI first. Choose <strong>Sign in with ChatGPT</strong>; PacketCode reuses that credential store.</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>Terminal · Codex</span><button class="copy-button" type="button" data-copy-target="guide-provider-codex" aria-label="Copy Codex login and launch commands">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-provider-codex">codex login
+packetcode --provider codex</code></pre>
+          </div>
+          <p>Subscription login applies to the Codex provider. Hosted API providers use their own developer API keys.</p>
+
+          <h3>Run a local model with Ollama</h3>
+          <p>Start your Ollama daemon, then open PacketCode in another terminal. The default endpoint is <code>http://localhost:11434</code>, with no API key required.</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>Terminal · start Ollama</span><button class="copy-button" type="button" data-copy-target="guide-ollama-serve" aria-label="Copy Ollama daemon command">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-ollama-serve">ollama serve</code></pre>
+          </div>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>Another terminal · launch PacketCode</span><button class="copy-button" type="button" data-copy-target="guide-provider-ollama" aria-label="Copy PacketCode Ollama launch command">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-provider-ollama">packetcode --provider ollama</code></pre>
+          </div>
+
+          <h3>Connect a hosted API or your own endpoint</h3>
+          <p>OpenAI API, Anthropic, Gemini, and the other hosted API providers require their own keys. Use the provider picker or <code>/provider add &lt;slug&gt;</code> to configure one. Custom OpenAI-compatible endpoints are supported too.</p>
+          <p>See <a href="https://github.com/packetloss404/packetcode/blob/main/docs/providers.md">providers and models</a> for credential sources, supported endpoints, and provider-specific setup.</p>
+        </section>
+
+        <section class="guide-section" id="first-session" aria-labelledby="session-heading">
+          <p class="guide-kicker">03 / Your first session</p>
+          <h2 id="session-heading">Start where your code lives.</h2>
+          <p>Open a terminal in the project you want to work on. Inside a Git repository, PacketCode uses the repository root as the boundary for its native file tools.</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>Terminal · from your project directory</span><button class="copy-button" type="button" data-copy-target="guide-first-launch" aria-label="Copy PacketCode verification and launch commands">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-first-launch">packetcode --version
+packetcode</code></pre>
+          </div>
+          <p>Start with a focused request. A good first conversation asks PacketCode to explore before it changes anything:</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>Inside PacketCode · a first prompt</span><button class="copy-button" type="button" data-copy-target="guide-first-prompt" aria-label="Copy example first prompt">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-first-prompt">Explain how this project is structured and where its main tests live.</code></pre>
+          </div>
+          <p>Then make the next request specific about the change and how to verify it: <em>“Add validation to the signup handler and run the focused tests.”</em></p>
+          <div class="guide-table">
+            <table>
+              <caption>A few keys you’ll use every day</caption>
+              <thead><tr><th scope="col">Do this</th><th scope="col">Press or type</th></tr></thead>
+              <tbody>
+                <tr><td>Send your prompt</td><td><kbd>Enter</kbd></td></tr>
+                <tr><td>Add a portable newline</td><td><kbd>\</kbd> then <kbd>Enter</kbd></td></tr>
+                <tr><td>Find a command or file</td><td><code>/</code> for commands · <code>@</code> for project files</td></tr>
+                <tr><td>Change provider or model</td><td><kbd>Ctrl</kbd> + <kbd>P</kbd> · <code>/model</code></td></tr>
+                <tr><td>Open Agent View</td><td><kbd>←</kbd> on an empty prompt · <code>/agents</code></td></tr>
+                <tr><td>Cancel active work</td><td><kbd>Ctrl</kbd> + <kbd>C</kbd></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Your sessions are saved. Open <code>/sessions</code> to find one, or use <code>packetcode --resume &lt;session-id&gt;</code> from the same project.</p>
+        </section>
+
+        <section class="guide-section" id="permissions" aria-labelledby="permissions-heading">
+          <p class="guide-kicker">04 / Permissions</p>
+          <h2 id="permissions-heading">Decide how much it can do.</h2>
+          <p>The default Manual mode lets PacketCode read and search while asking before edits, shell commands, MCP tools, and background agents. Use <kbd>Shift</kbd> + <kbd>Tab</kbd> to cycle Manual, Accept Edits, Auto, and Plan.</p>
+          <div class="guide-table">
+            <table>
+              <caption>Choose a mode for the task</caption>
+              <thead><tr><th scope="col">Mode</th><th scope="col">What it allows</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Manual <code>ask</code></th><td>Read and search automatically; ask before changes, commands, MCP tools, and agents.</td></tr>
+                <tr><th scope="row">Accept Edits <code>accept-edits</code></th><td>Approve file edits automatically; ask before shell commands, MCP tools, and agents.</td></tr>
+                <tr><th scope="row">Auto <code>auto</code></th><td>Approve file edits and shell commands automatically; MCP and other approval-gated tools still ask.</td></tr>
+                <tr><th scope="row">Plan <code>read-only</code></th><td>Read and search with mutations denied. The TUI also gives the model a planning instruction.</td></tr>
+                <tr><th scope="row">Bypass Permissions <code>bypass</code></th><td>Approve tools automatically unless an explicit deny rule matches. Enter deliberately with <code>--trust</code> or <code>/trust on</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>The code labels above are CLI values for <code>--permission-mode</code>. Bypass is outside the forward <kbd>Shift</kbd> + <kbd>Tab</kbd> cycle. Explicit deny rules remain effective.</p>
+          <p>When an approval appears, allow once, remember a rule for the session, or reject it. Use <code>/permissions</code> to inspect the policy and <code>/permissions reset</code> to revoke remembered session rules.</p>
+          <div class="guide-note">
+            <strong>Know the boundary.</strong>
+            <p>Tools run as your user, and model requests go to the provider you choose. Permission rules control tool decisions; they do not create an operating-system sandbox. Read the <a href="https://github.com/packetloss404/packetcode/blob/main/docs/security.md">security and permissions guide</a> when configuring hooks, MCP servers, or custom endpoints.</p>
+          </div>
+        </section>
+
+        <section class="guide-section" id="agents" aria-labelledby="agents-heading">
+          <p class="guide-kicker">05 / Background agents</p>
+          <h2 id="agents-heading">Give a focused task its own space.</h2>
+          <p>Background agents get their own session, model selection, context, and result history. Start with a read-only review, then inspect it in Agent View:</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>Inside PacketCode · delegate a review</span><button class="copy-button" type="button" data-copy-target="guide-read-agent" aria-label="Copy read-only background agent commands">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-read-agent">/spawn audit the current diff for correctness and test gaps
+/agents</code></pre>
+          </div>
+          <p>For an editing task, add <code>--write</code>:</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>Inside PacketCode · delegate an edit</span><button class="copy-button" type="button" data-copy-target="guide-write-agent" aria-label="Copy write-capable background agent command">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-write-agent">/spawn --write fix the focused tests</code></pre>
+          </div>
+          <p>Write-capable agents use separate Git worktrees based on the current commit. Uncommitted foreground changes are not copied into them, and completed work is preserved for you to inspect. PacketCode does not merge it automatically.</p>
+          <p>Completed results enter the foreground conversation when you explicitly inject or collect them. See the <a href="https://github.com/packetloss404/packetcode/blob/main/docs/feature-background-agents.md">background-agent guide</a> for result handling, budgets, and recovery.</p>
+        </section>
+
+        <section class="guide-section" id="automation" aria-labelledby="automation-heading">
+          <p class="guide-kicker">06 / Repeatable work</p>
+          <h2 id="automation-heading">Go from one turn to a workflow.</h2>
+          <p>Use <code>packetcode run</code> when a script needs one agent turn. This example requests a read-only summary and returns a machine-readable result:</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>Terminal · one headless turn</span><button class="copy-button" type="button" data-copy-target="guide-headless" aria-label="Copy headless read-only summary command">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-headless">packetcode run --permission-mode read-only --json "Summarize this repository and its test strategy."</code></pre>
+          </div>
+          <p>The prompt is a positional argument. If an action needs interactive approval, a headless run exits with code <code>3</code> rather than approving it automatically.</p>
+          <p>For a reusable sequence of tasks, start with the built-in review workflow:</p>
+          <div class="code-block guide-code">
+            <div class="code-header"><span>Inside PacketCode · review workflow</span><button class="copy-button" type="button" data-copy-target="guide-workflow" aria-label="Copy review workflow commands">Copy <span aria-hidden="true">⧉</span></button></div>
+            <pre><code id="guide-workflow">/workflows list
+/workflows run review target="the staged diff"</code></pre>
+          </div>
+          <p><a href="https://github.com/packetloss404/packetcode/blob/main/docs/workflows.md">Workflow definitions</a> use TOML for ordered phases, parallel steps, optional verification, and retry caps. Extend your setup with <a href="https://github.com/packetloss404/packetcode/blob/main/docs/mcp.md">stdio MCP servers</a> and <a href="https://github.com/packetloss404/packetcode#skills">Agent Skills</a> as you need them.</p>
+        </section>
+
+        <section class="guide-section" id="troubleshooting" aria-labelledby="troubleshooting-heading">
+          <p class="guide-kicker">07 / Find your footing</p>
+          <h2 id="troubleshooting-heading">A few useful answers.</h2>
+          <details class="guide-faq">
+            <summary>My terminal says “command not found.”</summary>
+            <p>Check the installation directory printed by the installer. For a user install on macOS or Linux, add <code>~/.local/bin</code> to <code>PATH</code> in your shell profile. On Windows, add <code>%LOCALAPPDATA%\Programs\PacketCode\bin</code> to your user <code>PATH</code>, then open a new terminal. You can also use the executable’s full path.</p>
+          </details>
+          <details class="guide-faq">
+            <summary>My provider isn’t configured.</summary>
+            <p>Open <kbd>Ctrl</kbd> + <kbd>P</kbd>, focus the provider, and press <kbd>Ctrl</kbd> + <kbd>A</kbd> to add a key. Codex reuses an official Codex CLI login; Ollama needs a running daemon. Hosted API providers need their own API credentials.</p>
+          </details>
+          <details class="guide-faq">
+            <summary>Why is it asking before an action?</summary>
+            <p>Your current permission policy requires a decision. Read the requested action, then allow once, allow its displayed scope for this session, or reject it. Inspect the active rules with <code>/permissions</code>. Switching mode changes later actions and can re-evaluate a visible approval.</p>
+          </details>
+          <details class="guide-faq">
+            <summary>How do I diagnose a configuration problem?</summary>
+            <p>Run the read-only doctor from your project directory. It checks configuration, credential sources, permissions, native tools, and configured integrations without opening the chat interface.</p>
+            <div class="code-block guide-code">
+              <div class="code-header"><span>Terminal · diagnostics</span><button class="copy-button" type="button" data-copy-target="guide-doctor" aria-label="Copy PacketCode diagnostic commands">Copy <span aria-hidden="true">⧉</span></button></div>
+              <pre><code id="guide-doctor">packetcode doctor
+packetcode doctor --check providers
+packetcode doctor --json</code></pre>
+            </div>
+          </details>
+          <p>For more answers, open <a href="https://github.com/packetloss404/packetcode/blob/main/docs/troubleshooting.md">troubleshooting</a> or <a href="https://github.com/packetloss404/packetcode/issues">file an issue on GitHub</a> with the command, version, and a redacted diagnostic report.</p>
+        </section>
+
+        <section class="guide-section guide-next" id="next-steps" aria-labelledby="next-heading">
+          <p class="guide-kicker">08 / Keep exploring</p>
+          <h2 id="next-heading">The terminal is yours.</h2>
+          <p>You’re ready for a useful first session. Keep the reference nearby as your workflow grows.</p>
+          <div class="guide-resource-list">
+            <a href="../docs/packetcode-manual.html"><strong>The complete manual</strong><span>Browse the offline-friendly user manual and printable command reference.</span><span aria-hidden="true">↗</span></a>
+            <a href="https://github.com/packetloss404/packetcode/blob/main/docs/configuration.md"><strong>Configuration reference</strong><span>Make providers, permissions, and integrations fit the way you work.</span><span aria-hidden="true">↗</span></a>
+            <a href="https://github.com/packetloss404/packetcode"><strong>Source &amp; contributions</strong><span>Read the code, follow development, or help build what comes next.</span><span aria-hidden="true">↗</span></a>
+          </div>
+          <p class="guide-version-note">This guide follows the current project documentation. Run <code>packetcode --help</code> for the commands available in your installed version.</p>
+        </section>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-top">
+        <a class="brand" href="../" aria-label="PacketCode home"><span class="brand-mark" aria-hidden="true">[p_]</span>packetcode<span class="brand-dot">.</span></a>
+        <p>A coding agent. A proper terminal citizen.</p>
+        <nav aria-label="Footer navigation"><a href="../">Product</a><a href="../docs/packetcode-manual.html">Manual</a><a href="https://github.com/packetloss404/packetcode/releases">Releases</a><a href="https://github.com/packetloss404/packetcode/issues">Issues</a></nav>
+      </div>
+      <div class="footer-bottom"><span>Open source, under the MIT license.</span><a href="https://github.com/packetloss404/packetcode/blob/main/LICENSE">View license <span aria-hidden="true">↗</span></a><a href="#main">Back to top <span aria-hidden="true">↑</span></a></div>
+    </div>
+  </footer>
+
+  <span class="visually-hidden" id="copy-status" role="status" aria-live="polite"></span>
+</body>
+</html>

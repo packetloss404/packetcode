@@ -6,12 +6,14 @@ This manual starts with the shortest path to a useful session, then introduces t
 
 ## 1. Install and Start
 
-packetcode requires Go 1.26.0 or newer when building from source.
-
-Use Go 1.26.10 or newer for the current certificate-security fixes; this is the
-version pinned by CI and releases. The language minimum remains 1.26.0.
+Prebuilt executables are available for macOS (Apple silicon and Intel), Linux
+(x86-64 and ARM64), and Windows (x86-64 and ARM64). You do not need Go to run a
+release download.
 
 ### macOS or Linux release install
+
+The installer detects your operating system and architecture, verifies the
+archive checksum, and installs into `/usr/local/bin`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | bash
@@ -21,9 +23,35 @@ To install into your user path without `sudo`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
+Keep that directory on `PATH` in your shell profile for future terminals.
+Verify and launch from your project directory:
+
+```bash
+packetcode --version
+packetcode
+```
+
+### Windows release install
+
+```powershell
+& ([scriptblock]::Create((Invoke-WebRequest https://raw.githubusercontent.com/packetloss404/packetcode/main/install.ps1).Content))
+& "$env:LOCALAPPDATA\Programs\PacketCode\bin\packetcode.exe" --version
+& "$env:LOCALAPPDATA\Programs\PacketCode\bin\packetcode.exe"
+```
+
+The default install directory is `%LOCALAPPDATA%\Programs\PacketCode\bin`.
+Add it to `PATH` to use `packetcode` without the full path in future terminals.
+The [README](../README.md#download-a-binary-directly) lists all six downloads;
+the [release guide](releases.md) explains checksum and signature verification.
+
 ### Build from source
+
+Building from source requires Go 1.26.0 or newer. Use Go 1.26.10 or newer for
+the current certificate-security fixes; this is the version pinned by CI and
+releases. The language minimum remains 1.26.0.
 
 ```bash
 make build

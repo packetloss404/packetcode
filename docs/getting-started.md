@@ -1,8 +1,50 @@
 # Getting Started
 
-## Build and Run
+## Install a release
 
-packetcode requires Go 1.26.0 or newer.
+Prebuilt executables run on macOS (Apple silicon and Intel), Linux (x86-64 and
+ARM64), and Windows (x86-64 and ARM64). You do not need Go to use them.
+
+### macOS or Linux
+
+The installer selects the native executable, verifies its archive checksum,
+and installs into `/usr/local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | bash
+```
+
+For a user-only install without `sudo`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/packetloss404/packetcode/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Keep that directory on `PATH` in your shell profile for future terminals.
+From your project directory, verify the install and launch:
+
+```bash
+packetcode --version
+packetcode
+```
+
+### Windows PowerShell
+
+```powershell
+& ([scriptblock]::Create((Invoke-WebRequest https://raw.githubusercontent.com/packetloss404/packetcode/main/install.ps1).Content))
+& "$env:LOCALAPPDATA\Programs\PacketCode\bin\packetcode.exe" --version
+& "$env:LOCALAPPDATA\Programs\PacketCode\bin\packetcode.exe"
+```
+
+The default install directory is `%LOCALAPPDATA%\Programs\PacketCode\bin`.
+Add it to `PATH` to use the shorter `packetcode` command in future terminals.
+For manual downloads, version pinning, and signature verification, see the
+[installation reference](../README.md#install) and [release guide](releases.md).
+
+## Build from source
+
+Building from source requires Go 1.26.0 or newer.
 
 Use Go 1.26.10 or newer for current certificate-security fixes. CI and release
 builds use 1.26.10; 1.26.0 is the language minimum.
@@ -11,6 +53,10 @@ builds use 1.26.10; 1.26.0 is the language minimum.
 make build
 ./bin/packetcode
 ```
+
+For a Windows source build, see the [README](../README.md#build-from-source).
+
+## First run
 
 The first run creates `~/.packetcode/config.toml`. Choose a provider, enter an API key when required, and select a model.
 

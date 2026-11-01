@@ -1,6 +1,23 @@
 # Packetcode Maintainer Handoff
 
-Updated: 2026-10-25
+Updated: 2026-10-31
+
+## Product website
+
+The public site is [packetloss404.github.io/packetcode](https://packetloss404.github.io/packetcode/).
+Edit `site/`, run `npm run build:site` and `npm run test:site`, and use the
+dedicated GitHub Pages workflow to deploy. The site includes a getting-started
+guide and the offline HTML manual. Website maintenance and deployment settings
+are documented in [docs/website.md](docs/website.md).
+
+## Platform installation documentation
+
+The README, Getting Started, user manual, and offline HTML manual describe
+prebuilt macOS, Linux, and Windows installs. The
+[release guide](docs/releases.md) maps all six platform archives and documents
+native and cross-compilation commands. Go is only required for source builds.
+Local builds use the current checkout's version; published archives, signed
+checksums, and attestations come from the tagged release workflow.
 
 ## October feature validation
 
@@ -204,6 +221,14 @@ For normal operation:
 go run ./cmd/packetcode --provider codex --model gpt-5.6-sol
 ```
 
+For an optimized native macOS or Linux executable:
+
+```bash
+make build
+./bin/packetcode --version
+./bin/packetcode doctor --check version
+```
+
 For an optimized Windows executable:
 
 ```powershell
@@ -217,8 +242,8 @@ go build -trimpath `
 .\bin\packetcode.exe doctor --check version
 ```
 
-`bin/` and `*.exe` are intentionally ignored. Rebuild local binaries rather
-than committing them.
+`bin/`, `dist/`, and `*.exe` are intentionally ignored. Cross-compilation
+commands and release publication steps are in the [release guide](docs/releases.md).
 
 The common Codex launch is:
 
