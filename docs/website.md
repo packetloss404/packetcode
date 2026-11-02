@@ -28,6 +28,15 @@ Use relative URLs for internal page links and assets. Downloads point to the
 repository's latest release assets; the website does not host executable files
 or implement a separate installer.
 
+## App screenshots
+
+The gallery and README use the same real executable captures in `docs/images/`.
+They show a Codex conversation, a pending file-edit approval, and completed
+background reviews in an isolated example project. The
+[capture notes](images/README.md) record the app version, release checksum,
+capture method, and regeneration tools. Click a gallery image to open the
+full-size capture. The website build copies these files without alteration.
+
 ## Browser checks
 
 Install the repository's pinned browser-test dependencies, then check the
