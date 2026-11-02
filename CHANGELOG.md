@@ -5,6 +5,9 @@ All notable packetcode changes are recorded here. The project is pre-1.0;
 
 ## [Unreleased]
 
+- Screenshot previews use a wider gallery and focus on the app. An enlarged
+  viewer adds zoom, fit-to-screen, scrolling, keyboard controls, and access to
+  the complete original captures.
 - Website and README screenshots now show real v0.6.2 sessions with live Codex
   responses, an actual pending file patch, and completed background agents.
   Capture notes and PTY tools document their provenance; gallery images open

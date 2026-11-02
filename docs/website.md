@@ -35,7 +35,14 @@ They show a Codex conversation, a pending file-edit approval, and completed
 background reviews in an isolated example project. The
 [capture notes](images/README.md) record the app version, release checksum,
 capture method, and regeneration tools. Click a gallery image to open the
-full-size capture. The website build copies these files without alteration.
+enlarged viewer, zoom with + / −, fit the image to the screen, or open the
+complete original. Arrow keys pan and Escape closes the viewer; closing returns
+keyboard focus to the selected screenshot. The wider gallery previews focus on
+the app inside each capture. The website build copies the original image files
+without alteration.
+
+When replacing captures, update each gallery link's `data-screenshot-crop`
+bounds so both the preview and enlarged viewer focus on the current app area.
 
 ## Browser checks
 

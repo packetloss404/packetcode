@@ -92,6 +92,46 @@ test('workspace tabs switch real views and keep selection and focus synchronized
   await expect(page.locator('#showcase-panel-chat')).toBeVisible();
 });
 
+test('screenshots enlarge in place, zoom, fit, and return keyboard focus when closed', async ({ page }) => {
+  const trigger = page.locator('#showcase-panel-chat [data-screenshot-open]');
+  const originalURL = page.url();
+  await trigger.click();
+  const viewer = page.getByRole('dialog', { name: 'Conversation', exact: true });
+  await expect(viewer).toBeVisible();
+  await expect(page).toHaveURL(originalURL);
+  await expect(viewer.getByRole('link', { name: 'Full original' })).toHaveAttribute('href', /packetcode-chat[.]jpg$/);
+  const canvas = viewer.locator('.viewer-canvas');
+  const before = (await canvas.boundingBox()).width;
+  await viewer.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await expect.poll(async () => (await canvas.boundingBox()).width).toBeGreaterThan(before);
+  await viewer.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  await expect.poll(async () => (await canvas.boundingBox()).width).toBeCloseTo(before, 0);
+  await viewer.getByRole('button', { name: 'Fit to screen', exact: true }).click();
+  const viewport = viewer.locator('.viewer-viewport');
+  await expect.poll(async () => (await canvas.boundingBox()).width).toBeLessThanOrEqual((await viewport.boundingBox()).width);
+  const fitted = await canvas.boundingBox();
+  const available = await viewport.boundingBox();
+  expect(fitted.width).toBeLessThanOrEqual(available.width);
+  expect(fitted.height).toBeLessThanOrEqual(available.height);
+  await viewer.press('Escape');
+  await expect(viewer).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await expect.poll(() => page.locator('body').evaluate(element => element.style.overflow)).not.toBe('hidden');
+});
+
+test('each workspace view enlarges the selected real capture', async ({ page }) => {
+  for (const [name, state] of [['Conversation', 'chat'], ['Approvals', 'approval'], ['Background agents', 'agents']]) {
+    await page.getByRole('tablist', { name: 'Explore the workspace' }).getByRole('tab', { name, exact: true }).click();
+    await page.locator(`#showcase-panel-${state} [data-screenshot-open]`).click();
+    const viewer = page.getByRole('dialog', { name, exact: true });
+    await expect(viewer).toBeVisible();
+    await expect(viewer.locator('img')).toHaveAttribute('src', new RegExp(`packetcode-${state}[.]jpg$`));
+    await expect.poll(() => viewer.locator('img').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
+    await viewer.getByRole('button', { name: 'Close screenshot', exact: true }).click();
+    await expect(viewer).toBeHidden();
+  }
+});
+
 test('navigation remains usable on mobile and leads to the getting-started guide', async ({ page, isMobile }) => {
   const toggle = page.locator('[data-menu-toggle]');
   const nav = page.locator('#site-nav');

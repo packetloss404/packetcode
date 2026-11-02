@@ -88,6 +88,7 @@ h1 em,h2 em,.install-intro em{font-weight:400}
 .section-heading h2{font-size:69px;line-height:1.01;letter-spacing:-.7px;margin-top:17px}
 .section-heading>p{max-width:328px;color:var(--muted);font-size:15px;line-height:1.8;padding-bottom:7px}
 .workspace-frame{background:#161b17;border:1px solid #242b24;border-radius:7px;overflow:hidden;box-shadow:0 18px 40px -28px rgb(20 27 20 / 65%)}
+.workspace-frame{width:min(1440px,calc(100vw - 32px));max-width:none;position:relative;left:50%;transform:translateX(-50%)}
 .workspace-toolbar{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:70px;padding:12px 22px;border-bottom:1px solid #30392d}
 .workspace-brand{display:flex;align-items:center;gap:9px;color:#aebaa6;font:400 9px/1.5 var(--mono);letter-spacing:1px}
 .live-dot{width:5px;height:5px;border-radius:50%;background:#aec897}
@@ -97,6 +98,30 @@ h1 em,h2 em,.install-intro em{font-weight:400}
 .showcase-tabs button:hover{color:#fff}
 .showcase-panel{min-width:0}
 .showcase-panel img{display:block;width:100%;height:auto;background:#10151d;object-fit:contain}
+.screenshot-preview{display:block;background:#10131b;cursor:zoom-in}
+.screenshot-preview-frame{display:block;position:relative;overflow:hidden;aspect-ratio:var(--shot-ratio)}
+.showcase-panel .screenshot-preview img{position:absolute;width:155.339806%;max-width:none;height:auto;left:-27.669903%;top:var(--shot-top)}
+.screenshot-expand{display:flex;justify-content:flex-end;gap:18px;align-items:center;min-height:44px;padding:10px 20px;border-top:1px solid #30392d;background:#232820;color:#f4f1e9;font:500 12px/1.4 var(--sans)}
+.screenshot-expand>span{font-size:18px;color:#f6a18b}
+.screenshot-preview:hover .screenshot-expand,.screenshot-preview:focus-visible .screenshot-expand{background:#38432f;border-color:#a8bb97}
+.screenshot-viewer{width:100vw;height:100dvh;max-width:none;max-height:none;inset:0;margin:0;padding:0;border:0;background:#10131b;color:#f4f1e9;overflow:hidden}
+.screenshot-viewer[open]{display:flex;flex-direction:column}
+.screenshot-viewer::backdrop{background:rgb(0 0 0 / 80%)}
+.viewer-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:18px;padding:20px 24px;background:#232820;border-bottom:1px solid #46513e}
+.viewer-eyebrow{color:#b3c2a6;font:400 9px/1.4 var(--mono);letter-spacing:1px;margin-bottom:6px}
+.viewer-heading h2{font:600 19px/1.3 var(--sans)}
+.viewer-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.viewer-controls button,.viewer-controls a{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:8px 14px;border:1px solid #69765e;border-radius:3px;background:#30382b;color:#f4f1e9;font:500 13px/1.4 var(--sans)}
+.viewer-controls button:hover,.viewer-controls a:hover{background:#46513b}
+.viewer-controls [data-zoom-in],.viewer-controls [data-zoom-out]{min-width:42px;font-size:22px;line-height:1}
+.viewer-controls button:disabled{opacity:.4}
+.viewer-controls output{min-width:46px;text-align:center;font:400 12px/1.5 var(--mono)}
+.viewer-controls [data-viewer-close]{background:var(--paper);color:var(--ink);border-color:var(--paper);margin-left:8px}
+.viewer-help{padding:10px 24px;color:#b3c2a6;border-bottom:1px solid #30392d;font:400 12px/1.6 var(--sans)}
+.viewer-viewport{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-color:#718166 #151b15;background:#10131b}
+.viewer-canvas{position:relative;overflow:hidden;margin:24px auto;background:#10131b}
+.viewer-canvas img{position:absolute;max-width:none;display:block;user-select:none;pointer-events:none}
+@media(max-width:640px){.workspace-frame{width:calc(100vw - 24px)}.screenshot-expand{right:10px;bottom:10px;padding:8px 10px;font-size:11px;gap:10px}.viewer-toolbar{padding:14px 16px;gap:12px}.viewer-heading{width:100%}.viewer-heading h2{font-size:17px}.viewer-controls{gap:6px}.viewer-controls button,.viewer-controls a{padding:8px 10px;min-height:40px;font-size:11px}.viewer-controls [data-viewer-close]{margin-left:0}.viewer-help{padding:10px 16px;font-size:11px}.viewer-canvas{margin-block:16px}}
 .showcase-caption{display:grid;grid-template-columns:170px 1fr auto;gap:20px;align-items:center;padding:21px 24px;border-top:1px solid #30392d;color:#bac6af}
 .caption-index{font:400 9px/1.6 var(--mono);letter-spacing:1px;color:#87967a}
 .showcase-caption p{font-size:12px;line-height:1.6}
