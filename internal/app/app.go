@@ -2800,6 +2800,8 @@ func (a *App) openProviderPicker() tea.Cmd {
 		activeSlug = p.Slug()
 	}
 	a.picker = picker.New("provider", "Select provider")
+	a.picker.SetSubtitle("Choose a provider or connect an API key.")
+	a.picker.SetHelp("Ctrl+A API key")
 	a.picker.Resize(a.width, a.height)
 	a.picker.SetItems(providerItems(provs, a.deps.Config, activeSlug))
 	a.picker.SetActive(activeSlug)
@@ -2873,11 +2875,8 @@ func (a *App) factoryDisplaySlugs(seen map[string]struct{}) []string {
 	return append(out, customSlugs...)
 }
 
-// openModelPicker constructs the model picker. When Registry has a
-// fresh cache for the active provider the modal opens synchronously;
-// otherwise it opens in the loading state and the returned tea.Cmd
-// fires a ListModels on a background goroutine, warming the cache on
-// success.
+// openModelPicker shows cached choices immediately and refreshes the catalog
+// on every open, then once a minute while visible. Discovery never blocks input.
 func (a *App) openModelPicker() tea.Cmd {
 	a.autocomplete.Close()
 	prov, active := a.deps.Registry.Active()
@@ -2885,22 +2884,25 @@ func (a *App) openModelPicker() tea.Cmd {
 		a.conversation.AppendSystem("model picker: no active provider")
 		return nil
 	}
-	a.picker = picker.New("model", fmt.Sprintf("Select model — %s", prov.Name()))
+	a.picker = picker.New("model", "Select model")
+	a.picker.SetSubtitle(prov.Name() + " · Choose a model for this provider.")
+	a.picker.SetHelp("Ctrl+R refresh")
+	a.picker.SetRefreshInterval(time.Minute)
+	a.picker.SetActive(active)
 	a.picker.Resize(a.width, a.height)
 	if cached, ok := a.deps.Registry.CachedModels(prov.Slug()); ok {
 		a.picker.SetItems(modelItems(cached, active, prov))
 		a.picker.SetActive(active)
-		return a.picker.Open(nil)
 	}
 	slug := prov.Slug()
+	registry := a.deps.Registry
 	loader := func(ctx context.Context) ([]picker.Item, error) {
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		models, err := prov.ListModels(ctx)
+		models, err := registry.RefreshModels(ctx, slug)
 		if err != nil {
 			return nil, err
 		}
-		a.deps.Registry.SetCachedModels(slug, models)
 		return modelItems(models, active, prov), nil
 	}
 	return a.picker.Open(loader)

@@ -2,6 +2,8 @@ package app
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"github.com/packetcode/packetcode/internal/config"
 	jobspkg "github.com/packetcode/packetcode/internal/jobs"
 	"github.com/packetcode/packetcode/internal/provider"
+	"github.com/packetcode/packetcode/internal/provider/codex"
 	"github.com/packetcode/packetcode/internal/tools"
 	"github.com/packetcode/packetcode/internal/ui/components/picker"
 )
@@ -259,16 +262,15 @@ func TestApp_AltM_ReplacesAutocompleteAndOneEscapeClosesPicker(t *testing.T) {
 	}
 }
 
-// TestApp_AltM_CachedListNoNetwork verifies a pre-warmed cache skips
-// the loader path entirely.
-func TestApp_AltM_CachedListNoNetwork(t *testing.T) {
+// Cached models remain usable immediately while a fresh catalog is requested.
+func TestApp_AltM_CachedListRefreshesInBackground(t *testing.T) {
 	r := newTestApp(t)
 	r.reg.SetCachedModels("fake", []provider.Model{{ID: "fake-model"}, {ID: "fake-mini"}})
 	before := atomic.LoadInt32(&r.prov.listCalls)
 
 	cmd := routeKey(t, r.app, "alt+m")
-	if cmd != nil {
-		t.Fatalf("cached open must return nil cmd, got %T", cmd)
+	if cmd == nil {
+		t.Fatal("cached open must request a background refresh")
 	}
 	after := atomic.LoadInt32(&r.prov.listCalls)
 	if after != before {
@@ -276,6 +278,119 @@ func TestApp_AltM_CachedListNoNetwork(t *testing.T) {
 	}
 	if !r.app.picker.Visible() {
 		t.Fatalf("picker should be visible")
+	}
+	if r.app.picker.Loading() || !r.app.picker.Refreshing() {
+		t.Fatal("cached choices should remain available while refreshing")
+	}
+	if !strings.Contains(r.app.picker.View(), "fake-mini") {
+		t.Fatal("cached models disappeared during refresh")
+	}
+	r.prov.models = append(r.prov.models, provider.Model{ID: "brand-new-model"})
+	resolveCmd(t, r.app, cmd)
+	if !strings.Contains(r.app.picker.View(), "brand-new-model") {
+		t.Fatal("new model did not appear after background refresh")
+	}
+	if got := atomic.LoadInt32(&r.prov.listCalls); got != before+1 {
+		t.Fatalf("expected one discovery request, got %d", got-before)
+	}
+}
+
+func TestApp_ModelPickerReopeningDiscoversNewModels(t *testing.T) {
+	r := newTestApp(t)
+	resolveCmd(t, r.app, routeKey(t, r.app, "alt+m"))
+	routeKey(t, r.app, "esc")
+	r.prov.models = append(r.prov.models, provider.Model{ID: "new-since-first-open"})
+	resolveCmd(t, r.app, routeKey(t, r.app, "alt+m"))
+	if !strings.Contains(r.app.picker.View(), "new-since-first-open") {
+		t.Fatal("reopening used the old catalog")
+	}
+}
+
+func TestApp_ModelPickerRefreshesWhileOpen(t *testing.T) {
+	r := newTestApp(t)
+	cmd := routeKey(t, r.app, "alt+m")
+	r.app.picker.SetRefreshInterval(time.Nanosecond)
+	_, timer := r.app.Update(cmd())
+	if timer == nil {
+		t.Fatal("model discovery did not schedule periodic refresh")
+	}
+	r.prov.models = append(r.prov.models, provider.Model{ID: "new-while-picker-open"})
+	_, refresh := r.app.Update(timer())
+	if refresh == nil {
+		t.Fatal("refresh timer did not request the provider catalog")
+	}
+	resolveCmd(t, r.app, refresh)
+	if !strings.Contains(r.app.picker.View(), "new-while-picker-open") {
+		t.Fatal("periodic refresh did not add the new model to the open picker")
+	}
+}
+
+func TestApp_CodexPickerRefreshReadsUpdatedCLICatalog(t *testing.T) {
+	r := newTestApp(t)
+	authPath := filepath.Join(r.tmp, "auth.json")
+	cachePath := filepath.Join(r.tmp, "models_cache.json")
+	if err := os.WriteFile(cachePath, []byte(`{"models":[{"slug":"old-codex","visibility":"list"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.reg.Register(codex.New(authPath))
+	if err := r.reg.SetActive("codex", "old-codex"); err != nil {
+		t.Fatal(err)
+	}
+	resolveCmd(t, r.app, routeKey(t, r.app, "alt+m"))
+	if err := os.WriteFile(cachePath, []byte(`{"models":[{"slug":"old-codex","visibility":"list"},{"slug":"new-codex","visibility":"list"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, cmd := r.app.handleKey(tea.KeyMsg{Type: tea.KeyCtrlR})
+	resolveCmd(t, r.app, cmd)
+	if !strings.Contains(r.app.picker.View(), "new-codex") {
+		t.Fatal("refresh did not pick up the new model in the Codex CLI cache")
+	}
+	if got := r.app.picker.CursorID(); got != "old-codex" {
+		t.Fatalf("refresh moved focus away from the current model: %q", got)
+	}
+}
+
+func TestApp_ModelPickerRefreshFailureKeepsCachedModels(t *testing.T) {
+	r := newTestApp(t)
+	r.reg.SetCachedModels("fake", []provider.Model{{ID: "fake-model"}, {ID: "fake-mini"}})
+	r.prov.listErr = errors.New("offline")
+	resolveCmd(t, r.app, routeKey(t, r.app, "alt+m"))
+	if r.app.picker.LoadErr() != nil || r.app.picker.RefreshErr() == nil {
+		t.Fatal("background failure should retain a usable cached list")
+	}
+	if !strings.Contains(r.app.picker.View(), "fake-mini") {
+		t.Fatal("refresh failure discarded cached models")
+	}
+	models, ok := r.reg.CachedModels("fake")
+	if !ok || len(models) != 2 {
+		t.Fatal("refresh failure discarded the registry cache")
+	}
+	r.app.picker, _ = r.app.picker.Update(tea.KeyMsg{Type: tea.KeyDown})
+	resolveCmd(t, r.app, routeKey(t, r.app, "enter"))
+	if _, model := r.reg.Active(); model != "fake-mini" {
+		t.Fatalf("cached model could not be selected: %q", model)
+	}
+}
+
+func TestApp_ModelPickerFocusesCurrentModel(t *testing.T) {
+	for _, cached := range []bool{false, true} {
+		name := "fresh"
+		if cached {
+			name = "cached"
+		}
+		t.Run(name, func(t *testing.T) {
+			r := newTestApp(t)
+			if err := r.reg.SetActive("fake", "fake-mini"); err != nil {
+				t.Fatal(err)
+			}
+			if cached {
+				r.reg.SetCachedModels("fake", []provider.Model{{ID: "fake-model"}, {ID: "fake-mini"}})
+			}
+			resolveCmd(t, r.app, routeKey(t, r.app, "alt+m"))
+			if got := r.app.picker.CursorID(); got != "fake-mini" {
+				t.Fatalf("picker focused %q, want current model fake-mini", got)
+			}
+		})
 	}
 }
 

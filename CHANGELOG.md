@@ -8,6 +8,31 @@ All notable packetcode changes are recorded here. The project is pre-1.0;
 - Screenshot previews use a wider gallery and focus on the app. An enlarged
   viewer adds zoom, fit-to-screen, scrolling, keyboard controls, and access to
   the complete original captures.
+
+## [0.6.3] - 2026-11-02
+
+### Added
+
+- The model picker refreshes its catalog whenever opened and once a minute
+  while visible. Ctrl+R refreshes immediately. Cached choices remain usable
+  during requests and after failures; updates preserve the search and focused
+  model. Codex re-reads changes to the Codex CLI model cache.
+- Credential-free provider and model picker previews are available through
+  `--tui-fixture=provider-picker` and `--tui-fixture=model-picker`.
+
+### Changed
+
+- Provider and model pickers use readable names and IDs, separate detail rows,
+  explicit current/key-needed labels, match counts, and compact terminal layouts.
+
+### Fixed
+
+- Pickers open focused on the current provider or model, including after
+  asynchronous discovery. Cancelled or older refreshes cannot replace a newer
+  catalog or overwrite the cache after credentials change.
+
+### Documentation
+
 - Website and README screenshots now show real v0.6.2 sessions with live Codex
   responses, an actual pending file patch, and completed background agents.
   Capture notes and PTY tools document their provenance; gallery images open

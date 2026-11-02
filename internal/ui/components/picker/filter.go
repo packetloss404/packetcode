@@ -29,14 +29,14 @@ func normalize(s string) string {
 
 // matches reports whether item satisfies the given filter string. An
 // empty filter matches any item. Otherwise the filter is normalised and
-// checked as a substring against the haystack built from ID, Label, and
-// Detail joined with spaces (which normalization turns into dashes).
+// checked as a substring against the haystack built from ID, Label, Detail,
+// and Status joined with spaces (which normalization turns into dashes).
 func matches(item Item, filter string) bool {
 	if strings.TrimSpace(filter) == "" {
 		return true
 	}
 	needle := normalize(filter)
-	haystack := normalize(item.ID + " " + item.Label + " " + item.Detail)
+	haystack := normalize(item.ID + " " + item.Label + " " + item.Detail + " " + item.Status)
 	return strings.Contains(haystack, needle)
 }
 

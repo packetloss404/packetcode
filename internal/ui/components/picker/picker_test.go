@@ -3,10 +3,13 @@ package picker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -311,4 +314,99 @@ func TestPicker_ResizeRecomputesWidth(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, widestLine(wider), widestLine(wide),
 		"wider terminal should produce equal-or-wider modal")
+}
+
+func TestPicker_OpenKeepsActiveSelection(t *testing.T) {
+	for _, async := range []bool{false, true} {
+		t.Run(fmt.Sprintf("async=%t", async), func(t *testing.T) {
+			m := New("test", "Pick")
+			m.Resize(80, 24)
+			m.SetItems(threeItems())
+			m.SetActive("charlie")
+			var loader Loader
+			if async {
+				loader = func(context.Context) ([]Item, error) { return threeItems(), nil }
+			}
+			if cmd := m.Open(loader); cmd != nil {
+				m, _ = m.Update(cmd())
+			}
+			assert.Equal(t, "charlie", m.CursorID())
+			m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			require.NotNil(t, cmd)
+			assert.Equal(t, "charlie", cmd().(SelectMsg).Item.ID)
+		})
+	}
+}
+
+func TestPicker_LayoutFitsTerminal(t *testing.T) {
+	items := make([]Item, 20)
+	for i := range items {
+		items[i] = Item{
+			ID: fmt.Sprint(i), Label: strings.Repeat("模型👩🏽‍💻", 20),
+			Detail: strings.Repeat("long detail ", 30),
+		}
+	}
+	for _, size := range [][2]int{{120, 40}, {100, 30}, {72, 24}, {40, 12}, {20, 8}} {
+		for _, state := range []string{"list", "search", "empty", "loading", "error", "refreshing", "refresh error"} {
+			t.Run(fmt.Sprintf("%dx%d/%s", size[0], size[1], state), func(t *testing.T) {
+				m := openSync(items)
+				m.SetSubtitle("A provider with a very long descriptive name")
+				m.SetHelp("Ctrl+A API key")
+				m.Resize(size[0], size[1])
+				switch state {
+				case "search":
+					m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("模型", 60))})
+				case "empty":
+					m.SetItems(nil)
+				case "loading":
+					m.loading = true
+				case "error":
+					m.loadErr = errors.New(strings.Repeat("long error\n", 30))
+				case "refreshing":
+					m.refreshing = true
+					m.SetHelp("Ctrl+R refresh")
+				case "refresh error":
+					m.refreshErr = errors.New("offline")
+				}
+				view := m.View()
+				assert.LessOrEqual(t, lipgloss.Width(view), size[0], "overflows horizontally:\n%s", view)
+				assert.Equal(t, m.modalWidth(), lipgloss.Width(view))
+				assert.Equal(t, m.modalHeight(), lipgloss.Height(view), "geometry disagrees with rendering:\n%s", view)
+				assert.LessOrEqual(t, lipgloss.Height(view), size[1])
+			})
+		}
+	}
+}
+
+func TestPicker_SearchVisibleAndHeightStable(t *testing.T) {
+	m := openSync(threeItems())
+	height := lipgloss.Height(m.View())
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("br")})
+	assert.Contains(t, ansi.Strip(m.View()), "› br▏")
+	assert.Equal(t, height, lipgloss.Height(m.View()))
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", 100) + "tail")})
+	assert.Contains(t, ansi.Strip(m.View()), "tail▏")
+}
+
+func TestPicker_LongModelIDAndCurrentStatusStayVisible(t *testing.T) {
+	id := "anthropic/claude-sonnet-4-20250514"
+	m := openSync([]Item{{ID: id, Label: id, Detail: "200k context · tools", Marker: "●"}})
+	view := ansi.Strip(m.View())
+	assert.Contains(t, view, id)
+	assert.Contains(t, view, "current")
+	assert.Contains(t, view, "200k context · tools")
+}
+
+func TestPicker_ResizeKeepsFocusedRowVisible(t *testing.T) {
+	items := make([]Item, 30)
+	for i := range items {
+		items[i] = Item{ID: fmt.Sprintf("model-%02d", i), Label: fmt.Sprintf("model-%02d", i)}
+	}
+	m := openSync(items)
+	m.SetActive("model-29")
+	for _, size := range [][2]int{{100, 30}, {40, 12}, {72, 24}} {
+		m.Resize(size[0], size[1])
+		assert.Contains(t, m.View(), "model-29")
+		assert.Equal(t, "model-29", m.CursorID())
+	}
 }

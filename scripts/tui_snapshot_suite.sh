@@ -19,7 +19,7 @@ $CAPTURE --target "$TARGET" --scenario resize --keys '/help' --size 100x30 --res
 # Rich lifecycle scenarios are enabled by an explicit deterministic wrapper.
 # It must not contain credentials and should expose the named state on startup.
 if [ -n "${TUI_FIXTURE_CMD:-}" ]; then
-  for state in user-assistant thinking streaming tool-running tool-result approval error cancelled queued compacting compacted normal accept-edits auto plan bypass agents workflows; do
+  for state in user-assistant thinking streaming tool-running tool-result approval error cancelled queued compacting compacted normal accept-edits auto plan bypass agents workflows provider-picker model-picker; do
     $CAPTURE --target "$TARGET" --scenario "$state" --command "$TUI_FIXTURE_CMD --tui-fixture=$state" $PROTOCOL_CHECK
   done
 fi
