@@ -25,10 +25,9 @@ background-job results, and timings come from the running application.
 
 The recorded terminal stream is displayed by xterm.js 6.0.0 using
 [`terminal.html`](https://github.com/packetloss404/packetcode/blob/main/tools/screenshots/terminal.html).
-Browser screenshots are saved directly as JPEGs. Cropping removes empty
-terminal margins and, for Agent View, earlier conversation scrollback. The
-application's text, colors, layout, prompts, and menus are not repainted or
-retouched, and no window chrome is composited onto the images.
+Browser screenshots are saved directly as complete, uncropped 1280 × 720
+JPEGs. The application's text, colors, layout, prompts, and menus are not
+repainted or retouched, and no window chrome is composited onto the images.
 
 `captures.json` records executable and image hashes, terminal dimensions,
 and screenshot bounds. Local ANSI recordings and session data stay in ignored

@@ -17,36 +17,33 @@
   "screenshots": [
     {
       "file": "packetcode-chat.jpg",
-      "image_sha256": "a1234f3f74876bdd6b20969c758a757262d061314ff638571d6ecde7d5f89956",
+      "image_sha256": "d603511f7ac32abbcd61d554ac9d39c019349b41d1178c719ea1850df1512a94",
       "ansi_sha256": "d048066a55c23ffe924bfe87ef8247a899f259317eb83f4c7be89154e2dd339e",
-      "crop": {
-        "x": 236,
-        "y": 60,
-        "width": 807,
-        "height": 492
-      }
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "cropped": false
     },
     {
       "file": "packetcode-approval.jpg",
-      "image_sha256": "ffc1f996c982b6a561a343169e1d55dde77e220e832dad9cf040fa1d00235647",
+      "image_sha256": "63d30e4b57b3ad1a17065a8a32ed107c45295924b5de28adc0f8db3bad377a1d",
       "ansi_sha256": "70f63533632c3f6420997a5ae79988c0bbf55013f86aa895a22c3a4246be64f4",
-      "crop": {
-        "x": 236,
-        "y": 6,
-        "width": 807,
-        "height": 708
-      }
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "cropped": false
     },
     {
       "file": "packetcode-agents.jpg",
-      "image_sha256": "b63f10983054180fc534b3e2cbda7c4a23e40f2a887ebc457d27d78f1e512dbb",
+      "image_sha256": "dfe87f75a1675e8fc9923dbfe78a5bddb33b50f31070f025d64cb6606a48313d",
       "ansi_sha256": "08458da4729c205bf1faa3828c90f4d5c429deba032de9e25a0d5383899f8e61",
-      "crop": {
-        "x": 236,
-        "y": 186,
-        "width": 807,
-        "height": 528
-      }
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "cropped": false
     }
   ]
 }
