@@ -2,14 +2,12 @@ package picker
 
 import (
 	"context"
-	"fmt"
-	"strings"
+	"sync/atomic"
+	"time"
 	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
-	"github.com/packetcode/packetcode/internal/ui/theme"
 )
 
 // Item is a single selectable row. Extra is caller-owned and survives
@@ -20,13 +18,13 @@ type Item struct {
 	Label  string
 	Detail string
 	Marker string         // single-rune visual marker (e.g. "●" for active)
-	Color  lipgloss.Color // optional tint for Marker + Label prefix
+	Color  lipgloss.Color // optional tint for the marker
+	Status string         // optional short status, e.g. "key needed"
 	Extra  any
 }
 
-// Loader produces a fresh item list. Used when the picker opens against
-// a network-bound source (model list). Nil loader = synchronous open:
-// the caller preloads items via SetItems.
+// Loader produces a fresh item list. Preloaded items remain available while
+// it runs; without preloaded items the picker shows its initial loading state.
 type Loader func(ctx context.Context) ([]Item, error)
 
 // SelectMsg is emitted when the user hits Enter on a row. PickerID is
@@ -46,9 +44,18 @@ type CloseMsg struct{ PickerID string }
 // visible; the picker populates items / loadErr accordingly.
 type itemsLoadedMsg struct {
 	pickerID string
+	instance uint64
+	request  uint64
 	items    []Item
 	err      error
 }
+
+type refreshMsg struct {
+	instance uint64
+	request  uint64
+}
+
+var nextInstance atomic.Uint64
 
 // Model is the picker modal. Construct with New(); show via Open(...).
 // Follows the same value-receiver-on-Update convention as approval and
@@ -57,6 +64,9 @@ type Model struct {
 	id           string
 	visible      bool
 	title        string
+	subtitle     string
+	help         string
+	activeID     string
 	filter       string
 	items        []Item
 	filtered     []int
@@ -67,52 +77,83 @@ type Model struct {
 	loading      bool
 	loadErr      error
 	loader       Loader
+	refreshing   bool
+	refreshErr   error
+	interval     time.Duration
+	instance     uint64
+	request      uint64
+	cancel       context.CancelFunc
 }
 
 // New returns a hidden Model with the given id and title. The id lets
 // a single SelectMsg / CloseMsg handler disambiguate multiple pickers
 // sharing the same App.
 func New(id, title string) Model {
-	return Model{id: id, title: title}
+	return Model{id: id, title: title, instance: nextInstance.Add(1)}
 }
 
 // Open makes the picker visible. If loader is nil the picker is
-// presented synchronously: the caller is expected to have called
-// SetItems before Open. Otherwise loading=true is set and a tea.Cmd is
-// returned that invokes loader on a background goroutine and emits an
-// itemsLoadedMsg when it resolves.
+// presented synchronously. Otherwise the returned command loads fresh items
+// while keeping any preloaded choices available for selection.
 func (m *Model) Open(loader Loader) tea.Cmd {
+	m.stopLoad()
 	m.visible = true
 	m.loadErr = nil
+	m.refreshErr = nil
 	m.filter = ""
 	m.cursor = 0
 	m.scrollOffset = 0
+	m.loader = loader
+	m.rebuildFiltered()
+	m.SetActive(m.activeID)
 	if loader == nil {
-		m.loading = false
-		m.loader = nil
-		m.rebuildFiltered()
 		return nil
 	}
-	m.loading = true
-	m.loader = loader
-	m.items = nil
-	m.filtered = nil
-	return m.loaderCmd()
+	return m.beginLoad()
 }
 
-// loaderCmd wraps the current loader into a tea.Cmd. Extracted so the
-// `r` retry key can re-invoke the exact same loader without caller
-// bookkeeping.
-func (m Model) loaderCmd() tea.Cmd {
-	loader := m.loader
-	id := m.id
-	if loader == nil {
+func (m *Model) beginLoad() tea.Cmd {
+	if m.loader == nil || m.loading || m.refreshing {
 		return nil
 	}
+	m.request++
+	m.loadErr = nil
+	m.refreshErr = nil
+	m.loading = len(m.items) == 0
+	m.refreshing = !m.loading
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel = cancel
+	loader, id, instance, request := m.loader, m.id, m.instance, m.request
 	return func() tea.Msg {
-		items, err := loader(context.Background())
-		return itemsLoadedMsg{pickerID: id, items: items, err: err}
+		defer cancel()
+		items, err := loader(ctx)
+		return itemsLoadedMsg{pickerID: id, instance: instance, request: request, items: items, err: err}
 	}
+}
+
+func (m *Model) stopLoad() {
+	if m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+	}
+	m.request++ // invalidate outstanding replies and refresh timers
+	m.loading = false
+	m.refreshing = false
+}
+
+// SetRefreshInterval enables periodic loading while the picker is visible.
+// The next interval starts after a request finishes, so requests cannot pile up.
+// A non-positive interval disables periodic refresh.
+func (m *Model) SetRefreshInterval(interval time.Duration) { m.interval = interval }
+
+func (m Model) nextRefresh() tea.Cmd {
+	if m.interval <= 0 || m.loader == nil {
+		return nil
+	}
+	instance, request := m.instance, m.request
+	return tea.Tick(m.interval, func(time.Time) tea.Msg {
+		return refreshMsg{instance: instance, request: request}
+	})
 }
 
 // SetItems replaces the current item list and rebuilds the filter
@@ -127,24 +168,38 @@ func (m *Model) SetItems(items []Item) {
 	m.rebuildFiltered()
 }
 
-// SetActive moves the cursor to the row whose ID matches the given
-// string (no-op if not found). Called after SetItems to highlight the
-// currently active provider/model on open.
+// SetActive remembers the current choice and moves the cursor to its row
+// when present. The choice is restored on Open and after async loading.
 func (m *Model) SetActive(id string) {
+	m.activeID = id
+	m.focusID(id)
+}
+
+func (m *Model) focusID(id string) bool {
 	if id == "" {
-		return
+		return false
 	}
 	for i, idx := range m.filtered {
 		if m.items[idx].ID == id {
 			m.cursor = i
 			m.ensureCursorVisible()
-			return
+			return true
 		}
 	}
+	return false
 }
 
+// SetSubtitle adds context beneath the title on terminals with enough room.
+func (m *Model) SetSubtitle(subtitle string) { m.subtitle = subtitle }
+
+// SetHelp adds a caller-specific shortcut to the standard navigation hints.
+func (m *Model) SetHelp(help string) { m.help = help }
+
 // Hide dismisses the picker. Safe to call when already hidden.
-func (m *Model) Hide() { m.visible = false }
+func (m *Model) Hide() {
+	m.visible = false
+	m.stopLoad()
+}
 
 // Visible reports whether the picker is currently on-screen.
 func (m Model) Visible() bool { return m.visible }
@@ -170,6 +225,12 @@ func (m Model) CursorID() string {
 // async loader to resolve.
 func (m Model) Loading() bool { return m.loading }
 
+// Refreshing reports whether cached choices are being refreshed in the background.
+func (m Model) Refreshing() bool { return m.refreshing }
+
+// RefreshErr reports a failed background refresh. Cached choices remain usable.
+func (m Model) RefreshErr() error { return m.refreshErr }
+
 // LoadErr returns the last loader error, if any. Nil in the success
 // and initial states.
 func (m Model) LoadErr() error { return m.loadErr }
@@ -189,23 +250,39 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
-	case itemsLoadedMsg:
-		if msg.pickerID != m.id {
+	case refreshMsg:
+		if msg.instance != m.instance || msg.request != m.request || m.interval <= 0 {
 			return m, nil
 		}
-		m.loading = false
-		if msg.err != nil {
-			m.loadErr = msg.err
-			m.items = nil
-			m.filtered = nil
+		cmd := m.beginLoad()
+		return m, cmd
+	case itemsLoadedMsg:
+		if msg.pickerID != m.id || msg.instance != m.instance || msg.request != m.request {
 			return m, nil
+		}
+		focused := m.CursorID()
+		if focused == "" {
+			focused = m.activeID
+		}
+		m.cancel = nil
+		m.loading = false
+		m.refreshing = false
+		if msg.err != nil {
+			if len(m.items) > 0 {
+				m.refreshErr = msg.err
+			} else {
+				m.loadErr = msg.err
+			}
+			return m, m.nextRefresh()
 		}
 		m.loadErr = nil
+		m.refreshErr = nil
 		m.items = msg.items
-		m.cursor = 0
-		m.scrollOffset = 0
 		m.rebuildFiltered()
-		return m, nil
+		if !m.focusID(focused) {
+			m.clampCursor()
+		}
+		return m, m.nextRefresh()
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -218,14 +295,16 @@ func (m Model) handleKey(km tea.KeyMsg) (Model, tea.Cmd) {
 
 	// Error-state retry: only "r" (lowercase) re-fires the loader.
 	if m.loadErr != nil && key == "r" && m.loader != nil {
-		m.loadErr = nil
-		m.loading = true
-		return m, m.loaderCmd()
+		cmd := m.beginLoad()
+		return m, cmd
 	}
 
 	switch key {
+	case "ctrl+r":
+		cmd := m.beginLoad()
+		return m, cmd
 	case "esc":
-		m.visible = false
+		m.Hide()
 		id := m.id
 		return m, func() tea.Msg { return CloseMsg{PickerID: id} }
 	case "enter":
@@ -236,7 +315,7 @@ func (m Model) handleKey(km tea.KeyMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		item := m.items[m.filtered[m.cursor]]
-		m.visible = false
+		m.Hide()
 		id := m.id
 		return m, func() tea.Msg { return SelectMsg{PickerID: id, Item: item} }
 	case "up", "ctrl+p", "ctrl+k":
@@ -390,263 +469,4 @@ func (m *Model) rebuildFiltered() {
 			m.filtered = append(m.filtered, i)
 		}
 	}
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Geometry
-// ────────────────────────────────────────────────────────────────────────────
-
-// modalWidth clamps terminal_width/2 into [52, 96].
-func (m Model) modalWidth() int {
-	w := m.width / 2
-	if m.width > 0 && w < 52 {
-		w = 52
-	}
-	if w > 96 {
-		w = 96
-	}
-	if w < 52 {
-		w = 52
-	}
-	if m.width > 0 && w > m.width-2 {
-		w = m.width - 2
-	}
-	if w < 20 {
-		w = 20
-	}
-	return w
-}
-
-// modalHeight clamps 3 + filtered + 1 into [8, terminal_height/2]. Error
-// and loading states always render at the 8 floor.
-func (m Model) modalHeight() int {
-	if m.loading || m.loadErr != nil {
-		return 8
-	}
-	base := 3 + len(m.filtered) + 1
-	if base < 8 {
-		base = 8
-	}
-	cap := 8
-	if m.height > 0 {
-		cap = m.height / 2
-	}
-	if cap < 8 {
-		cap = 8
-	}
-	if base > cap {
-		base = cap
-	}
-	return base
-}
-
-// listHeight returns the number of rows available for items inside the
-// modal after accounting for the border + padding + title + filter line
-// + footer.
-func (m Model) listHeight() int {
-	// modalHeight includes: title (1) + filter (1) + blank (1) + rows +
-	// footer (1). Subtract the fixed 4 lines to get the rows budget.
-	h := m.modalHeight() - 4
-	if h < 1 {
-		h = 1
-	}
-	return h
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// View
-// ────────────────────────────────────────────────────────────────────────────
-
-// View renders the modal. Returns "" when hidden so the layout can skip
-// the overlay slot.
-func (m Model) View() string {
-	if !m.visible {
-		return ""
-	}
-	outerW := m.modalWidth()
-	innerW := outerW - 4 // border (2) + padding (2)
-	if innerW < 10 {
-		innerW = 10
-	}
-
-	title := theme.StyleAccent.Render(m.title)
-	cursorChar := theme.StyleDim.Render("▌")
-	filterLine := theme.StylePrimary.Render("> ") + theme.StylePrimary.Render(m.filter) + cursorChar
-
-	footer := theme.StyleDim.Render("↑/↓ move · ⏎ select · Esc close")
-	if strings.TrimSpace(m.filter) != "" {
-		footer += theme.StyleDim.Render(fmt.Sprintf("  · filtering %d/%d", len(m.filtered), len(m.items)))
-	}
-
-	var body string
-	switch {
-	case m.loading:
-		body = m.renderLoading(innerW)
-	case m.loadErr != nil:
-		body = m.renderError(innerW)
-		footer = theme.StyleDim.Render("r retry · Esc close")
-	default:
-		body = m.renderList(innerW)
-	}
-
-	content := strings.Join([]string{title, filterLine, body, footer}, "\n")
-
-	frame := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.AccentPrimary).
-		Padding(0, 1).
-		Width(innerW + 2)
-	return frame.Render(content)
-}
-
-// renderLoading centers a "loading…" placeholder vertically in the
-// body area.
-func (m Model) renderLoading(w int) string {
-	h := m.listHeight()
-	msg := theme.StyleDim.Render("loading…")
-	lines := make([]string, 0, h)
-	pad := h / 2
-	for i := 0; i < pad; i++ {
-		lines = append(lines, "")
-	}
-	lines = append(lines, lipgloss.PlaceHorizontal(w, lipgloss.Center, msg))
-	for i := len(lines); i < h; i++ {
-		lines = append(lines, "")
-	}
-	return strings.Join(lines, "\n")
-}
-
-// renderError shows the load error in StyleError. The footer is
-// replaced by the caller with "r retry · Esc close".
-func (m Model) renderError(w int) string {
-	h := m.listHeight()
-	msg := theme.StyleError.Render("error: " + m.loadErr.Error())
-	lines := make([]string, 0, h)
-	pad := h / 2
-	for i := 0; i < pad; i++ {
-		lines = append(lines, "")
-	}
-	lines = append(lines, truncate(msg, w))
-	for i := len(lines); i < h; i++ {
-		lines = append(lines, "")
-	}
-	return strings.Join(lines, "\n")
-}
-
-// renderList builds the item rows using scrollOffset + listHeight as
-// the visible window. Cursor row gets a bright-surface background.
-func (m Model) renderList(w int) string {
-	h := m.listHeight()
-	if len(m.filtered) == 0 {
-		lines := make([]string, 0, h)
-		msg := theme.StyleDim.Render("no matches")
-		pad := h / 2
-		for i := 0; i < pad; i++ {
-			lines = append(lines, "")
-		}
-		lines = append(lines, lipgloss.PlaceHorizontal(w, lipgloss.Center, msg))
-		for i := len(lines); i < h; i++ {
-			lines = append(lines, "")
-		}
-		return strings.Join(lines, "\n")
-	}
-
-	// Column budgets: marker column is 4 runes ("▶ ● "), label column
-	// is min(24, body/3). Detail uses the rest.
-	labelW := w / 3
-	if labelW > 24 {
-		labelW = 24
-	}
-	if labelW < 8 {
-		labelW = 8
-	}
-	markerW := 4
-	detailW := w - markerW - labelW - 1
-	if detailW < 4 {
-		detailW = 4
-	}
-
-	rows := make([]string, 0, h)
-	end := m.scrollOffset + h
-	if end > len(m.filtered) {
-		end = len(m.filtered)
-	}
-	for i := m.scrollOffset; i < end; i++ {
-		idx := m.filtered[i]
-		it := m.items[idx]
-		rows = append(rows, m.renderRow(it, i == m.cursor, markerW, labelW, detailW))
-	}
-	for len(rows) < h {
-		rows = append(rows, "")
-	}
-	return strings.Join(rows, "\n")
-}
-
-// renderRow formats one list row. cursorOn flips the background tint
-// so the selected row reads. The marker column always includes the
-// cursor arrow (▶) on the cursor row and the item's own marker (if any).
-func (m Model) renderRow(it Item, cursorOn bool, markerW, labelW, detailW int) string {
-	marker := "  "
-	if cursorOn {
-		marker = "▶ "
-	}
-	itemMarker := it.Marker
-	if itemMarker == "" {
-		itemMarker = " "
-	}
-	if it.Color != "" {
-		itemMarker = lipgloss.NewStyle().Foreground(it.Color).Render(itemMarker)
-	}
-	// marker (2) + itemMarker (1) + space (1) = 4 runes.
-	markerCol := marker + itemMarker + " "
-
-	labelStyle := theme.StylePrimary
-	if it.Color != "" {
-		labelStyle = lipgloss.NewStyle().Foreground(it.Color)
-	}
-	label := padOrTrunc(it.Label, labelW)
-	labelCol := labelStyle.Render(label)
-	detail := theme.StyleSecondary.Render(alignRight(truncate(it.Detail, detailW), detailW))
-
-	line := markerCol + labelCol + " " + detail
-	if cursorOn {
-		// Highlight whole line with bright-surface background.
-		return lipgloss.NewStyle().Background(theme.BaseSurfaceBright).Render(line)
-	}
-	return line
-}
-
-// padOrTrunc returns s padded with spaces or truncated (with ellipsis)
-// to exactly w runes. Used for fixed-width columns.
-func padOrTrunc(s string, w int) string {
-	r := []rune(s)
-	if len(r) > w {
-		if w >= 1 {
-			return string(r[:w-1]) + "…"
-		}
-		return string(r[:w])
-	}
-	return s + strings.Repeat(" ", w-len(r))
-}
-
-// truncate clips s to at most w runes, adding an ellipsis on overflow.
-func truncate(s string, w int) string {
-	r := []rune(s)
-	if len(r) <= w {
-		return s
-	}
-	if w <= 1 {
-		return string(r[:w])
-	}
-	return string(r[:w-1]) + "…"
-}
-
-// alignRight right-aligns s inside a w-wide field. If s is already
-// longer than w it's returned as-is (truncate is the caller's job).
-func alignRight(s string, w int) string {
-	r := []rune(s)
-	if len(r) >= w {
-		return s
-	}
-	return strings.Repeat(" ", w-len(r)) + s
 }

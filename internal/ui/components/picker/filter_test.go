@@ -44,7 +44,7 @@ func TestMatches_NoMatch(t *testing.T) {
 }
 
 func TestMatches_SearchesAllFields(t *testing.T) {
-	it := Item{ID: "alpha", Label: "Bravo", Detail: "Charlie"}
+	it := Item{ID: "alpha", Label: "Bravo", Detail: "Charlie", Status: "key needed"}
 	if !matches(it, "alpha") {
 		t.Fatalf("should match on ID")
 	}
@@ -53,6 +53,9 @@ func TestMatches_SearchesAllFields(t *testing.T) {
 	}
 	if !matches(it, "charlie") {
 		t.Fatalf("should match on Detail")
+	}
+	if !matches(it, "KEY NEEDED") {
+		t.Fatalf("should match on Status")
 	}
 }
 
