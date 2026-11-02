@@ -5,6 +5,10 @@ All notable packetcode changes are recorded here. The project is pre-1.0;
 
 ## [Unreleased]
 
+- Screenshot previews use a wider gallery and focus on the app. An enlarged
+  viewer adds zoom, fit-to-screen, scrolling, keyboard controls, and access to
+  the complete original captures.
+
 ## [0.6.3] - 2026-11-02
 
 ### Added

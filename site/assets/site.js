@@ -62,6 +62,87 @@
     if (installGroup) installGroup.select(windowsTab);
   }
 
+  const viewer = document.getElementById('screenshot-viewer');
+  if (viewer && typeof viewer.showModal === 'function') {
+    const viewport = viewer.querySelector('.viewer-viewport');
+    const canvas = viewer.querySelector('.viewer-canvas');
+    const image = document.getElementById('screenshot-viewer-image');
+    const title = document.getElementById('screenshot-viewer-title');
+    const original = document.getElementById('screenshot-original');
+    const zoomLabel = document.getElementById('screenshot-zoom');
+    const zoomIn = viewer.querySelector('[data-zoom-in]');
+    const zoomOut = viewer.querySelector('[data-zoom-out]');
+    let trigger;
+    let crop;
+    let scale = 1;
+    let priorOverflow = '';
+
+    const paint = () => {
+      canvas.style.width = crop.width * scale + 'px';
+      canvas.style.height = crop.height * scale + 'px';
+      image.style.width = '1280px';
+      image.style.height = '720px';
+      image.style.transformOrigin = 'top left';
+      image.style.transform = `translate(${-crop.x * scale}px, ${-crop.y * scale}px) scale(${scale})`;
+      zoomLabel.textContent = Math.round(scale * 100) + '%';
+      zoomIn.disabled = scale >= 4;
+      zoomOut.disabled = scale <= 0.25;
+    };
+    const zoom = (next) => {
+      const centerX = (viewport.scrollLeft + viewport.clientWidth / 2) / scale;
+      const centerY = (viewport.scrollTop + viewport.clientHeight / 2) / scale;
+      scale = Math.min(4, Math.max(0.25, next));
+      paint();
+      viewport.scrollLeft = centerX * scale - viewport.clientWidth / 2;
+      viewport.scrollTop = centerY * scale - viewport.clientHeight / 2;
+    };
+    const fit = () => zoom(Math.min((viewport.clientWidth - 48) / crop.width, (viewport.clientHeight - 48) / crop.height));
+    document.querySelectorAll('[data-screenshot-open]').forEach((link) => {
+      link.addEventListener('click', (event) => {
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        const values = link.dataset.screenshotCrop.split(',').map(Number);
+        if (values.length !== 4 || !values.every(Number.isFinite) || values[2] <= 0 || values[3] <= 0) return;
+        event.preventDefault();
+        trigger = link;
+        crop = { x: values[0], y: values[1], width: values[2], height: values[3] };
+        image.src = link.href;
+        image.alt = link.querySelector('img').alt;
+        title.textContent = link.dataset.screenshotTitle;
+        original.href = link.href;
+        priorOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        viewer.showModal();
+        scale = Math.min(1.5, Math.max(1.25, (viewport.clientWidth - 48) / crop.width));
+        paint();
+        viewport.scrollLeft = 0;
+        viewport.scrollTop = 0;
+      });
+    });
+    zoomIn.addEventListener('click', () => zoom(scale + 0.25));
+    zoomOut.addEventListener('click', () => zoom(scale - 0.25));
+    viewer.querySelector('[data-zoom-fit]').addEventListener('click', fit);
+    viewer.querySelector('[data-viewer-close]').addEventListener('click', () => viewer.close());
+    viewer.addEventListener('keydown', (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key === '+' || event.key === '=') zoom(scale + 0.25);
+      else if (event.key === '-') zoom(scale - 0.25);
+      else if (event.key === '0') fit();
+      else if (event.key.startsWith('Arrow')) {
+        const offsets = { ArrowLeft: [-80, 0], ArrowRight: [80, 0], ArrowUp: [0, -80], ArrowDown: [0, 80] };
+        const offset = offsets[event.key];
+        if (!offset) return;
+        viewport.scrollLeft += offset[0];
+        viewport.scrollTop += offset[1];
+      } else return;
+      event.preventDefault();
+    });
+    viewer.addEventListener('close', () => {
+      document.body.style.overflow = priorOverflow;
+      image.removeAttribute('src');
+      trigger?.focus({ preventScroll: true });
+    });
+  }
+
   const copyTimers = new WeakMap();
   const fallbackCopy = (text) => {
     const previousFocus = document.activeElement;

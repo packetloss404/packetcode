@@ -29,6 +29,11 @@ Browser screenshots are saved directly as complete, uncropped 1280 × 720
 JPEGs. The application's text, colors, layout, prompts, and menus are not
 repainted or retouched, and no window chrome is composited onto the images.
 
+On the website, app-focused previews hide the surrounding empty terminal
+space. The enlarged viewer supports zooming and scrolling; **Full original**
+opens the complete, uncropped capture. These presentation controls do not
+modify the image files or their hashes.
+
 `captures.json` records executable and image hashes, terminal dimensions,
 and screenshot bounds. Local ANSI recordings and session data stay in ignored
 `dist/`; only the reviewed images and provenance are published.

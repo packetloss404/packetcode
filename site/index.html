@@ -95,19 +95,19 @@
           </div>
         </div>
         <div id="showcase-panel-chat" class="showcase-panel" role="tabpanel" aria-labelledby="showcase-tab-chat" tabindex="0">
-          <a href="assets/screenshots/packetcode-chat.jpg" target="_blank" rel="noopener" aria-label="View the full-size PacketCode conversation screenshot"><img src="assets/screenshots/packetcode-chat.jpg" width="1280" height="720" alt="Actual PacketCode v0.6.2 session with its ASCII banner, a real Codex reply about a Go health endpoint, prompt composer, and native status line."></a>
+          <a class="screenshot-preview" data-screenshot-open data-screenshot-title="Conversation" data-screenshot-crop="228,60,824,492" style="--shot-ratio:824/492;--shot-top:-12.195122%" href="assets/screenshots/packetcode-chat.jpg" target="_blank" rel="noopener" aria-label="View the full-size PacketCode conversation screenshot"><span class="screenshot-preview-frame"><img src="assets/screenshots/packetcode-chat.jpg" width="1280" height="720" alt="Actual PacketCode v0.6.2 session with its ASCII banner, a real Codex reply about a Go health endpoint, prompt composer, and native status line."></span><span class="screenshot-expand" aria-hidden="true">Enlarge screenshot <span>↗</span></span></a>
           <div class="showcase-caption"><span class="caption-index">[ CONVERSATION ]</span><p>A real Codex conversation in PacketCode v0.6.2.</p><a href="guide/#first-session">Your first session <span aria-hidden="true">↗</span></a></div>
         </div>
         <div id="showcase-panel-approval" class="showcase-panel" role="tabpanel" aria-labelledby="showcase-tab-approval" tabindex="0" hidden>
-          <a href="assets/screenshots/packetcode-approval.jpg" target="_blank" rel="noopener" aria-label="View the full-size PacketCode approval screenshot"><img src="assets/screenshots/packetcode-approval.jpg" width="1280" height="720" loading="lazy" alt="Actual PacketCode approval screen with a proposed README patch and the Allow once, Allow this tool this session, and Reject this request choices."></a>
+          <a class="screenshot-preview" data-screenshot-open data-screenshot-title="Approvals" data-screenshot-crop="228,6,824,708" style="--shot-ratio:824/708;--shot-top:-0.847458%" href="assets/screenshots/packetcode-approval.jpg" target="_blank" rel="noopener" aria-label="View the full-size PacketCode approval screenshot"><span class="screenshot-preview-frame"><img src="assets/screenshots/packetcode-approval.jpg" width="1280" height="720" loading="lazy" alt="Actual PacketCode approval screen with a proposed README patch and the Allow once, Allow this tool this session, and Reject this request choices."></span><span class="screenshot-expand" aria-hidden="true">Enlarge screenshot <span>↗</span></span></a>
           <div class="showcase-caption"><span class="caption-index">[ APPROVALS ]</span><p>A proposed README edit, awaiting permission.</p><a href="guide/#permissions">Meet the permission modes <span aria-hidden="true">↗</span></a></div>
         </div>
         <div id="showcase-panel-agents" class="showcase-panel" role="tabpanel" aria-labelledby="showcase-tab-agents" tabindex="0" hidden>
-          <a href="assets/screenshots/packetcode-agents.jpg" target="_blank" rel="noopener" aria-label="View the full-size PacketCode Agent View screenshot"><img src="assets/screenshots/packetcode-agents.jpg" width="1280" height="720" loading="lazy" alt="Actual PacketCode Agent View showing two completed Codex background reviews of the Beacon example project, with timings and file-read artifacts."></a>
+          <a class="screenshot-preview" data-screenshot-open data-screenshot-title="Background agents" data-screenshot-crop="228,186,824,528" style="--shot-ratio:824/528;--shot-top:-35.227273%" href="assets/screenshots/packetcode-agents.jpg" target="_blank" rel="noopener" aria-label="View the full-size PacketCode Agent View screenshot"><span class="screenshot-preview-frame"><img src="assets/screenshots/packetcode-agents.jpg" width="1280" height="720" loading="lazy" alt="Actual PacketCode Agent View showing two completed Codex background reviews of the Beacon example project, with timings and file-read artifacts."></span><span class="screenshot-expand" aria-hidden="true">Enlarge screenshot <span>↗</span></span></a>
           <div class="showcase-caption"><span class="caption-index">[ BACKGROUND AGENTS ]</span><p>Two real read-only reviews, completed in Agent View.</p><a href="guide/#agents">Put agents to work <span aria-hidden="true">↗</span></a></div>
         </div>
       </div>
-      <p class="screenshot-note">Captured from the released PacketCode v0.6.2 executable with real Codex responses in an isolated example project. Click a screenshot to view it full size. <a href="https://github.com/packetloss404/packetcode/blob/main/docs/images/README.md">Capture notes <span aria-hidden="true">↗</span></a></p>
+      <p class="screenshot-note">Captured from the released PacketCode v0.6.2 executable with real Codex responses in an isolated example project. Click a screenshot to enlarge it. Use the zoom controls to read the details, or open the complete original. <a href="https://github.com/packetloss404/packetcode/blob/main/docs/images/README.md">Capture notes <span aria-hidden="true">↗</span></a></p>
     </section>
 
     <section class="providers-section container" aria-labelledby="providers-title">
@@ -148,6 +148,23 @@
   </main>
 
   <footer class="site-footer"><div class="container"><div class="footer-top"><a class="brand" href="./" aria-label="PacketCode home"><span class="brand-mark" aria-hidden="true">[p_]</span>packetcode<span class="brand-dot">.</span></a><p>A little more possibility<br>at your prompt.</p><nav aria-label="Footer navigation"><a href="guide/">Getting started</a><a href="docs/packetcode-manual.html">Full manual</a><a href="https://github.com/packetloss404/packetcode/releases">Releases</a><a href="https://github.com/packetloss404/packetcode">Source code <span aria-hidden="true">↗</span></a></nav></div><div class="footer-bottom"><span>© 2026 PacketCode contributors. MIT licensed.</span><span class="footer-status"><span class="status-dot" aria-hidden="true"></span> PRE-1.0 · BUILT IN THE OPEN</span><a href="#main">Back to top <span aria-hidden="true">↑</span></a></div></div></footer>
+  <dialog id="screenshot-viewer" class="screenshot-viewer" aria-labelledby="screenshot-viewer-title" aria-describedby="screenshot-viewer-help">
+    <header class="viewer-toolbar">
+      <div class="viewer-heading"><p class="viewer-eyebrow">THE PACKETCODE WORKSPACE</p><h2 id="screenshot-viewer-title">Screenshot</h2></div>
+      <div class="viewer-controls" aria-label="Screenshot controls">
+        <button type="button" data-zoom-out aria-label="Zoom out">−</button>
+        <output id="screenshot-zoom" aria-live="polite">100%</output>
+        <button type="button" data-zoom-in aria-label="Zoom in">+</button>
+        <button type="button" data-zoom-fit>Fit to screen</button>
+        <a id="screenshot-original" target="_blank" rel="noopener">Full original ↗</a>
+        <button type="button" data-viewer-close autofocus aria-label="Close screenshot">Close ×</button>
+      </div>
+    </header>
+    <p id="screenshot-viewer-help" class="viewer-help">Scroll or swipe to explore. + / − zoom · arrow keys pan · Esc closes.</p>
+    <div class="viewer-viewport" tabindex="0" aria-label="Zoomed screenshot">
+      <div class="viewer-canvas"><img id="screenshot-viewer-image" alt=""></div>
+    </div>
+  </dialog>
   <span id="copy-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span>
 </body>
 </html>
