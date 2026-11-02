@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>PacketCode terminal capture</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<style>html,body{margin:0;width:100%;height:100%;background:#10131b;overflow:hidden}body{display:flex;align-items:center;justify-content:center}.xterm{padding:0}.xterm-viewport{scrollbar-width:none}.xterm-viewport::-webkit-scrollbar{display:none}</style>
+<div id="terminal" aria-label="Actual PacketCode terminal output"></div><script src="vendor/xterm.js"></script>
+<script>
+(async()=>{
+ const fontSize=Math.max(9,Math.min(20,Math.floor(Math.min((innerWidth-40)/(100*.61),(innerHeight-40)/(38*1.35)))));
+ const term=new Terminal({cols:100,rows:38,fontSize,lineHeight:1.2,fontFamily:'Menlo,monospace',cursorBlink:false,disableStdin:true,scrollback:5000,screenReaderMode:true,theme:{background:'#10131b',foreground:'#d7dce6',cursor:'#d7dce6'}});
+ term.open(document.getElementById('terminal'));
+ await document.fonts.ready;
+ const state=new URLSearchParams(location.search).get('state')||'chat';
+ const response=await fetch(state+'.ansi');
+ if(!response.ok)throw new Error('Capture not available: '+state);
+ const raw=new Uint8Array(await response.arrayBuffer());
+ await new Promise(resolve=>term.write(raw,resolve));
+ term.scrollToBottom();
+ document.title='PacketCode — '+state+' — actual terminal capture';
+ document.body.dataset.captureReady='true';
+})();
+</script></html>

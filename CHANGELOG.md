@@ -5,6 +5,10 @@ All notable packetcode changes are recorded here. The project is pre-1.0;
 
 ## [Unreleased]
 
+- Website and README screenshots now show real v0.6.2 sessions with live Codex
+  responses, an actual pending file patch, and completed background agents.
+  Capture notes and PTY tools document their provenance; gallery images open
+  at full size.
 - A public GitHub Pages website introduces PacketCode with real app screenshots,
   platform downloads, copyable installation commands, and a getting-started
   guide. Its deployment workflow validates desktop and mobile behavior.

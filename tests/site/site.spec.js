@@ -84,7 +84,7 @@ test('workspace tabs switch real views and keep selection and focus synchronized
     await expect(tab).toHaveAttribute('aria-selected', 'true');
     const panel = page.locator(`#showcase-panel-${state}`);
     await expect(panel).toBeVisible();
-    await expect(panel.locator('img')).toHaveAttribute('src', new RegExp(`packetcode-${state}[.]png$`));
+    await expect(panel.locator('img')).toHaveAttribute('src', new RegExp(`packetcode-${state}[.]jpg$`));
     expect(await tabs.locator('[aria-selected="true"]').count()).toBe(1);
   }
   await tabs.getByRole('tab', { name: 'Background agents', exact: true }).press('Home');

@@ -1,0 +1,52 @@
+{
+  "captured_on": "2026-11-02",
+  "application": "PacketCode",
+  "version": "0.6.2",
+  "commit": "5df4e06b2b55a013ec4c3476b09f2d9c8205958c",
+  "release_archive_sha256": "48df00987572d9954918b0e025fcbe885fbefefc6a62284eba57d42f0eb100c6",
+  "executable_sha256": "1e8608efad30b6ffffdf676795a9da7dfd0aa767f9a1a637209f452d9b389983",
+  "provider": "codex",
+  "model": "gpt-5.6-sol",
+  "project": "Beacon example HTTP service",
+  "terminal": {
+    "emulator": "xterm.js 6.0.0",
+    "columns": 100,
+    "rows": 38
+  },
+  "uses_tui_fixture": false,
+  "screenshots": [
+    {
+      "file": "packetcode-chat.jpg",
+      "image_sha256": "a1234f3f74876bdd6b20969c758a757262d061314ff638571d6ecde7d5f89956",
+      "ansi_sha256": "d048066a55c23ffe924bfe87ef8247a899f259317eb83f4c7be89154e2dd339e",
+      "crop": {
+        "x": 236,
+        "y": 60,
+        "width": 807,
+        "height": 492
+      }
+    },
+    {
+      "file": "packetcode-approval.jpg",
+      "image_sha256": "ffc1f996c982b6a561a343169e1d55dde77e220e832dad9cf040fa1d00235647",
+      "ansi_sha256": "70f63533632c3f6420997a5ae79988c0bbf55013f86aa895a22c3a4246be64f4",
+      "crop": {
+        "x": 236,
+        "y": 6,
+        "width": 807,
+        "height": 708
+      }
+    },
+    {
+      "file": "packetcode-agents.jpg",
+      "image_sha256": "b63f10983054180fc534b3e2cbda7c4a23e40f2a887ebc457d27d78f1e512dbb",
+      "ansi_sha256": "08458da4729c205bf1faa3828c90f4d5c429deba032de9e25a0d5383899f8e61",
+      "crop": {
+        "x": 236,
+        "y": 186,
+        "width": 807,
+        "height": 528
+      }
+    }
+  ]
+}

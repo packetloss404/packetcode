@@ -22,19 +22,21 @@ guard remain independent per job.
 ## Interface
 
 <p align="center">
-  <img src="docs/images/packetcode-chat.png" alt="Packetcode chat interface using the Codex provider, with the prompt composer and native statusline" width="100%">
+  <a href="docs/images/packetcode-chat.jpg"><img src="docs/images/packetcode-chat.jpg" alt="Actual PacketCode v0.6.2 conversation with a real Codex response, prompt composer, and native status line" width="100%"></a>
 </p>
 
 Permission-aware tool execution and the full background Agent workspace:
 
 <p align="center">
-  <a href="docs/images/packetcode-approval.png"><img src="docs/images/packetcode-approval.png" alt="Packetcode command approval interface" width="49%"></a>
-  <a href="docs/images/packetcode-agents.png"><img src="docs/images/packetcode-agents.png" alt="Packetcode background Agent View" width="49%"></a>
+  <a href="docs/images/packetcode-approval.jpg"><img src="docs/images/packetcode-approval.jpg" alt="Actual PacketCode approval request for a proposed README patch" width="49%"></a>
+  <a href="docs/images/packetcode-agents.jpg"><img src="docs/images/packetcode-agents.jpg" alt="Actual PacketCode Agent View with two completed background reviews" width="49%"></a>
 </p>
 
-These screenshots illustrate the layout and may precede the latest labels.
-Current approval wording is described below; reviewed text-and-style snapshots
-live in `testdata/tui/golden/packetcode/` and are checked by CI.
+These screenshots were captured from the released v0.6.2 executable using real
+Codex responses in an isolated example project. See the
+[capture notes](docs/images/README.md) for provenance and regeneration tools.
+Reviewed text-and-style regression snapshots live in
+`testdata/tui/golden/packetcode/` and are checked by CI.
 
 ## Install
 
