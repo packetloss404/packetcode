@@ -92,7 +92,7 @@ h1 em,h2 em,.install-intro em{font-weight:400}
 .workspace-toolbar{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:70px;padding:12px 22px;border-bottom:1px solid #30392d}
 .workspace-brand{display:flex;align-items:center;gap:9px;color:#aebaa6;font:400 9px/1.5 var(--mono);letter-spacing:1px}
 .live-dot{width:5px;height:5px;border-radius:50%;background:#aec897}
-.showcase-tabs{display:flex;align-items:center;gap:5px}
+.showcase-tabs{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 .showcase-tabs button{background:transparent;color:#acb7a4;min-height:34px;border:1px solid transparent;border-radius:3px;padding:7px 12px;font:400 10px/1.4 var(--mono)}
 .showcase-tabs button[aria-selected=true]{color:#f1f4eb;border-color:#47513f;background:#293225}
 .showcase-tabs button:hover{color:#fff}
@@ -281,3 +281,5 @@ h1 em,h2 em,.install-intro em{font-weight:400}
   .guide-faq p { font-size:14px; }
   .guide-code pre, .code-block pre { font-size:11px; }
 }
+
+@media(max-width:640px){.showcase-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}

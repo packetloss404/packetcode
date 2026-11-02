@@ -1,8 +1,8 @@
 # Product screenshots
 
 Captured on 2026-11-02 from the unmodified macOS Apple silicon executable in
-[release v0.6.2](https://github.com/packetloss404/packetcode/releases/tag/v0.6.2).
-The application reports commit `5df4e06b2b55a013ec4c3476b09f2d9c8205958c`.
+[release v0.6.3](https://github.com/packetloss404/packetcode/releases/tag/v0.6.3).
+The application reports commit `58065b5cc04c0fd69250b9d168e1e572acf5289f`.
 
 These are screenshots of ordinary PacketCode sessions using the real Codex
 provider and `gpt-5.6-sol`. The full application runs in a real PTY, with an
@@ -15,6 +15,7 @@ and `main_test.go`.
 | `packetcode-chat.jpg` | A real Codex response to a question about designing the example service's health endpoint. |
 | `packetcode-approval.jpg` | Codex proposed a README patch; PacketCode displayed the diff and waited for permission. The edit was not approved. |
 | `packetcode-agents.jpg` | Two `/spawn` commands launched actual read-only background reviews. `/agents` shows their completed jobs and artifacts. |
+| `packetcode-models.jpg` | `/model` opened the refreshed model picker with the actual Codex catalog and current-model selection. |
 
 ## Capture method
 
@@ -42,7 +43,7 @@ and screenshot bounds. Local ANSI recordings and session data stay in ignored
 
 1. Download the desired release and verify its archive against that release's
    `checksums.txt`. The original archive SHA-256 for these captures is
-   `48df00987572d9954918b0e025fcbe885fbefefc6a62284eba57d42f0eb100c6`.
+   `374909af85cd695a2830351003c25b4c7b0164037591260912d9c2c26dc7f416`.
 2. Prepare a disposable example project and a dedicated PacketCode data
    directory. Configure the Codex provider there and use an existing official
    Codex CLI login. Keep ordinary permission prompts enabled.
