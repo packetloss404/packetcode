@@ -11,10 +11,19 @@ Provider and model selection use the shared `picker` component.
 - PageUp/PageDown move by half a page.
 - Enter selects; Esc closes; Ctrl+U clears the filter.
 - In the provider picker, Ctrl+A opens API-key entry for the focused provider.
+- In the model picker, Ctrl+R refreshes the catalog immediately.
 
 Selecting a provider persists its default model. Model discovery runs asynchronously and shows loading, empty, and error/retry states without blocking the Bubble Tea update loop. Providers with incomplete/unavailable model-list endpoints may return curated fallback models.
 
+The model catalog refreshes every time the model picker opens and once a minute after each completed request while it remains open. Cached choices stay visible and selectable during refresh, with a `refreshing…` indicator. Updates preserve the search query and focused choice. If refresh fails, the picker labels the cached list, offers Ctrl+R to retry, and retries automatically at the next interval. Closing or selecting cancels an in-flight request and stops periodic refresh; older replies cannot replace a newer picker's catalog.
+
+API providers query their model-list endpoints. Codex re-reads the Codex CLI's `models_cache.json` on each refresh, so changes to that file are picked up without restarting Packetcode; it uses a bundled catalog if the CLI cache is unavailable. Packetcode does not update the Codex CLI cache itself.
+
 Keyless providers (`codex` and `ollama`) never open an API-key prompt. Custom OpenAI-compatible providers participate through the same registry.
+
+Names and model IDs use a full row, with connection details or model context, tool support, and pricing underneath. The active choice is labeled `current`; providers needing setup show `key needed`. The picker opens focused on the current choice, including after asynchronous model discovery. Search results show match counts, keep the panel height steady, and retain the end of long queries. Short terminals use compact rows, and long lists show the visible range.
+
+Credential-free previews are available with `packetcode --tui-fixture=provider-picker` and `packetcode --tui-fixture=model-picker`.
 
 ## Focus Rules
 

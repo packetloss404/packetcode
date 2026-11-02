@@ -22,18 +22,20 @@ func DisplayOrder() []string {
 // (provider, model) pair. Hot-switching mutates only the active fields;
 // the underlying Provider instances are long-lived.
 type Registry struct {
-	mu           sync.RWMutex
-	providers    map[string]Provider
-	active       Provider
-	activeModel  string
-	cachedModels map[string][]Model
+	mu            sync.RWMutex
+	providers     map[string]Provider
+	active        Provider
+	activeModel   string
+	cachedModels  map[string][]Model
+	modelVersions map[string]uint64
 }
 
 // NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		providers:    map[string]Provider{},
-		cachedModels: map[string][]Model{},
+		providers:     map[string]Provider{},
+		cachedModels:  map[string][]Model{},
+		modelVersions: map[string]uint64{},
 	}
 }
 
@@ -47,6 +49,7 @@ func (r *Registry) Register(p Provider) {
 		r.active = p
 	}
 	delete(r.cachedModels, p.Slug())
+	r.modelVersions[p.Slug()]++
 }
 
 // Get returns a provider by slug.
@@ -144,6 +147,39 @@ func (r *Registry) SetCachedModels(slug string, ms []Model) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.cachedModels[slug] = cp
+	r.modelVersions[slug]++
+}
+
+// RefreshModels fetches the current provider's catalog without discarding the
+// last usable snapshot. Only the newest request may update the cache; a late
+// response cannot undo a refresh, credential change, or invalidation.
+func (r *Registry) RefreshModels(ctx context.Context, slug string) ([]Model, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	p, ok := r.providers[slug]
+	if !ok {
+		r.mu.Unlock()
+		return nil, fmt.Errorf("provider %q not registered", slug)
+	}
+	r.modelVersions[slug]++
+	version := r.modelVersions[slug]
+	r.mu.Unlock()
+
+	models, err := p.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.modelVersions[slug] == version {
+		r.cachedModels[slug] = append([]Model(nil), models...)
+	}
+	return models, nil
 }
 
 // InvalidateCachedModels drops the cached entry for slug, forcing the
@@ -152,6 +188,7 @@ func (r *Registry) InvalidateCachedModels(slug string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.cachedModels, slug)
+	r.modelVersions[slug]++
 }
 
 // InitResult records what happened when initializing a single provider.

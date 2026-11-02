@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/packetcode/packetcode/internal/config"
 	"github.com/packetcode/packetcode/internal/provider"
@@ -33,8 +34,8 @@ func providerKeyStatus(cfg *config.Config, slug, fallback string) string {
 // providerItems builds the rows displayed by the provider picker. Each
 // row's ID is the provider slug so SelectMsg.Item.ID plugs straight
 // into applyProviderSwitch. The active provider's marker is a filled
-// bullet tinted in its brand color; everyone else gets an empty
-// marker cell that stays aligned.
+// bullet tinted in its brand color. Names, connection details, and setup
+// status occupy separate parts of the row so long names stay readable.
 func providerItems(regs []provider.Provider, cfg *config.Config, activeSlug string) []picker.Item {
 	out := make([]picker.Item, 0, len(regs))
 	for _, p := range regs {
@@ -64,12 +65,15 @@ func providerItems(regs []provider.Provider, cfg *config.Config, activeSlug stri
 				keyStatus = providerKeyStatus(cfg, slug, keyStatus)
 			}
 		}
-		detail := keyStatus
-		if defModel != "" {
-			detail = defModel + " · " + keyStatus
-		}
+		details := []string{slug}
+		status := ""
 		if keyStatus == "(no key)" {
-			detail = "Ctrl+A to set key"
+			status = "key needed"
+			keyStatus = "Ctrl+A to set key"
+		}
+		details = append(details, keyStatus)
+		if defModel != "" {
+			details = append(details, defModel)
 		}
 		marker := ""
 		if slug == activeSlug {
@@ -77,10 +81,11 @@ func providerItems(regs []provider.Provider, cfg *config.Config, activeSlug stri
 		}
 		out = append(out, picker.Item{
 			ID:     slug,
-			Label:  slug + " — " + p.Name(),
-			Detail: detail,
+			Label:  p.Name(),
+			Detail: strings.Join(details, " · "),
 			Marker: marker,
 			Color:  p.BrandColor(),
+			Status: status,
 			Extra:  p,
 		})
 	}
@@ -88,24 +93,23 @@ func providerItems(regs []provider.Provider, cfg *config.Config, activeSlug stri
 }
 
 // modelItems builds the rows displayed by the model picker. The active
-// model gets a bullet marker; everyone else gets empty. Detail packs
-// "<ctx> · <tools> · <pricing>" into a single right-aligned column.
+// model gets a bullet marker; everyone else gets empty. The ID gets its own
+// line, with context, tool support, and pricing shown underneath.
 func modelItems(ms []provider.Model, activeID string, prov provider.Provider) []picker.Item {
 	out := make([]picker.Item, 0, len(ms))
 	for _, m := range ms {
-		label := m.ID
-		if m.DisplayName != "" && m.DisplayName != m.ID {
-			label = fmt.Sprintf("%s (%s)", m.ID, m.DisplayName)
-		}
 		tools := "no tools"
 		if m.SupportsTools {
 			tools = "tools"
 		}
 		pricing := "free"
 		if m.InputPer1M > 0 || m.OutputPer1M > 0 {
-			pricing = fmt.Sprintf("$%.2f/$%.2f", m.InputPer1M, m.OutputPer1M)
+			pricing = fmt.Sprintf("$%g/$%g per 1M in/out", m.InputPer1M, m.OutputPer1M)
 		}
-		detail := fmt.Sprintf("%s · %s · %s", fmtContext(m.ContextWindow), tools, pricing)
+		detail := fmt.Sprintf("%s context · %s · %s", fmtContext(m.ContextWindow), tools, pricing)
+		if m.DisplayName != "" && m.DisplayName != m.ID {
+			detail += " · " + m.DisplayName
+		}
 
 		marker := ""
 		if m.ID == activeID {
@@ -114,7 +118,7 @@ func modelItems(ms []provider.Model, activeID string, prov provider.Provider) []
 		color := prov.BrandColor()
 		out = append(out, picker.Item{
 			ID:     m.ID,
-			Label:  label,
+			Label:  m.ID,
 			Detail: detail,
 			Marker: marker,
 			Color:  color,

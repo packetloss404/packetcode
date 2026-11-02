@@ -17,10 +17,12 @@ import (
 	"github.com/packetcode/packetcode/internal/ui/components/approval"
 	"github.com/packetcode/packetcode/internal/ui/components/conversation"
 	"github.com/packetcode/packetcode/internal/ui/components/input"
+	"github.com/packetcode/packetcode/internal/ui/components/picker"
 	"github.com/packetcode/packetcode/internal/ui/components/spinner"
 	"github.com/packetcode/packetcode/internal/ui/components/topbar"
 	"github.com/packetcode/packetcode/internal/ui/components/workflowview"
 	"github.com/packetcode/packetcode/internal/ui/layout"
+	"github.com/packetcode/packetcode/internal/ui/theme"
 	"github.com/packetcode/packetcode/internal/workflow"
 )
 
@@ -47,6 +49,8 @@ var TUIFixtureStates = []string{
 	"bypass",
 	"agents",
 	"workflows",
+	"provider-picker",
+	"model-picker",
 }
 
 type tuiFixtureModel struct {
@@ -62,6 +66,7 @@ type tuiFixtureModel struct {
 	approval     approval.Model
 	agentView    agentview.Model
 	workflowView workflowview.Model
+	picker       picker.Model
 }
 
 // NewTUIFixture returns a standalone Bubble Tea model for deterministic visual
@@ -105,14 +110,20 @@ func (m *tuiFixtureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.approval.SetWidth(msg.Width)
 		m.agentView.Resize(msg.Width, msg.Height)
 		m.workflowView.Resize(msg.Width, msg.Height)
+		m.picker.Resize(msg.Width, msg.Height)
 		if !m.ready {
 			m.populate()
 			m.ready = true
 		}
 		m.refreshStatusLine()
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" || msg.String() == "q" || msg.String() == "esc" {
+		if msg.String() == "ctrl+c" || msg.String() == "esc" || (msg.String() == "q" && !m.picker.Visible()) {
 			return m, tea.Quit
+		}
+		if m.picker.Visible() {
+			var cmd tea.Cmd
+			m.picker, cmd = m.picker.Update(msg)
+			return m, cmd
 		}
 	}
 	return m, nil
@@ -132,11 +143,13 @@ func (m *tuiFixtureModel) View() string {
 		overlay = m.agentView.View()
 	case "workflows":
 		overlay = m.workflowView.View()
+	case "provider-picker", "model-picker":
+		overlay = m.picker.View()
 	}
 	status := m.topbar.View() + "\n  " + renderPermModeHint(m.mode)
 	in := m.input.View()
 	switch m.state {
-	case "approval":
+	case "approval", "provider-picker", "model-picker":
 		in = m.input.ViewBlurred()
 	case "agents":
 		in = m.input.ViewWithPlaceholder("press n to dispatch a new agent")
@@ -160,6 +173,36 @@ func (m *tuiFixtureModel) refreshStatusLine() {
 
 func (m *tuiFixtureModel) populate() {
 	switch m.state {
+	case "provider-picker":
+		m.picker = picker.New("provider", "Select provider")
+		m.picker.SetSubtitle("Choose a provider or connect an API key.")
+		m.picker.SetHelp("Ctrl+A API key")
+		m.picker.SetItems([]picker.Item{
+			{ID: "openai", Label: "OpenAI", Detail: "openai · key present · gpt-5.6-sol", Color: theme.ProviderColor("openai")},
+			{ID: "codex", Label: "Codex (ChatGPT)", Detail: "codex · ChatGPT login · gpt-5.6-sol", Marker: "●", Color: theme.ProviderColor("openai")},
+			{ID: "anthropic", Label: "Anthropic", Detail: "anthropic · Ctrl+A to set key", Status: "key needed", Color: theme.ProviderColor("anthropic")},
+			{ID: "gemini", Label: "Google Gemini", Detail: "gemini · Ctrl+A to set key", Status: "key needed", Color: theme.ProviderColor("gemini")},
+			{ID: "openrouter", Label: "OpenRouter", Detail: "openrouter · key present", Color: theme.ProviderColor("openrouter")},
+			{ID: "ollama", Label: "Ollama", Detail: "ollama · local · qwen3-coder:30b", Color: theme.ProviderColor("ollama")},
+		})
+		m.picker.SetActive("codex")
+		m.picker.Resize(m.width, m.height)
+		m.picker.Open(nil)
+	case "model-picker":
+		m.picker = picker.New("model", "Select model")
+		m.picker.SetSubtitle("Codex (ChatGPT) · Choose a model for this provider.")
+		m.picker.SetHelp("Ctrl+R refresh")
+		m.picker.SetItems([]picker.Item{
+			{ID: "gpt-5.6-sol", Label: "gpt-5.6-sol", Detail: "272k context · tools · free", Marker: "●", Color: theme.ProviderColor("openai")},
+			{ID: "gpt-5.6", Label: "gpt-5.6", Detail: "272k context · tools · free", Color: theme.ProviderColor("openai")},
+			{ID: "gpt-5.3-codex", Label: "gpt-5.3-codex", Detail: "272k context · tools · free", Color: theme.ProviderColor("openai")},
+			{ID: "gpt-5.3-codex-spark", Label: "gpt-5.3-codex-spark", Detail: "128k context · tools · free", Color: theme.ProviderColor("openai")},
+			{ID: "gpt-5.1-codex-mini", Label: "gpt-5.1-codex-mini", Detail: "272k context · tools · free", Color: theme.ProviderColor("openai")},
+			{ID: "gpt-5.1-codex-max", Label: "gpt-5.1-codex-max", Detail: "272k context · tools · free", Color: theme.ProviderColor("openai")},
+		})
+		m.picker.SetActive("gpt-5.6-sol")
+		m.picker.Resize(m.width, m.height)
+		m.picker.Open(nil)
 	case "user-assistant":
 		m.conversation.AppendUser("Summarize the current change with Unicode: café · 中文 · 👩🏽‍💻.")
 		m.conversation.AppendAgentText("gpt-5.6-sol", "codex", "The context accounting and TUI parity changes are ready for review.")
