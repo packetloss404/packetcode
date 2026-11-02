@@ -31,8 +31,9 @@ or implement a separate installer.
 ## App screenshots
 
 The gallery and README use the same real executable captures in `docs/images/`.
-They show a Codex conversation, a pending file-edit approval, and completed
-background reviews in an isolated example project. The
+They show a Codex conversation, a pending file-edit approval, completed
+background reviews, and the refreshed model picker in PacketCode v0.6.3. All
+captures use the released executable in an isolated example project. The
 [capture notes](images/README.md) record the app version, release checksum,
 capture method, and regeneration tools. Click a gallery image to open the
 enlarged viewer, zoom with + / −, fit the image to the screen, or open the

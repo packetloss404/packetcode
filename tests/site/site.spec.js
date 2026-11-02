@@ -78,7 +78,7 @@ test('installation copy buttons put each complete command on the clipboard', asy
 
 test('workspace tabs switch real views and keep selection and focus synchronized', async ({ page }) => {
   const tabs = page.getByRole('tablist', { name: 'Explore the workspace' });
-  for (const [label, state] of [['Conversation', 'chat'], ['Approvals', 'approval'], ['Background agents', 'agents']]) {
+  for (const [label, state] of [['Conversation', 'chat'], ['Approvals', 'approval'], ['Background agents', 'agents'], ['Model picker', 'models']]) {
     const tab = tabs.getByRole('tab', { name: label, exact: true });
     await tab.click();
     await expect(tab).toHaveAttribute('aria-selected', 'true');
@@ -120,7 +120,7 @@ test('screenshots enlarge in place, zoom, fit, and return keyboard focus when cl
 });
 
 test('each workspace view enlarges the selected real capture', async ({ page }) => {
-  for (const [name, state] of [['Conversation', 'chat'], ['Approvals', 'approval'], ['Background agents', 'agents']]) {
+  for (const [name, state] of [['Conversation', 'chat'], ['Approvals', 'approval'], ['Background agents', 'agents'], ['Model picker', 'models']]) {
     await page.getByRole('tablist', { name: 'Explore the workspace' }).getByRole('tab', { name, exact: true }).click();
     await page.locator(`#showcase-panel-${state} [data-screenshot-open]`).click();
     const viewer = page.getByRole('dialog', { name, exact: true });

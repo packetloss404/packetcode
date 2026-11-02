@@ -22,7 +22,7 @@ guard remain independent per job.
 ## Interface
 
 <p align="center">
-  <a href="docs/images/packetcode-chat.jpg"><img src="docs/images/packetcode-chat.jpg" alt="Actual PacketCode v0.6.2 conversation with a real Codex response, prompt composer, and native status line" width="100%"></a>
+  <a href="docs/images/packetcode-chat.jpg"><img src="docs/images/packetcode-chat.jpg" alt="Actual PacketCode v0.6.3 conversation with a real Codex response, prompt composer, and native status line" width="100%"></a>
 </p>
 
 Permission-aware tool execution and the full background Agent workspace:
@@ -32,8 +32,9 @@ Permission-aware tool execution and the full background Agent workspace:
   <a href="docs/images/packetcode-agents.jpg"><img src="docs/images/packetcode-agents.jpg" alt="Actual PacketCode Agent View with two completed background reviews" width="49%"></a>
 </p>
 
-These screenshots were captured from the released v0.6.2 executable using real
-Codex responses in an isolated example project. See the
+These screenshots were captured from the released v0.6.3 executable using real
+Codex responses in an isolated example project. The website gallery also shows
+the refreshed [v0.6.3 model picker](docs/images/packetcode-models.jpg). See the
 [capture notes](docs/images/README.md) for provenance and regeneration tools.
 Reviewed text-and-style regression snapshots live in
 `testdata/tui/golden/packetcode/` and are checked by CI.

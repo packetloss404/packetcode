@@ -5,6 +5,9 @@ All notable packetcode changes are recorded here. The project is pre-1.0;
 
 ## [Unreleased]
 
+- Website and README screenshots now show real sessions from the v0.6.3
+  release, with an additional gallery view of its refreshed model picker.
+
 - Screenshot previews use a wider gallery and focus on the app. An enlarged
   viewer adds zoom, fit-to-screen, scrolling, keyboard controls, and access to
   the complete original captures.
