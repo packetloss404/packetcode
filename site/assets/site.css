@@ -100,7 +100,7 @@ h1 em,h2 em,.install-intro em{font-weight:400}
 .showcase-panel img{display:block;width:100%;height:auto;background:#10151d;object-fit:contain}
 .screenshot-preview{display:block;background:#10131b;cursor:zoom-in}
 .screenshot-preview-frame{display:block;position:relative;overflow:hidden;aspect-ratio:var(--shot-ratio)}
-.showcase-panel .screenshot-preview img{position:absolute;width:155.339806%;max-width:none;height:auto;left:-27.669903%;top:var(--shot-top)}
+.showcase-panel .screenshot-preview img{position:absolute;width:var(--shot-width,155.339806%);max-width:none;height:auto;left:var(--shot-left,-27.669903%);top:var(--shot-top)}
 .screenshot-expand{display:flex;justify-content:flex-end;gap:18px;align-items:center;min-height:44px;padding:10px 20px;border-top:1px solid #30392d;background:#232820;color:#f4f1e9;font:500 12px/1.4 var(--sans)}
 .screenshot-expand>span{font-size:18px;color:#f6a18b}
 .screenshot-preview:hover .screenshot-expand,.screenshot-preview:focus-visible .screenshot-expand{background:#38432f;border-color:#a8bb97}
