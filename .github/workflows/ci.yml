@@ -16,6 +16,47 @@ env:
   GORELEASER_VERSION: v2.9.0
 
 jobs:
+  release-screenshots:
+    name: Release screenshot capture
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: scripts/requirements-tui.txt
+      - run: npm ci --ignore-scripts
+      - run: python -m pip install -r scripts/requirements-tui.txt
+      - run: npx playwright install --with-deps chromium
+      - name: Check release verification and source updates
+        run: python -m unittest discover -s tools/screenshots -p '*_test.py'
+      - name: Exercise captures with the current application code
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags "-X main.version=ci -X main.commit=${{ github.sha }}" -o dist/packetcode-screenshots ./cmd/packetcode
+          python tools/screenshots/demo_capture.py --binary dist/packetcode-screenshots --output dist/screenshot-ci
+          node tools/screenshots/render.mjs dist/screenshot-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-screenshot-preview
+          path: |
+            dist/screenshot-ci/*.jpg
+            dist/screenshot-ci/*.ansi
+            dist/screenshot-ci/crops.json
+          retention-days: 7
+
   browser-manual:
     name: Offline manual (Chromium)
     runs-on: ubuntu-latest
@@ -104,7 +145,7 @@ jobs:
       - uses: actions/setup-go@v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
-      - run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
+      - run: go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
 
   build:
     runs-on: ubuntu-latest

@@ -1,12 +1,14 @@
 {
-  "captured_on": "2026-11-02",
+  "captured_on": "2026-11-03",
   "application": "PacketCode",
   "version": "0.6.3",
   "commit": "58065b5cc04c0fd69250b9d168e1e572acf5289f",
+  "platform": "darwin-arm64",
   "release_archive_sha256": "374909af85cd695a2830351003c25b4c7b0164037591260912d9c2c26dc7f416",
   "executable_sha256": "6d56380c0a6ad8eecde347c70f077f7619cb702e2c6fccd1b01b258accee9a44",
-  "provider": "codex",
-  "model": "gpt-5.6-sol",
+  "provider": "local-demo",
+  "model": "demo-code",
+  "response_source": "scripted loopback-only demo provider",
   "project": "Beacon example HTTP service",
   "terminal": {
     "emulator": "xterm.js 6.0.0",
@@ -14,46 +16,71 @@
     "rows": 38
   },
   "uses_tui_fixture": false,
+  "recipe_sha256": "717d34bdb2a8c7064ca227812ffe308653e69dea18b6b5c6c94f2855c7739592",
   "screenshots": [
     {
       "file": "packetcode-chat.jpg",
-      "image_sha256": "8ee551fbb13c2b5ed3735ee797edc91c9a874f6256fa80c93867cc0578488656",
-      "ansi_sha256": "2ccef8b6919b20eaefb045c9367e8a6a977383fccee9578395a31f7e14f483f1",
+      "image_sha256": "e2ed5f58c50ea360fe47878337d4821904b0782824fb1b95043f2d77124f47d3",
+      "ansi_sha256": "fc35d47eaa6c91c2a682a5766e96c993eeba52c5caec855c84afaece218a75fd",
       "viewport": {
         "width": 1280,
         "height": 720
       },
-      "cropped": false
+      "cropped": false,
+      "preview_bounds": {
+        "x": 228,
+        "y": 60,
+        "width": 823,
+        "height": 474
+      }
     },
     {
       "file": "packetcode-approval.jpg",
-      "image_sha256": "e1f4f5c4aa6e07066750ed8286d8d22446d64ac1542b5ce121e8288362c60bcb",
-      "ansi_sha256": "490dbe4351fdec9455a1457773be621c6e98bd9cd7f1080c59e23d8b0b83d965",
+      "image_sha256": "f093d310954ced41d82af40c00dc55bfc6d8139149c6ccb3a0493384ee52cee3",
+      "ansi_sha256": "2674e1365da7f2614fc40ade3e720ed0970ef17b6f2c7e8533593f3309a152db",
       "viewport": {
         "width": 1280,
         "height": 720
       },
-      "cropped": false
+      "cropped": false,
+      "preview_bounds": {
+        "x": 228,
+        "y": 150,
+        "width": 823,
+        "height": 564
+      }
     },
     {
       "file": "packetcode-agents.jpg",
-      "image_sha256": "a43bd8e6f81858412e4eded672ee4c6ad3a839349d2771b9e93b53be25a362b2",
-      "ansi_sha256": "fcd4848bb12cb4a8ccb91ab496c5186b30b29767700b745acf6a1fe8b3a7d348",
+      "image_sha256": "1b91ed5f23986566f0cfd69b258a567fc2a6f3d59301f4bca71c7f4bdd04ab2b",
+      "ansi_sha256": "873b3b984eaf87f0f9ae077e2d33518c0873d56aa0fa4dc4c25e653de3d19d34",
       "viewport": {
         "width": 1280,
         "height": 720
       },
-      "cropped": false
+      "cropped": false,
+      "preview_bounds": {
+        "x": 228,
+        "y": 186,
+        "width": 823,
+        "height": 528
+      }
     },
     {
       "file": "packetcode-models.jpg",
-      "image_sha256": "e90870c4d3d8c6681169e6f2ae5e578433288a57ac3ad9ecc4ab6676c9142bcb",
-      "ansi_sha256": "54eaed11c95e69f6491b91ff4dfffdc0d5e9e2df702f17984b4bda990c6efa78",
+      "image_sha256": "77d294ccfee47c367ec836e9d1f03892a3af184dfa5982b56590a67563ef8fa8",
+      "ansi_sha256": "aca6fd5e865a0565eb3e71b7b045fef393c4a08af4efdb567f8fcf045fb0985a",
       "viewport": {
         "width": 1280,
         "height": 720
       },
-      "cropped": false
+      "cropped": false,
+      "preview_bounds": {
+        "x": 228,
+        "y": 276,
+        "width": 823,
+        "height": 348
+      }
     }
   ]
 }

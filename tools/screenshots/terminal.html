@@ -15,6 +15,16 @@
  const raw=new Uint8Array(await response.arrayBuffer());
  await new Promise(resolve=>term.write(raw,resolve));
  term.scrollToBottom();
+ const lines=Array.from({length:term.rows},(_,row)=>term.buffer.active.getLine(term.buffer.active.viewportY+row)?.translateToString(true)||'');
+ let occupied=lines.map((line,row)=>line.trim()?row:-1).filter(row=>row>=0);
+ const heading={approval:'Edit file',agents:'packetcode agents',models:'Select model'}[state];
+ const headingRow=heading?lines.findIndex(line=>line.includes(heading)):-1;
+ if(headingRow>=0)occupied=occupied.filter(row=>row>=Math.max(0,headingRow-1));
+ const rect=document.querySelector('.xterm-screen').getBoundingClientRect();
+ const cellHeight=rect.height/term.rows;
+ const top=Math.max(0,Math.floor(rect.top+Math.min(...occupied)*cellHeight-12));
+ const bottom=Math.min(innerHeight,Math.ceil(rect.top+(Math.max(...occupied)+1)*cellHeight+12));
+ window.captureResult={text:lines.join('\n'),crop:{x:Math.max(0,Math.floor(rect.left-20)),y:top,width:Math.ceil(rect.width+40),height:bottom-top}};
  document.title='PacketCode — '+state+' — actual terminal capture';
  document.body.dataset.captureReady='true';
 })();

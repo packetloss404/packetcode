@@ -5,6 +5,12 @@ All notable packetcode changes are recorded here. The project is pre-1.0;
 
 ## [Unreleased]
 
+- Successful releases automatically regenerate website screenshots from the
+  verified published executable using an isolated local demo provider. The
+  workflow updates provenance and release labels, checks the website, commits
+  to `main`, and deploys GitHub Pages without AI credentials. CI exercises all
+  four capture scenarios before release.
+
 - Website and README screenshots now show real sessions from the v0.6.3
   release, with an additional gallery view of its refreshed model picker.
 

@@ -1,0 +1,147 @@
+name: Release screenshots
+
+on:
+  # The Release workflow publishes using GITHUB_TOKEN, so a release:published
+  # trigger would be suppressed. workflow_run also waits for all release checks.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Latest stable release tag (blank selects latest)'
+        type: string
+        default: ''
+      force:
+        description: Regenerate even when the release and recipe are current
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Share the Pages production queue so a normal website deployment cannot race
+# this capture/commit/deploy operation. Never cancel an in-flight publication.
+concurrency:
+  group: pages-production
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Capture release and update main
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: scripts/requirements-tui.txt
+      - run: npm ci --ignore-scripts
+      - run: python -m pip install -r scripts/requirements-tui.txt
+      - run: npx playwright install --with-deps chromium
+      - name: Verify release and capture its executable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          EXPECTED_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
+          FORCE: ${{ inputs.force }}
+        shell: bash
+        run: |
+          args=()
+          if [ -n "$RELEASE_TAG" ]; then args+=(--tag "$RELEASE_TAG"); fi
+          if [ -n "$EXPECTED_COMMIT" ]; then args+=(--expected-commit "$EXPECTED_COMMIT"); fi
+          if [ "$FORCE" = true ]; then args+=(--force); fi
+          python tools/screenshots/update_release.py "${args[@]}"
+      - name: Commit only generated screenshot sources
+        id: commit
+        shell: bash
+        run: |
+          git add docs/images/packetcode-{chat,approval,agents,models}.jpg \
+            docs/images/captures.json docs/images/README.md \
+            site/index.html README.md docs/website.md
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo 'Release screenshots are already current.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          version=$(python -c 'import json; print(json.load(open("docs/images/captures.json"))["version"])')
+          git commit -m "docs: refresh release screenshots for v$version"
+          git fetch origin main
+          git rebase origin/main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - name: Validate the complete website before pushing
+        if: steps.commit.outputs.changed == 'true'
+        run: |
+          npm run build:site
+          npm run test:site
+      - name: Push verified screenshot update to main
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          expected=$(python -c 'import json; print("v" + json.load(open("docs/images/captures.json"))["version"])')
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          if [ "$expected" != "$latest" ]; then
+            echo 'A newer release was published; refusing a stale screenshot commit.'
+            exit 1
+          fi
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin HEAD:main
+          echo "Updated screenshots for $expected on main; deploying Pages below." >> "$GITHUB_STEP_SUMMARY"
+      # A GITHUB_TOKEN push will not trigger pages.yml. Deploy the already
+      # tested build here rather than requiring a PAT or another dispatch.
+      - uses: actions/upload-pages-artifact@v4
+        if: steps.commit.outputs.changed == 'true'
+        with:
+          path: dist/site
+      - name: Retain failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-screenshot-failures
+          path: |
+            dist/release-screenshots/**/*.jpg
+            dist/release-screenshots/**/*.ansi
+            dist/release-screenshots/**/crops.json
+            playwright-report/site/
+            test-results/site/
+          retention-days: 7
+
+  deploy:
+    name: Publish refreshed GitHub Pages
+    needs: refresh
+    if: needs.refresh.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -31,7 +31,7 @@ or implement a separate installer.
 ## App screenshots
 
 The gallery and README use the same real executable captures in `docs/images/`.
-They show a Codex conversation, a pending file-edit approval, completed
+They show a local demo conversation, a pending file-edit approval, completed
 background reviews, and the refreshed model picker in PacketCode v0.6.3. All
 captures use the released executable in an isolated example project. The
 [capture notes](images/README.md) record the app version, release checksum,
@@ -44,6 +44,12 @@ without alteration.
 
 When replacing captures, update each gallery link's `data-screenshot-crop`
 bounds so both the preview and enlarged viewer focus on the current app area.
+
+Successful releases automatically refresh these assets using the released
+executable and a local demo provider. The [capture tooling guide](../tools/screenshots/README.md)
+describes checksum verification, isolated sessions, source updates, the bot's
+commit to `main`, and deployment. No AI credentials are required. CI exercises
+the capture scenarios with current application code before release.
 
 ## Browser checks
 

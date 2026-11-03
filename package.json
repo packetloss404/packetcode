@@ -6,9 +6,11 @@
     "test:browser": "playwright test",
     "build:site": "node scripts/build-site.mjs",
     "preview:site": "node scripts/build-site.mjs --serve",
-    "test:site": "playwright test --config=playwright.site.config.js"
+    "test:site": "playwright test --config=playwright.site.config.js",
+    "screenshots:release": "python3 tools/screenshots/update_release.py"
   },
   "devDependencies": {
-    "@playwright/test": "1.64.1"
+    "@playwright/test": "1.64.1",
+    "@xterm/xterm": "6.0.0"
   }
 }
