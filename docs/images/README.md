@@ -1,7 +1,7 @@
 # Product screenshots
 
 Automatically captured on 2026-11-03 from the unmodified
-darwin-arm64 executable in [release v0.6.3](https://github.com/packetloss404/packetcode/releases/tag/v0.6.3).
+linux-amd64 executable in [release v0.6.3](https://github.com/packetloss404/packetcode/releases/tag/v0.6.3).
 The executable reports commit `58065b5cc04c0fd69250b9d168e1e572acf5289f`.
 
 These are actual PacketCode screens, driven through a real PTY in an isolated
@@ -17,7 +17,7 @@ No `--tui-fixture` mode, injected application state, or image retouching is used
 | `packetcode-agents.jpg` | Two actual read-only jobs, including real file-read artifacts, completed in Agent View. |
 | `packetcode-models.jpg` | The normal model picker with the local demo catalog and current selection. |
 
-The archive SHA-256 is `374909af85cd695a2830351003c25b4c7b0164037591260912d9c2c26dc7f416`.
+The archive SHA-256 is `a0404e467e928ad703a01428e5b631c46a519ad75a785f880b6824108e6b1883`.
 `captures.json` records release, executable, image, and raw ANSI hashes,
 dimensions, preview bounds, and the generation recipe hash. Raw recordings and
 isolated session data stay in ignored `dist/`; only the images and provenance

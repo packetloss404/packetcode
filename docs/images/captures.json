@@ -3,9 +3,9 @@
   "application": "PacketCode",
   "version": "0.6.3",
   "commit": "58065b5cc04c0fd69250b9d168e1e572acf5289f",
-  "platform": "darwin-arm64",
-  "release_archive_sha256": "374909af85cd695a2830351003c25b4c7b0164037591260912d9c2c26dc7f416",
-  "executable_sha256": "6d56380c0a6ad8eecde347c70f077f7619cb702e2c6fccd1b01b258accee9a44",
+  "platform": "linux-amd64",
+  "release_archive_sha256": "a0404e467e928ad703a01428e5b631c46a519ad75a785f880b6824108e6b1883",
+  "executable_sha256": "978d969351a1b35575f8b8bec7366bd51b54ca31b18f9e196f501877182ad746",
   "provider": "local-demo",
   "model": "demo-code",
   "response_source": "scripted loopback-only demo provider",
@@ -20,8 +20,8 @@
   "screenshots": [
     {
       "file": "packetcode-chat.jpg",
-      "image_sha256": "e2ed5f58c50ea360fe47878337d4821904b0782824fb1b95043f2d77124f47d3",
-      "ansi_sha256": "fc35d47eaa6c91c2a682a5766e96c993eeba52c5caec855c84afaece218a75fd",
+      "image_sha256": "c27e61e1bb0f100f0918bd6e96e2e56b9645ccf89f9f73f9be54cc41907ca232",
+      "ansi_sha256": "05fe5c5a3d9c95dc03aaab6325bf267f07e88e6d9b7fd6ff744f65a3b432299a",
       "viewport": {
         "width": 1280,
         "height": 720
@@ -36,8 +36,8 @@
     },
     {
       "file": "packetcode-approval.jpg",
-      "image_sha256": "f093d310954ced41d82af40c00dc55bfc6d8139149c6ccb3a0493384ee52cee3",
-      "ansi_sha256": "2674e1365da7f2614fc40ade3e720ed0970ef17b6f2c7e8533593f3309a152db",
+      "image_sha256": "631bf7064b086cf0e2849398a388438f03c917cda60efbe71f4d9a870a87f13e",
+      "ansi_sha256": "cb798c67e0dca80cb806a8a4fc9d4475aa17ff99d20486f94955e1504373a562",
       "viewport": {
         "width": 1280,
         "height": 720
@@ -52,8 +52,8 @@
     },
     {
       "file": "packetcode-agents.jpg",
-      "image_sha256": "1b91ed5f23986566f0cfd69b258a567fc2a6f3d59301f4bca71c7f4bdd04ab2b",
-      "ansi_sha256": "873b3b984eaf87f0f9ae077e2d33518c0873d56aa0fa4dc4c25e653de3d19d34",
+      "image_sha256": "4354433cf9f8538bb6ee7ccff14bdc306dc05418d26604a63679adf5471abe89",
+      "ansi_sha256": "30006ed0c9b4d9f9d3a9ebf3f10b571faed138b50c0a75454c984febd8993cf0",
       "viewport": {
         "width": 1280,
         "height": 720
@@ -68,7 +68,7 @@
     },
     {
       "file": "packetcode-models.jpg",
-      "image_sha256": "77d294ccfee47c367ec836e9d1f03892a3af184dfa5982b56590a67563ef8fa8",
+      "image_sha256": "514f900853879d1f714e74560bcf38d2d5e77d244bdd5d74f6655d5cd5487bbc",
       "ansi_sha256": "aca6fd5e865a0565eb3e71b7b045fef393c4a08af4efdb567f8fcf045fb0985a",
       "viewport": {
         "width": 1280,
