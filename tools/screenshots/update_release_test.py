@@ -97,6 +97,7 @@ class CaptureSourceTests(unittest.TestCase):
             output.mkdir()
             for state in STATES:
                 (output / f"packetcode-{state}.jpg").write_bytes(b"reviewed image")
+            original_install = (root / "README.md").read_text().split("## Install", 1)[1]
             crops = {state: {"x": 200, "y": 20, "width": 880, "height": 600} for state in STATES}
             for version in ("8.1.0", "8.2.0"):
                 manifest = {"version": version, "captured_on": "2026-11-03", "platform": "linux-amd64",
@@ -110,7 +111,7 @@ class CaptureSourceTests(unittest.TestCase):
                 self.assertEqual(html.count("--shot-width:145.454545%"), 4)
                 readme = (root / "README.md").read_text()
                 self.assertIn("released v" + version + " executable", readme)
-                self.assertIn("VERSION=v0.6.2", readme)
+                self.assertEqual(readme.split("## Install", 1)[1], original_install)
                 self.assertIn("local demo provider", readme)
                 self.assertIn("not a live AI service", (root / "docs/images/README.md").read_text())
                 self.assertEqual(json.loads((root / "docs/images/captures.json").read_text())["version"], version)
